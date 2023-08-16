@@ -40,7 +40,7 @@ def heatmap(data, row_labels, col_labels, ax=None,
     im = ax.imshow(data, **kwargs)
 
     # Create colorbar
-    cbar = ax.figure.colorbar(im, ax=ax, fraction=0.15, pad=0.05, **cbar_kw)
+    cbar = ax.figure.colorbar(im, ax=ax, fraction=0.15, pad=0.1, shrink=0.65, **cbar_kw)
     cbar.ax.set_ylabel(cbarlabel, rotation=-90, va="bottom")
 
     # Show all ticks and label them with the respective list entries.
@@ -287,16 +287,71 @@ def class_model(input_data,output_folder,min_rate=0.1,sum_rate=0.2):
     return valid_openset, nyu20_name_legends, gt_cond_probability, valid_rows
 
 def likelihood_matrix(probability,output_folder,model_name):
+    if os.path.exists(output_folder)==False:
+        os.makedirs(output_folder)
+    
     openset_names = probability['rows']
     nyu20names = probability['cols']
     likelihood = probability['likelihood']
     
-    fig, ax = plt.subplots(figsize=(8,10))
+    if 'det_mat' in probability and 'prompt_mat' in probability:
+        priors = probability['det_mat']
+        priors = normalize(priors,axis=1,norm='l1') # p(lz=c|z)
+        prompts_priors = normalize(probability['prompt_mat'],axis=1,norm='l1')
+        det_likelihood = normalize(priors,axis=0,norm='l1')
+        
+        # priors = np.sum(priors,axis=0) # p(lz=c)
+        # priors = np.tile(priors,(likelihood.shape[0],1))
+        # priors = normalize(priors,axis=1,norm='l1') # p(lz=c|z)
+        # likelihood = likelihood * priors
+        # likelihood = normalize(probability['det_mat'],axis=0,norm='l1') # p(lz=c|z)
+
+    fig, ax = plt.subplots(figsize=(10,8))
     im, cbar = heatmap(likelihood, openset_names, nyu20names, ax=ax,
                        cmap="YlGn", cbarlabel="p(z|l)")
-    ax.set(title=model_name,xlabel='NYU_Set', ylabel='OpenSet({} types)'.format(len(openset_names)))
-    plt.savefig(os.path.join(output_folder,'{}.png'.format(model_name)))
-    np.save(os.path.join(output_folder,'{}.npy'.format(model_name)),(openset_names, nyu20names, likelihood),allow_pickle=True)
+    # ax.set(title='Open-set Labels', ylabel='Close-set Labels'.format(len(openset_names)))
+    ax.set_title('Open-set Labels',fontsize=10)
+    ax.set_ylabel('Close-set Labels',fontsize=10)
+    plt.xticks(fontsize=8,rotation=90,va='bottom')
+    plt.yticks(fontsize=8)
+    
+    # from mpl_toolkits.axes_grid1 import make_axes_locatable
+    # divider = make_axes_locatable(ax)
+    # colorbar_axes = divider.append_axes("right",
+    #                                 size="10%",
+    #                                 pad=0.1)
+    # plt.colorbar(fraction=0.8)
+    plt.savefig(os.path.join(output_folder,'likelihood_matrix.png'))
+    
+    with open(os.path.join(output_folder,'label_names.json'.format(model_name)),'w') as f:
+        label_data = {'openset_names':openset_names,'closet_names':nyu20names}
+        f.write(json.dumps(label_data))
+        f.close()
+    
+    # np.save(os.path.join(output_folder,'label_names.json'.format(model_name)),(openset_names, nyu20names),allow_pickle=True)
+    np.save(os.path.join(output_folder,'likelihood.npy'.format(model_name)),likelihood,allow_pickle=True)
+    
+    # return None
+
+    if 'det_mat' in probability and 'prompt_mat' in probability:
+        fig, (ax1,ax2) = plt.subplots(1,2,figsize=(15,14))
+        im, cbar = heatmap(priors, openset_names, nyu20names, ax=ax1,
+                           cmap="YlGn", cbarlabel="count")
+        ax1.set(title='Detection Priors',xlabel='NYU_Set', ylabel='OpenSet({} types)'.format(len(openset_names)))
+        
+        predef_opensets = openset_names
+        predef_likelihood = det_likelihood
+        
+        # predef_opensets = ['door','cabinet']
+        # predef_likelihood = np.zeros((len(predef_opensets),len(nyu20names)))
+        # for k, name in enumerate(predef_opensets):
+        #     predef_likelihood[k,:] = det_likelihood[openset_names.index(name),:]
+        
+        im, cbar = heatmap(predef_likelihood, predef_opensets, nyu20names, ax=ax2,
+                           cmap="YlGn", cbarlabel="count")
+        ax2.set(title='Detection likelihood',xlabel='NYU_Set', ylabel='OpenSet({} types)'.format(len(openset_names)))
+        
+        plt.savefig(os.path.join(output_folder,'{}_count.png'.format(model_name)))
 
 def class_model_new(input_data,output_folder):
     association_count, openset_id2name, nyu20names = np.load(input_data,allow_pickle=True)

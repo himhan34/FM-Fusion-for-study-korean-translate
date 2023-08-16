@@ -3,88 +3,85 @@
     "objects":{
         "wall":{
             "main":["wall","tile wall"],
-            "other":[]
+            "maskrcnn":[]
         },
         "floor":{
-            "main":["floor"],
-            "other":[]
+            "main":["floor","carpet"],
+            "maskrcnn":[]
         },
         "cabinet":{
-            "main":["cabinet","cupboard","wardrobe","closet","file cabinet","dresser"],
-            "other":[]
+            "main":["cabinet","closet","file cabinet","dresser"],
+            "maskrcnn":[]
         },
         "bed":{
             "main":["bed","infant bed"],
-            "other":["pillow","blanket"]
+            "maskrcnn":[]
         },
         "chair":{
-            "main": ["chair","armchair","swivel chair","chair swivel chair"],
-            "other":[]
+            "main": ["chair","armchair","swivel chair"],
+            "maskrcnn":[]
         },        
         "sofa":{
-            "main":["couch","sofa"],
-            "other":["pillow"]
+            "main":["couch"],
+            "maskrcnn":["couch"]
         },
         "table":{
-            "main":["table","side table","round table"],
-            "other":["cup"]
+            "main":["table","side table","round table","kitchen table","dinning table"],
+            "maskrcnn":["dinning table"]
         },
         "door":{
             "main":["door","glass door","doorway"],
-            "other":[]
+            "maskrcnn":[]
         },
         "window":{
-            "main":["window","kitchen window"],
-            "other":[]
+            "main":["window"],
+            "maskrcnn":[]
         },
         "bookshelf":{
-            "main":["bookshelf","shelf","bookcase bookshelf","bookcase"],
-            "other":["book"]
+            "main":["bookshelf","shelf"],
+            "maskrcnn":[]
         },        
         "picture":{
-            "main":["picture","poster","picture frame"],
-            "other":[]
+            "main":["picture","picture frame","poster"],
+            "maskrcnn":[]
         },
         "counter":{
-            "main":["counter","counter top","kitchen counter","counter top kitchen counter"],
-            "other":[]
+            "main":["counter","counter top","kitchen counter"],
+            "maskrcnn":[]
         },
         "desk":{
-            "main":["desk","computer desk","computer desk table","office desk","kitchen table"],
-            "other":[]
+            "main":["desk","computer desk","office desk"],
+            "maskrcnn":[]
         },
         "curtain":{
             "main":["curtain"],
-            "other":[]
+            "maskrcnn":[]
         },
         "refrigerator":{
-            "main":["fridge","appliance"],
-            "other":[]
+            "main":["fridge"],
+            "maskrcnn":[]
         },
         "shower curtain":{
             "main":["shower curtain"],
-            "other":[]
+            "maskrcnn":[]
         },
         "toilet":{
             "main":["toilet","toilet bowl","urinal"],
-            "other":[]
+            "maskrcnn":[]
         },
         "sink":{
-            "main":["sink","bathroom sink","bathroom sink sink","sink sink"],
-            "other":[]
+            "main":["sink","bathroom sink"],
+            "maskrcnn":[]
         },
         "bathtub":{
             "main":["bathtub","bath","tub"],
-            "other":[]
+            "maskrcnn":[]
         },
         "otherfurniture":{
             "main":["bin"],
-            "other":[]
-        },
-        "unknown":{
-            "main":["pillow","bookstore","dish washer","bag","television","blanket"],
-            "other":[]
+            "maskrcnn":[]
         }
 
-    }
+    },
+    "opensets":["keyboard","computer monitor","mouse","can","teddy","bowl","book","fan","earth"]
 }

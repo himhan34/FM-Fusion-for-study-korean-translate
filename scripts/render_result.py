@@ -2,6 +2,7 @@ import os,glob
 import numpy as np
 import open3d as o3d
 from operator import itemgetter
+import random
 
 COLOR20 = np.array(
         [[230, 25, 75], [60, 180, 75], [255, 225, 25], [0, 130, 200], [245, 130, 48],
@@ -78,6 +79,9 @@ def get_coords_color(task,result_dir):
     return rgb, sem_pred, instances
 
 def generate_colors(composite_labels):
+    '''
+    Semantic types outside of the 20 classes are ignored.
+    '''
     
     sem_pred = np.floor(composite_labels / 1000)
     sem_pred = sem_pred.astype(np.int32)
@@ -86,6 +90,8 @@ def generate_colors(composite_labels):
     
     # Semantic color
     valid = (sem_pred>=0) & (sem_pred<20)
+    if valid.sum()<1:
+        return None, None
     semantic_colors = np.zeros((N,3)).astype(np.uint8)
     semantic_colors[valid] = np.array(itemgetter(*SEMANTIC_NAMES[sem_pred[valid]])(CLASS_COLOR))
 
@@ -93,8 +99,9 @@ def generate_colors(composite_labels):
     instance_colors = np.zeros((N,3)).astype(np.int32)
     instance_list = np.unique(instances)
     for idx in instance_list[:-1]:
-        instance_colors[instances == idx] = COLOR20[idx % len(COLOR20)]
-
+        instance_colors[instances == idx] = COLOR20[random.randint(0,len(COLOR20)-1)]
+        #COLOR20[idx % len(COLOR20)]
+        
     return semantic_colors, instance_colors
 
 # todo
