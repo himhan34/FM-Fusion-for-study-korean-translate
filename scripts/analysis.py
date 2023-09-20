@@ -256,12 +256,12 @@ def extract_det_prompts_mat(class_info, prompt_list, J_=20):
     # prompt_list = [k for k,v in prompt_hist.items()]
     detect_count_matrix = np.zeros((len(prompt_list),J_),dtype=np.int32)
     given_count_matrix = np.zeros((len(prompt_list),J_),dtype=np.int32) + 1e-3
-    MIN_PRIOR = 0.08
+    MIN_PRIOR = 0.12
     MIN_DETECTION = 20
     MIN_PROMPTS = 10
     IGNORE_TYPES = ['blanket','bag','computer monitor','pillow','television','dish washer']
     IGNORE_TYPES += ['infant bed','urinal','counter'] # kimera method keep these types
-    # IGNORE_TYPES += ['closet']
+    # IGNORE_TYPES += ['dresser']
             
     # 1. Construct given and detection count matrix
     for gt_label, gt_info in class_info.items():
@@ -484,7 +484,7 @@ def concat_openset_names(probability_map, dir):
 if __name__=='__main__':
     method = 'bayesian' #'bayesian'
     results_dir = '/data2/ScanNet/measurements/'+method
-    output_folder = '/home/cliuci/code_ws/OpensetFusion/measurement_model/bayesian_mixed'# + method
+    output_folder = '/home/cliuci/code_ws/OpensetFusion/measurement_model/bayesian'# + method
     files = glob.glob(os.path.join(results_dir,'*.json'))
     print('analysis {} scan results'.format(len(files)))
     kimera_model_dir = '/home/cliuci/code_ws/OpensetFusion/measurement_model/categories.json'
@@ -534,7 +534,7 @@ if __name__=='__main__':
     # maskrcnn_probability = create_kimera_probability(maskrcnn_model_dir, valid_opensets=None)
     kimera_probability = create_kimera_probability(kimera_model_dir, prompt_det_probability['rows'])
     prompt_det_probability = reorder_openset_names(kimera_probability['rows'], prompt_det_probability)
-    prompt_det_probability = concat_openset_names(prompt_det_probability, kimera_model_dir)
+    # prompt_det_probability = concat_openset_names(prompt_det_probability, kimera_model_dir)
     # kimera_probability = concat_openset_names(kimera_probability, kimera_model_dir)
 
     # gt_prompts = extract_prompts_connections(class_pairs)
@@ -550,7 +550,7 @@ if __name__=='__main__':
     # filter_probability['cols'] = prompt_det_probability['cols'] #[:filter_col]
     # filter_probability['likelihood'] = prompt_det_probability['likelihood'] #[:filter_row,:filter_col]
     
-    export.likelihood_matrix(prompt_det_probability, output_folder,method)
+    export.likelihood_matrix(prompt_det_probability, output_folder)
     # export.likelihood_matrix(kimera_probability,output_folder,'kimera openset likelihood')
     # export.likelihood_matrix(maskrcnn_probability,output_folder,'maskrcnn_likelihood')
     exit(0)

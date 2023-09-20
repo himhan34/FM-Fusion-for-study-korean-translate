@@ -72,7 +72,7 @@ def view_points(points: np.ndarray, view: np.ndarray, normalize: bool) -> np.nda
     return points
 
 
-def read_intrinsic(dir,verbose=False):
+def read_intrinsic(dir,align_depth=False,verbose=False):
     """
     Args:
         dir (_type_): folder directory
@@ -103,6 +103,9 @@ def read_intrinsic(dir,verbose=False):
         print('Read depth intrinsic: \n',K_depth)
         print('Read color shape: \n',rgb_dim)
         print('Read depth shape: \n',depth_dim)
+    if align_depth:
+        K_rgb = adjust_intrinsic(K_rgb,rgb_dim,depth_dim)
+        rgb_dim = depth_dim
     
     return K_rgb,K_depth,rgb_dim,depth_dim
 
@@ -164,7 +167,7 @@ def align_depth_to_rgb(depth_img,depth_intrinsic,K_rgb,rgb_shape, max_depth=3.0)
     return align_depth
 
 
-def project(points, normals,T_wc, K,im_shape,max_depth = 3.0,min_depth=1.0,margin=20):
+def project(points, normals,T_wc, K,im_shape,max_depth =3.0,min_depth=1.0,margin=20):
     """
     Args:
         points (np.ndarray): Nx3

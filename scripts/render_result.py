@@ -90,6 +90,7 @@ def generate_colors(composite_labels):
     
     # Semantic color
     valid = (sem_pred>=0) & (sem_pred<20)
+    
     if valid.sum()<1:
         return None, None
     semantic_colors = np.zeros((N,3)).astype(np.uint8)
@@ -99,8 +100,8 @@ def generate_colors(composite_labels):
     instance_colors = np.zeros((N,3)).astype(np.int32)
     instance_list = np.unique(instances)
     for idx in instance_list[:-1]:
-        instance_colors[instances == idx] = COLOR20[random.randint(0,len(COLOR20)-1)]
-        #COLOR20[idx % len(COLOR20)]
+        # instance_colors[instances == idx] = COLOR20[random.randint(0,len(COLOR20)-1)]
+        instance_colors[instances == idx] = COLOR20[idx % len(COLOR20)]
         
     return semantic_colors, instance_colors
 

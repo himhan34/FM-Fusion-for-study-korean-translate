@@ -40,7 +40,7 @@ def heatmap(data, row_labels, col_labels, ax=None,
     im = ax.imshow(data, **kwargs)
 
     # Create colorbar
-    cbar = ax.figure.colorbar(im, ax=ax, fraction=0.15, pad=0.1, shrink=0.65, **cbar_kw)
+    cbar = ax.figure.colorbar(im, ax=ax, fraction=0.15, pad=0.1, shrink=1.0, **cbar_kw)
     cbar.ax.set_ylabel(cbarlabel, rotation=-90, va="bottom")
 
     # Show all ticks and label them with the respective list entries.
@@ -286,7 +286,7 @@ def class_model(input_data,output_folder,min_rate=0.1,sum_rate=0.2):
     
     return valid_openset, nyu20_name_legends, gt_cond_probability, valid_rows
 
-def likelihood_matrix(probability,output_folder,model_name):
+def likelihood_matrix(probability,output_folder):
     if os.path.exists(output_folder)==False:
         os.makedirs(output_folder)
     
@@ -323,13 +323,13 @@ def likelihood_matrix(probability,output_folder,model_name):
     # plt.colorbar(fraction=0.8)
     plt.savefig(os.path.join(output_folder,'likelihood_matrix.png'))
     
-    with open(os.path.join(output_folder,'label_names.json'.format(model_name)),'w') as f:
+    with open(os.path.join(output_folder,'label_names.json'),'w') as f:
         label_data = {'openset_names':openset_names,'closet_names':nyu20names}
         f.write(json.dumps(label_data))
         f.close()
     
     # np.save(os.path.join(output_folder,'label_names.json'.format(model_name)),(openset_names, nyu20names),allow_pickle=True)
-    np.save(os.path.join(output_folder,'likelihood.npy'.format(model_name)),likelihood,allow_pickle=True)
+    np.save(os.path.join(output_folder,'likelihood.npy'),likelihood,allow_pickle=True)
     
     # return None
 
@@ -351,7 +351,34 @@ def likelihood_matrix(probability,output_folder,model_name):
                            cmap="YlGn", cbarlabel="count")
         ax2.set(title='Detection likelihood',xlabel='NYU_Set', ylabel='OpenSet({} types)'.format(len(openset_names)))
         
-        plt.savefig(os.path.join(output_folder,'{}_count.png'.format(model_name)))
+        plt.savefig(os.path.join(output_folder,'count.png'))
+
+def draw_regional_likelihood(probability,output_folder,name='bayesian_likelihood'):
+    if os.path.exists(output_folder)==False:
+        os.makedirs(output_folder)
+    
+    openset_names = probability['rows']
+    nyu20names = probability['cols']
+    likelihood = probability['likelihood']
+
+    # ax1    
+    fig, (ax1) = plt.subplots(1,figsize=(11,12))
+    im, cbar = heatmap(likelihood, openset_names, nyu20names, 
+                       ax=ax1,cmap="YlGn")
+    # ax.set(title='Open-set Labels', ylabel='Close-set Labels'.format(len(openset_names)))
+    # ax.set_title('Open-set Labels',fontsize=10)
+    # ax.set_ylabel('Close-set Labels',fontsize=10)
+    plt.xticks(fontsize=16,rotation=90,va='bottom')
+    plt.yticks(fontsize=16)
+
+    # ax2
+    # im, cbar = heatmap(right_probability['likelihood'], right_probability['rows'], right_probability['cols'], 
+    #                    ax=ax2,cmap="YlGn")
+    # plt.xticks(fontsize=20,rotation=90,va='bottom')
+
+
+    plt.savefig(os.path.join(output_folder,'{}.png'.format(name)))
+
 
 def class_model_new(input_data,output_folder):
     association_count, openset_id2name, nyu20names = np.load(input_data,allow_pickle=True)
@@ -519,14 +546,45 @@ def extract_scores_ious(dir, openset_names, nyu20names):
         return scores, ious, all_ious
         
 if __name__=='__main__':
-    class_data = 'benchmark/output/association_matrix.npy'
-    # pairs_data = 'benchmark/pair_measurements.json'
-    output_folder = 'benchmark/output'
-    ASSOCIATION_THRESHOLD = 0.1
 
-    openset_names, nyu20names, association_matrix, valid_rows = class_model(class_data,output_folder,ASSOCIATION_THRESHOLD)
+    model_folder = '/home/cliuci/code_ws/OpensetFusion/measurement_model'
+    method = 'bayesian'
+    selected_openset = ['wall','cabinet','closet','file cabinet','chair','armchair','couch','table','round table','door','bookshelf','shelf','fridge']
+    selected_closeset = ['wall','cabinet','chair','sofa','table','door','bookshelf','refrigerator']    
     
-    # class_model_new(class_data,output_folder)
+    # Bayesian
+    label_names = json.load(open(os.path.join(model_folder,method,'label_names.json'),'r'))
+    openset_names = label_names['openset_names']
+    closet_names = label_names['closet_names']
+    bayesian_matrix = np.load(os.path.join(model_folder,method,'likelihood.npy'))
+    
+    assert bayesian_matrix.shape[0] == len(openset_names)
+    assert bayesian_matrix.shape[1] == len(closet_names)
+    
+    valid_rows = [openset_names.index(name) for name in selected_openset]
+    valid_cols = [closet_names.index(name) for name in selected_closeset]   
+    
+    bayesian_matrix = bayesian_matrix[valid_rows,:]
+    bayesian_matrix = bayesian_matrix[:,valid_cols] 
+    draw_regional_likelihood({'rows':selected_openset,'cols':selected_closeset,'likelihood':bayesian_matrix},
+                      os.path.join(model_folder,'selection'))
+    
+    
+    # hardcode 
+    label_names = json.load(open(os.path.join(model_folder,'hardcode','label_names.json'),'r'))
+    openset_names = label_names['openset_names']
+    closet_names = label_names['closet_names']
+    hardcode_matrix = np.load(os.path.join(model_folder,'hardcode','likelihood.npy'))
+    
+    valid_rows = [openset_names.index(name) for name in selected_openset]
+    valid_cols = [closet_names.index(name) for name in selected_closeset]   
+    
+    hardcode_matrix = hardcode_matrix[valid_rows,:]
+    hardcode_matrix = hardcode_matrix[:,valid_cols] 
+    
+    hardcode_matrix = hardcode_matrix - 0.1
+    draw_regional_likelihood({'rows':selected_openset,'cols':selected_closeset,'likelihood':hardcode_matrix},
+                             os.path.join(model_folder,'selection'),name='hardcode')
     
     exit(0)
     

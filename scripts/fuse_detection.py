@@ -1,6 +1,7 @@
 import os, glob,sys
 import numpy as np
 import open3d as o3d
+import open3d.core as o3c
 import cv2
 import json, argparse
 from numpy import linalg as LA
@@ -14,6 +15,27 @@ from prepare_data_inst import read_scannet_segjson
 
 SEMANTIC_NAMES = render_result.SEMANTIC_NAMES
 SEMANTIC_IDX = render_result.SEMANTIC_IDXS
+
+def extract_instance_points_thread(args):
+    # MIN_DIST   = 0.1
+    gt_points,instance_points,min_dist = args
+    
+    instance_pcd = o3d.geometry.PointCloud()
+    instance_pcd.points = o3d.utility.Vector3dVector(instance_points)
+    instance_kd_tree = o3d.geometry.KDTreeFlann(instance_pcd)
+    
+    gt_pcd = o3d.geometry.PointCloud()
+    gt_pcd.points = o3d.utility.Vector3dVector(gt_points)
+    
+    N = len(gt_pcd.points)
+    global_point_indices = []
+    
+    for i in np.arange(N):
+        [k,idx,_] = instance_kd_tree.search_radius_vector_3d(gt_pcd.points[i], min_dist)
+        if k>0:global_point_indices.append(i)
+    
+    return np.array(global_point_indices).astype(np.int32)
+
 
 class Detection:
     def __init__(self,u0,v0,u1,v1,labels):
@@ -34,6 +56,7 @@ class Detection:
     # def write_label_name(self,label_name):
     #     self.label_name = label_name
     def get_bbox(self):
+        ''' [u0,v0,u1,v1] '''
         bbox = np.array([self.u0,self.v0,self.u1,self.v1])
         return bbox
     
@@ -61,14 +84,24 @@ class Detection:
         return msg
         
 class Instance:
-    def __init__(self,id, J=20):
+    def __init__(self,id, J=20, device = o3c.Device('cpu:0')):
         self.id = id
         self.os_labels = [] # list of openset labels; each openset label is a map of {label:score}
+        # self.voxels= np.array([])  # (N,3), int32, coordinate of voxel grid
+        self.mhashmap = o3c.HashMap(100,
+            key_dtype=o3c.int32,
+            key_element_shape=(3,),
+            value_dtypes=(o3c.uint8,),
+            value_element_shapes=((1,),),
+            device = device)
+        
+        self.points = np.array([]) # (N,3), float32, points from voxel grid
+        self.dense_points = np.array([]) # (N,), int32, points indices from volumetric map
+        self.voxel_length = 0.0
         self.prob_weight = 0
         self.prob_vector = np.zeros(J,dtype=np.float32) # probability for each nyu20 types, append 'unknown' at the end
         self.pos_observed = 0   # number of times been observed
         self.neg_observed = 0   # number of times been ignored
-        self.points = np.array([]) # aggregate positive points 
         self.negative = np.array([]) # aggreate negative points
         self.filter_points= np.array([]) # points after filtering
         self.merged_points = np.array([]) # points after merging geometric segments
@@ -76,6 +109,96 @@ class Instance:
     
     def get_exist_confidence(self):
         return self.pos_observed/(self.pos_observed+self.neg_observed+1e-6)    
+    
+    # def create_volume(self, resolution=256.0):
+    #     self.voxel_length = 4.0/resolution
+    #     self.volume = o3d.pipelines.integration.ScalableTSDFVolume(
+    #         voxel_length=self.voxel_length,
+    #         sdf_trunc=0.04,
+    #         color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8)
+    
+    def create_volume_debug(self, point_cloud:o3d.geometry.PointCloud, resolution=256.0):
+        ''' create with point_cloud in (N,3), np.float32'''
+        self.voxel_length = 4.0/resolution
+        points = np.asarray(point_cloud.points,dtype=np.float32)
+        N = points.shape[0]
+        assert N>0, 'point cloud is empty'
+        weights = np.ones((N,1),dtype=np.uint8)
+        voxels = np.floor(points/self.voxel_length).astype(np.int32) # (N,3)
+        self.mhashmap.insert(o3c.Tensor(voxels,dtype=o3c.int32), o3c.Tensor(weights,dtype=o3c.uint8))
+        # active_indices = self.mhashmap.active_buf_indices()
+        # print('create hashmap {} with {} voxels'.format(self.id,N))
+    
+    def integrate_volume_debug(self, point_cloud:o3d.geometry.PointCloud):
+        points = np.asarray(point_cloud.points,dtype=np.float32)
+        query_voxels = np.floor(points/self.voxel_length).astype(np.int32) # (N,3)
+        query_voxels = o3c.Tensor(query_voxels,dtype=o3c.int32)
+        buf_indices, mask  = self.mhashmap.find(query_voxels)
+        buf_indices = buf_indices[mask].to(o3c.int64)
+        
+        # update existed values
+        self.mhashmap.value_tensor()[buf_indices] += 1
+        new_voxels = query_voxels[mask==False]
+        if new_voxels.shape[0]>0:
+            new_weights = o3c.Tensor.ones((new_voxels.shape[0],1),dtype=o3c.uint8)
+            self.mhashmap.insert(new_voxels, new_weights)
+    
+    def read_voxel_grid(self, dir, resolution=256.0):        
+        # voxels = np.load(dir)
+        self.voxel_length = 4.0/resolution
+        self.mhashmap = o3c.HashMap.load(dir)
+        active_voxel_indices = self.mhashmap.active_buf_indices().to(o3c.int64)
+
+        
+        print('read {} voxels from {}'.format(active_voxel_indices.shape[0],dir))
+
+    def update_voxels_from_dense_points(self,points, device = o3c.Device('cpu:0')):
+        '''
+        read the points xyz and update the mhashmap accordingly.
+        voxels that been queried is kept, other voxels are removed. 
+        New points are inserted into the hashmap.
+        '''
+        UPDATE_VOXEL_WEGIGHT = 5
+        if self.dense_points.shape[0]<1:
+            return None
+        
+        dense_xyz = points[self.dense_points,:] # (N,3)
+        dense_voxels = np.floor(dense_xyz/self.voxel_length).astype(np.int32) # (N,3)
+        dense_voxels = o3c.Tensor(dense_voxels,dtype=o3c.int32)
+                
+        # Query voxels
+        all_active_indices = self.mhashmap.active_buf_indices()
+        queried_indices, mask = self.mhashmap.find(dense_voxels)
+        queried_indices = queried_indices[mask]
+        
+        # Update existed voxels
+        if queried_indices.shape[0]>0:
+            self.mhashmap.value_tensor()[queried_indices] = UPDATE_VOXEL_WEGIGHT
+        
+        # Remove invalid voxels
+        toremove_indices = o3c.Tensor(np.setdiff1d(all_active_indices.numpy(),queried_indices.numpy()),
+                                        dtype=o3c.int32, device=device)
+        if toremove_indices.shape[0]>0:
+            active_invalid_keys = self.mhashmap.key_tensor()[toremove_indices]
+            self.mhashmap.erase(active_invalid_keys)
+        
+        # Insert new voxels
+        new_voxels = dense_voxels[mask==False]
+        if new_voxels.shape[0]>0:
+            new_weights = UPDATE_VOXEL_WEGIGHT * o3c.Tensor.ones((new_voxels.shape[0],1),dtype=o3c.uint8)
+            self.mhashmap.insert(new_voxels, new_weights)
+        
+    def update_current_uv(self,uv_map):
+        ''' uv_map: H*W, np.unit8, valid uv are set to 1. '''
+        # ''' points_uv: N*3, [u,v,d], only valid uv are saved. '''
+        self.uv_map = uv_map
+    
+    def update_points(self):
+        ''' update the points from the hashmap'''
+        active_indices = self.mhashmap.active_buf_indices()
+        self.points = self.mhashmap.key_tensor()[active_indices].to(o3c.int32).numpy() * self.voxel_length + self.voxel_length/2.0
+        self.centroid = np.mean(self.points,axis=0)
+        # print('instance {} update {} voxel points'.format(self.id,self.points.shape[0]))
     
     def create_instance(self,observed_pt_indices,labels,fuse_scores=True):
         '''
@@ -168,29 +291,22 @@ class Instance:
             self.filter_points = indices[valid].astype(np.int32)          
             return indices[valid].astype(np.int32)     
     
-    def update_label_probility(self, current_prob, score):
+    def update_label_probility(self, current_prob, score, os_labels=None):
         self.prob_weight += score
         self.prob_vector += current_prob
-        
-    def merge_segment(self,segment):
-        ''' Merge a segment to the instance
-        Input:
-            - segments: array of of point indices
-        '''
-        concat_points = np.concatenate((self.merged_points,segment),axis=0)
-        self.merged_points = np.unique(concat_points)
-        self.merged_points = self.merged_points.astype(np.int32)
+        if os_labels is not None:
+            self.os_labels.append(os_labels)
     
-    def merge_instance(self,other_instance):
-        self.os_labels += other_instance.os_labels 
-        self.prob_weight += other_instance.prob_weight
-        self.prob_vector += other_instance.prob_vector
-        self.pos_observed += other_instance.pos_observed
-        self.neg_observed += other_instance.neg_observed
-        
-        self.points = np.concatenate((self.points,other_instance.points),axis=0)
-        if other_instance.negative.size>3:
-            self.negative = np.concatenate((self.negative,other_instance.negative),axis=0)
+    def merge_segment(self,segment_points):
+        ''' Merge a segment to instance points
+        Input:
+            - segment_points: (N,1), np.int32
+        '''
+        if self.dense_points.size < 1:
+            self.dense_points = segment_points
+        else:
+            self.dense_points = np.concatenate((self.dense_points,segment_points),axis=0)
+            self.dense_points = np.unique(self.dense_points)
     
     def estimate_label(self):
         normalized_prob = self.get_normalized_probability()
@@ -198,15 +314,47 @@ class Instance:
         conf = normalized_prob[best_label_id]
         return best_label_id, conf
 
-    def estimate_top_labels(self,k=1):
-        top_labels = []
-        normalized_prob = self.get_normalized_probability()
-        top_k = np.argsort(normalized_prob)[-k:]
-        return top_k, normalized_prob[top_k]
-
     def get_normalized_probability(self):
         probability_normalized = self.prob_vector/(self.prob_vector.sum()+1e-6) # (LA.norm(self.prob_vector)+1e-6)
         return probability_normalized
+    
+    def extract_aligned_points(self,global_points,min_weight=1):
+        '''
+        Extract the points that within its voxel grid map.
+        Input:
+            - points, N*3, np.float32. The point cloud provided from Volumetric Map or ScanNet.
+        Output:
+            - buf_indices, np.array(np.uint8). indices of the dense points
+        '''
+        N = global_points.shape[0]
+        points_query = o3c.Tensor(np.floor(global_points/self.voxel_length).astype(np.int32),dtype=o3c.int32)
+        # points_states = o3c.Tensor.zeros((N,),dtype=o3c.uint8)
+        
+        # find value
+        buf_indices, mask  = self.mhashmap.find(points_query) # (N,), (N,), int, bool
+        buf_indices = buf_indices[mask].to(o3c.int64) # (M,)
+        weights = self.mhashmap.value_tensor()[buf_indices,0]
+        
+        # filter
+        valid_mask  = weights>=min_weight # (M,), bool
+        valid_points_indices = mask.nonzero()[0]
+        
+        return valid_points_indices[valid_mask].numpy()
+
+    def extract_nearby_points(self,global_pcd,min_dist = 0.1):
+        instance_points = self.points
+        instance_pcd = o3d.geometry.PointCloud()
+        instance_pcd.points = o3d.utility.Vector3dVector(instance_points)
+        instance_kd_tree = o3d.geometry.KDTreeFlann(instance_pcd)
+        N = len(global_pcd.points)
+        global_point_indices = []
+        
+        for i in np.arange(N):
+            [k,idx,_] = instance_kd_tree.search_radius_vector_3d(global_pcd.points[i], min_dist)
+            if k>0:global_point_indices.append(i)
+        
+        return np.array(global_point_indices).astype(np.int32)
+
 
 class LabelFusion:
     def __init__(self,dir,fuse_all_tokens=True,propogate_method='mean'):
@@ -329,12 +477,19 @@ class LabelFusion:
 
 class ObjectMap:
     def __init__(self,points,colors):
-        self.points = points
-        self.colors = colors
-        self.instance_map = {}
-        print('Init an instance map with {} points'.format(len(points)))
+        self.points:np.array() = None # point cloud from the volumetric map
+        self.segments:list[np.array()] = None # list of segments, each segment is a np.array of point indices
+        # self.colors = colors
+        self.instance_map:dict[str,Instance] = {}
+        self.semantic_query_map = dict() # {class: [instance id]}
     
-    def load_segments(self,fn3):
+    def load_dense_points(self,map_dir:str, voxel_size:float):
+        dense_map = o3d.io.read_point_cloud(map_dir)
+        self.points = np.asarray(dense_map.points,dtype=np.float32) # (N,3)
+        # self.global_voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(dense_map,voxel_size=voxel_size)
+        print('load {} points from {}'.format(self.points.shape[0],map_dir))
+    
+    def load_segments(self,fn3:str):
         '''
         fn3: scannet segmentation file xxxx_vh_clean_2.0.010000.segs.json
         '''
@@ -342,51 +497,108 @@ class ObjectMap:
         segments = read_scannet_segjson(fn3)
         self.segments = [np.array(segpoints) for segid,segpoints in segments.items()]
         print('Load {} segments'.format(len(self.segments)))
+
+        # check_segments = np.concatenate(self.segments,axis=0)
+        # print('{} unique indices'.format(np.unique(check_segments).shape[0]))
     
     def load_semantic_names(self,labels):
-        self.labels = labels
+        self.labels = labels # closet names
     
     def insert_instance(self,instance:Instance):
         self.instance_map[str(instance.id)] = instance
-        
+    
+    def update_volume_points(self):
+        for idx, instance in self.instance_map.items():
+            instance.update_points()
+    
     def update_result_points(self,min_fg,min_viewed):
         for idx, instance in self.instance_map.items():
             instance.get_points(min_fg=min_fg,min_viewed=min_viewed)
             # print('instance {} has {} points'.format(idx,instance.filter_points.size))
     
-    def extract_object_map(self, merged_results=False):
-        instance_labels = np.zeros(len(self.points)) -100
+    def extract_instance_voxel_map(self):
+        ''' Ensemble the voxel map of all the instances into One Instance Map'''
+        voxel_coordinates = [] # (N,3), int32
+        voxel_points = []
+        instances = []
+        semantics = []
+        
+        for idx, instance in self.instance_map.items():
+            label_id, conf = instance.estimate_label()
+            buf_indices = instance.mhashmap.active_buf_indices()
+            voxels = instance.mhashmap.key_tensor()[buf_indices].to(o3c.int32).numpy()
+            # weights = instance.mhashmap.value_tensor()[buf_indices].to(o3c.uint8).numpy()
+            # valid = np.squeeze(weights>=min_weights)
+            
+            voxel_coordinates.append(voxels)
+            voxel_points.append(instance.points)
+            instances.append(instance.id * np.ones((voxels.shape[0],1),dtype=np.int32))
+            semantics.append(label_id * np.ones((voxels.shape[0],1),dtype=np.int32))
+        
+        voxel_coordinates = np.concatenate(voxel_coordinates,axis=0)
+        voxel_points = np.concatenate(voxel_points,axis=0)
+        instances = np.concatenate(instances,axis=0)
+        semantics = np.concatenate(semantics,axis=0)
+        instances = np.squeeze(instances)
+        semantics = np.squeeze(semantics)
+        print('Extract {} instances'.format(len(self.instance_map)))
+        # print('Extract {}/{} voxels'.format(voxel_coordinates.shape[0],count))
+        
+        assert voxel_coordinates.shape[0] == voxel_points.shape[0], 'voxel_coordinates and voxel_points must have same number of rows'
+        assert voxel_coordinates.shape[0] == instances.shape[0], 'voxel_coordinates and instances must have same number of rows'
+        assert voxel_coordinates.shape[0] == semantics.shape[0], 'voxel_coordinates and semantics must have same number of rows'
+        
+        return voxel_coordinates, voxel_points, instances, semantics
+    
+    def extract_object_map(self,external_points = None,extract_from_dense_points=False):
+        '''
+        If extract from dense points, the points are from the instance-wise points. 
+        Otherwise, the points are from the fusing global point cloud into instance-wise voxel grid map.
+        '''
+        if external_points is None:
+            global_dense_points = self.points
+        else:
+            global_dense_points = external_points
+        
+        assert global_dense_points is not None, 'dense map is not loaded'
+        points_label = np.zeros(global_dense_points.shape[0]) -100
         count = 0
         msg =''
+        min_weight = 2
+        
         for instance_id,instance in self.instance_map.items():
-            if merged_results: p_instance = instance.merged_points
-            else:    p_instance = instance.filter_points
-
+            if extract_from_dense_points:
+                points_indices = instance.dense_points
+            else:
+                points_indices = instance.extract_aligned_points(global_dense_points, min_weight=min_weight)
             label_id,conf = instance.estimate_label()
             
-            if p_instance.size>0:
+            # print('{} has {} points'.format(self.labels[label_id],points_indices.shape[0]))
+            if points_indices.size>0:
                 composite_label = label_id*1000 + instance.id + 1
-                instance_labels[p_instance] = composite_label #instance.id
+                points_label[points_indices] = composite_label #instance.id
                 count +=1   
                 msg += '{},'.format(self.labels[label_id])
-            
-        print('Extract {}/{} instances to visualize'.format(count,len(self.instance_map)))
+        # print('{}/{} valid points'.format(np.sum(points_label>0),self.points.shape[0]))
+        print('Extract {}/{} instances, {}/{} valid points, to visualize'.format(
+            count,len(self.instance_map),np.sum(points_label>0),global_dense_points.shape[0]))
         print('Instance labels are: {}'.format(msg))
-        return instance_labels
+        return global_dense_points,points_label
     
-    def save_debug_results(self,eval_dir, scene_name, mean_time=0.0):
-        output_folder = os.path.join(eval_dir,scene_name)
-        if os.path.exists(output_folder)==False:
-            os.makedirs(output_folder)
+    def save_debug_results(self,output_folder, vx_resolution, time_record):
+        # output_folder = os.path.join(eval_dir,scene_name)
+        # if os.path.exists(output_folder)==False:
+        #     os.makedirs(output_folder)
             
         label_debug_file = open(os.path.join(output_folder,'fusion_debug.txt'),'w')
         label_debug_file.write('# mask_file label_id label_conf pos_observe neg_observe point_number label_name \n')
         count = 0
         for instance_id,instance in self.instance_map.items():
-            # instance_mask = np.zeros(len(self.points),dtype=np.int32)
-            pos_points = instance.points
-            neg_points = instance.negative
-            if pos_points.shape[0]>0:
+            # points = instance.points
+            # voxels = np.floor(points/(4.0/vx_resolution)).astype(np.int32)
+            active_voxels = instance.mhashmap.active_buf_indices().to(o3c.int64)
+            
+            if active_voxels.shape[0]>0:
                 label_instance,label_conf = instance.estimate_label()
                 # exist_conf = instance.get_exist_confidence()
 
@@ -403,55 +615,86 @@ class ObjectMap:
                 
                 # pred_file.write('{} {} {:.3f}\n'.format(
                     # os.path.basename(mask_file),label_nyu40,label_conf))
-                label_debug_file.write('{} {} {:.3f} {} {} {};'.format(
-                    os.path.basename(mask_file),label_nyu40,label_conf, instance.pos_observed, instance.neg_observed,pos_points.shape[0]))
+                label_debug_file.write('{} {} {:.3f} {};'.format(
+                    os.path.basename(mask_file),label_nyu40,label_conf,active_voxels.shape[0]))
                 for det in instance.os_labels:
                     for os_name, score in det.items():
                         label_debug_file.write('{}:{:.4f}_'.format(os_name,score))
                     label_debug_file.write(',')
-                # for os_name, scores in instance.os_labels.items():
-                #     label_debug_file.write('{}'.format(os_name))
-                #     for score in scores: label_debug_file.write('_{:.3f}'.format(score))
-                #     label_debug_file.write(',')
+
                 label_debug_file.write('\n')
-                np.savetxt('{}_pos.txt'.format(mask_file),pos_points,fmt='%d')
-                if neg_points.shape[0]>3:
-                    np.savetxt('{}_neg.txt'.format(mask_file),instance.negative,fmt='%d')
+                instance.mhashmap.save('{}_hashmap.npz'.format(mask_file))
+                # np.save('{}_voxels.npy'.format(mask_file),voxels)
+                # np.savetxt('{}_pos.txt'.format(mask_file),points,fmt='%d')
+                # if neg_points.shape[0]>3:
+                #     np.savetxt('{}_neg.txt'.format(mask_file),instance.negative,fmt='%d')
                 count +=1
-        label_debug_file.write('# {}/{} instances extracted'.format(count,len(self.instance_map)))
-        label_debug_file.write('# mean data association time {:.3f} s'.format(mean_time))
+        label_debug_file.write('# {}/{} instances extracted \n'.format(count,len(self.instance_map)))
+        label_debug_file.write('# voxel resolution: {} \n'.format(vx_resolution))
+        label_debug_file.write('# time record: {} \n'.format(time_record))
         # pred_file.close()
         label_debug_file.close()
-
-    def save_scannet_results(self, eval_dir, scene_name, merged_results=False):
-        output_folder = os.path.join(eval_dir,scene_name)
-        if os.path.exists(output_folder)==False:
-            os.makedirs(output_folder)
+        
+    def save_scannet_results(self, eval_dir, gt_points):
+        '''
+        Input,
+            - eval_dir: str, the folder directory to save the results
+            - points: N*3, np.float32, the point cloud provided by ScanNet
+        '''
+        MIN_DIST = 0.1
+        MIN_POINTS = 1
+        output_folder = eval_dir #os.path.join(eval_dir,scene_name)
+        if os.path.exists(output_folder)==False: os.makedirs(output_folder)
         count = 0
         pred_file = open(os.path.join(output_folder,'predinfo.txt'),'w')
-        for instance_id,instance in self.instance_map.items():
-            instance_mask = np.zeros(len(self.points),dtype=np.int32)
-            if merged_results:p_instance = instance.merged_points
-            else:p_instance = instance.filter_points
 
+        # Extract aliged points in multi-thread
+        import multiprocessing as mp
+        instance_list = []
+        instance_labels = []
+        instance_points = []
+        for idx, instance in self.instance_map.items():
             label_id,label_conf = instance.estimate_label()
             assert label_id<20, 'contain unexpected label id'.format(label_id)
+            instance_labels.append(label_id)
+            instance_list.append(idx)
+            instance_points.append(instance.points)
+        
+        p = mp.Pool(32)
+        points_indices_list = p.map(extract_instance_points_thread, [(gt_points,points,MIN_DIST) for points in instance_points])
+        p.close()
+        p.join()
+        print('Points aligned')
 
-            if p_instance.size>0 and label_id<20:
-                # exist_conf = instance.get_exist_confidence()
-                instance_mask[p_instance] = 1
-                
+        # Export results         
+        for i, idx in enumerate(instance_list):    
+            label_id = instance_labels[i]
+            points_indices = points_indices_list[i]
+            
+        # for idx,instance in self.instance_map.items():
+        #     # points_indices_voxel = instance.extract_aligned_points(gt_points)
+        #     # points_indices_debug = instance.extract_nearby_points(gt_pcd,min_dist=MIN_DIST)
+        #     points_indices = points_indices_list[instance_list.index(idx)]
+            
+        #     # assert np.sum(points_indices-points_indices_debug) == 0, 'extracted points are not the same'
+            
+        #     label_id,label_conf = instance.estimate_label()
+        #     assert label_id<20, 'contain unexpected label id'.format(label_id)
+
+            if points_indices.size>MIN_POINTS and label_id<20:
+                points_mask = np.zeros(gt_points.shape[0],dtype=np.uint8)
+                points_mask[points_indices] = 1
                 label_name = SEMANTIC_NAMES[label_id]
                 label_nyu40 = SEMANTIC_IDX[label_id]
-                mask_file = os.path.join(output_folder,'{}_{}.txt'.format(instance.id,label_name))
+                mask_file = os.path.join(output_folder,'{}_{}.txt'.format(idx,label_name))
 
                 if label_name=='shower curtain':
-                    mask_file = os.path.join(output_folder,'{}_shower_curtain.txt'.format(instance.id))
+                    mask_file = os.path.join(output_folder,'{}_shower_curtain.txt'.format(idx))
                 
                 pred_file.write('{} {} {:.3f}\n'.format(os.path.basename(mask_file),label_nyu40,label_conf))
-                np.savetxt(mask_file,instance_mask,fmt='%d')
+                np.savetxt(mask_file,points_mask,fmt='%d')
                 count +=1
-        
+                     
         pred_file.close()
         print('Extract {}/{} instances to evaluate'.format(count,len(self.instance_map)))
 
@@ -482,89 +725,49 @@ class ObjectMap:
             
         return np.array(pick,dtype=np.int32), pairs
     
-    def merge_conflict_instances(self,nms_iou=0.1,nms_similarity=0.2):
-        # SIMILARITY_THRESHOLD = 0.07
-        J = len(self.instance_map)
-        instance_indices = np.zeros((J,),dtype=np.int32) # (J,), indices \in [0,J) to instance idx
-        proposal_points = np.zeros((J,self.points.shape[0]),dtype=np.int32) # (J,N)
+    def fuse_instance_segments(self, merge_types, min_voxel_weight, min_segments = 200, segment_iou = 0.2):
+        '''
+        After merge segments, points from the segments are written to instance points.
+        '''
         
-        # Calculate iou
-        i =0
-        for idx, instance in self.instance_map.items():
-            if instance.merged_points.size<1: continue
-            proposal_points[i,instance.merged_points] = 1
-            instance_indices[i] = int(idx)
-            i+=1
-            
-        intersection = np.matmul(proposal_points,proposal_points.T) # (J,J)
-        proposal_points_number = np.sum(proposal_points,axis=1)+1e-6 # (J,)
-        proposal_pn_h = np.tile(proposal_points_number,(J,1)) # (J,J)
-        proposal_pn_v = np.tile(proposal_points_number,(J,1)).T # (J,J)
-        ious = intersection/(proposal_pn_h+proposal_pn_v-intersection) # (J,J)
-        scores = proposal_points_number # (J,)
-        
-        # NMS
-        pick_idxs, merge_groups = self.non_max_suppression(ious,scores,threshold=nms_iou) 
-        for root_idx, leaf_idxs in merge_groups.items(): # merge supressed instances
-            root_instance = self.instance_map[str(instance_indices[int(root_idx)])]
-            for leaf_idx in leaf_idxs:
-                assert leaf_idx not in pick_idxs, 'merged leaf instance must be removed'
-                leaf_instance = self.instance_map[str(instance_indices[leaf_idx])]
-                assert root_instance.merged_points.size >= leaf_instance.merged_points.size, '{} root instance must have more points'.format(scene_name)
-                
-                similarity = root_instance.get_normalized_probability().dot(leaf_instance.get_normalized_probability())
-                if similarity>nms_similarity:
-                    # print('Merge instance {} to {}'.format(leaf_instance.id,root_instance.id))
-                    root_instance.merge_segment(leaf_instance.merged_points)
-                    root_instance.prob_vector += leaf_instance.prob_vector
-                else:
-                    pick_idxs = np.concatenate((pick_idxs,np.array([leaf_idx],dtype=np.int32)),axis=0)
-        print('{}/{} root instances are kept. Leaf instance is merged into the root one.'.format(len(pick_idxs),J))
-        
-        # Remove filtered instances
-        for j in np.arange(J):
-            instance_id = instance_indices[j]
-            if j not in pick_idxs:
-                del self.instance_map[str(instance_id)]
-        
-    def fuse_instance_segments(self, merge_types, min_segments = 200):
-        segment_iou = 0.1 
         S = len(self.segments)
         J = len(self.instance_map)
         instance_indices = np.zeros((J,),dtype=np.int32) # (J,), indices \in [0,J) to instance idx
         iou = np.zeros((S,J),dtype=np.float32)
-        # proposal_points = np.zeros((J,self.points.shape[0]),dtype=np.int32) # (J,N)
 
         # Find overlap between segment and instance
         merged_instances = []
         i_ = 0
         for idx, instance in self.instance_map.items():
-            instance_points = instance.filter_points
+            points_indices = instance.extract_aligned_points(self.points, min_weight=min_voxel_weight)
             label_id, _ = instance.estimate_label()
             assert label_id < len(self.labels)
             # assert instance_points.size>0, 'instance {} has no points'.format(idx)
 
             if self.labels[label_id] in merge_types:
-                for s, seg_points in enumerate(self.segments):
-                    if seg_points.size<min_segments: continue
-                    overlap = np.intersect1d(seg_points,instance_points)
-                    iou[s,i_] = overlap.size/(seg_points.size) #+instance_points.size-overlap.size)
+                for s, seg_indices in enumerate(self.segments):
+                    if seg_indices.size<min_segments: continue
+                    overlap = np.intersect1d(seg_indices,points_indices)
+                    iou[s,i_] = overlap.size/(seg_indices.size) #+instance_points.size-overlap.size)
             else:
-                instance.merge_segment(instance_points)
                 merged_instances.append(int(idx))
+                instance.dense_points = points_indices
+                
             instance_indices[i_] = int(idx)
             i_+=1
-            
+        print('{} instances skip fuse segments'.format(len(merged_instances)))
         print('{}/{} overlaped pairs'.format(np.sum(iou>1e-3),iou.size))
         
         # Merge instance with segments
         count = 0
-        for s, seg_points in enumerate(self.segments):
+        for s, seg_indices in enumerate(self.segments):
             parent_instances = iou[s,:]>segment_iou
+            if parent_instances.sum()>0: count +=1
+            # seg_points = self.points[seg_indices.astype(np.int32)].astype(np.float32)
+            
             for parent_instance_idx in instance_indices[parent_instances]:
                 root_instance = self.instance_map[str(parent_instance_idx)]
-                root_instance.merge_segment(seg_points.astype(np.int32))
-                count +=1
+                root_instance.merge_segment(seg_indices.astype(np.int32))
                 if parent_instance_idx not in merged_instances:merged_instances.append(parent_instance_idx)
             
         print('{}/{} segments are merged into {}/{} instances'.format(
@@ -577,12 +780,59 @@ class ObjectMap:
                 del self.instance_map[str(instance_id)]
         return None
     
-
+    def merge_conflict_instances(self,nms_iou=0.1,nms_similarity=0.2):
+        J = len(self.instance_map)
+        instance_indices = np.zeros((J,),dtype=np.int32) # (J,), indices \in [0,J) to instance idx
+        proposal_points = np.zeros((J,self.points.shape[0]),dtype=np.int32) # (J,N)
+        
+        # Calculate iou
+        i =0
+        for idx, instance in self.instance_map.items():
+            if instance.dense_points.size<1: continue
+            proposal_points[i,instance.dense_points] = 1
+            instance_indices[i] = int(idx)
+            i+=1
+            
+        intersection = np.matmul(proposal_points,proposal_points.T) # (J,J)
+        proposal_points_number = np.sum(proposal_points,axis=1)+1e-6 # (J,)
+        proposal_pn_h = np.tile(proposal_points_number,(J,1)) # (J,J)
+        proposal_pn_v = np.tile(proposal_points_number,(J,1)).T # (J,J)
+        ious = intersection/(proposal_pn_h+proposal_pn_v-intersection) # (J,J)
+        # ious = intersection / np.minimum(proposal_pn_h,proposal_pn_v) # (J,J)
+        scores = proposal_points_number # (J,)
+        
+        # NMS
+        pick_idxs, merge_groups = self.non_max_suppression(ious,scores,threshold=nms_iou) 
+        count = 0
+        for root_idx, leaf_idxs in merge_groups.items(): # merge supressed instances
+            root_instance = self.instance_map[str(instance_indices[int(root_idx)])]
+            for leaf_idx in leaf_idxs:
+                assert leaf_idx not in pick_idxs, 'merged leaf instance must be removed'
+                leaf_instance = self.instance_map[str(instance_indices[leaf_idx])]
+                assert root_instance.dense_points.size >= leaf_instance.dense_points.size, 'root instance must have more points'
+                
+                similarity = root_instance.get_normalized_probability().dot(leaf_instance.get_normalized_probability())
+                if similarity>nms_similarity:
+                    # label_id, score = root_instance.estimate_label()
+                    # print('Merge instance {} to {}'.format(leaf_instance.id,root_instance.id))
+                    root_instance.merge_segment(leaf_instance.dense_points)
+                    root_instance.prob_vector += leaf_instance.prob_vector
+                    count +=1
+                else:
+                    pick_idxs = np.concatenate((pick_idxs,np.array([leaf_idx],dtype=np.int32)),axis=0)
+        print('{}/{} root instances are kept. {} Leaf instances are merged into the root one.'.format(len(pick_idxs),J, count))
+        
+        # Remove filtered instances
+        for j in np.arange(J):
+            instance_id = instance_indices[j]
+            if j not in pick_idxs:
+                del self.instance_map[str(instance_id)]
+        
     def remove_small_instances(self, min_points):
         
         remove_idx = []
         for idx, instance in self.instance_map.items():
-            if instance.merged_points.size<min_points:
+            if instance.dense_points.size<min_points:
                 remove_idx.append(idx)
                 
         for idx in remove_idx:
@@ -590,7 +840,60 @@ class ObjectMap:
             # print('Remove instance {} with {} points'.format(idx,instance.filter_points.size))
         
         print('remove {} small instances'.format(len(remove_idx)))
-             
+    
+    def verify_curtains(self):
+        if len(self.semantic_query_map)<1: 
+            print('update the query map before refine spatial objects')
+            return None
+        
+        MAX_DISTANCE = 2.0
+        
+        curtain_list = []
+        if 'curtain' in self.semantic_query_map:
+            curtain_list += self.semantic_query_map['curtain']
+        if 'shower curtain' in self.semantic_query_map:
+            curtain_list += self.semantic_query_map['shower curtain']
+        for curtain_idx in curtain_list:
+            curtain_instance = self.instance_map[curtain_idx]
+            curtain_centroid = curtain_instance.centroid
+            in_bath_trigger = False
+            
+            bath_instance_list = []
+            if 'bathtub' in self.semantic_query_map:
+                bath_instance_list += self.semantic_query_map['bathtub']
+            if 'toilet' in self.semantic_query_map:
+                bath_instance_list += self.semantic_query_map['toilet']
+
+            for id_b in bath_instance_list:
+                bath_position = self.instance_map[id_b].centroid
+                dist = np.linalg.norm(curtain_centroid-bath_position)
+                if dist<MAX_DISTANCE:
+                    in_bath_trigger = True
+                    break
+                
+            curtain_instance.prob_vector = np.zeros((len(self.labels),),dtype=np.float32)
+            if in_bath_trigger:
+                curtain_instance.prob_vector[self.labels.index('shower curtain')] = 1.0
+            else:
+                curtain_instance.prob_vector[self.labels.index('curtain')] = 1.0
+                
+        print('{} curtains are verified'.format(len(curtain_list)))
+    
+    def update_semantic_queries(self):
+        
+        for idx, instance in self.instance_map.items():
+            labe_id, score = instance.estimate_label()
+            label_name = self.labels[labe_id]
+            if label_name not in self.semantic_query_map:
+                self.semantic_query_map[label_name] = [idx]
+            else:
+                self.semantic_query_map[label_name].append(idx)
+    
+    def update_instances_voxel_grid(self,device):
+        for idx, instance in self.instance_map.items():
+            instance.update_voxels_from_dense_points(self.points,device=device)         
+        print('ALL Instances update voxel grid')
+    
     def get_num_instances(self):
         return len(self.instance_map)
     
@@ -626,7 +929,7 @@ def find_overlap(z0,z1):
     
     return overlap, z0_area<z1_area
 
-def load_pred(predict_folder, frame_name, write_label_id=False):
+def load_pred(predict_folder, frame_name, valid_openset_names=None):
     '''
     Output: a list of detections
     '''
@@ -636,18 +939,21 @@ def load_pred(predict_folder, frame_name, write_label_id=False):
     mask = np.load(mask_file) # (M,H,W), int, [0,1]
     img_height = mask.shape[1]
     img_width = mask.shape[2]
-    detections = []
+    detections:list(Detection) = []
     # valid_detections = []
     labels_msg =''
-    MAX_BOX_RATIO=0.95
+    MAX_BOX_RATIO=0.9
     # print('pred image dimension: {}x{}'.format(img_width,img_height))
     
+    # import torch, torchvision
+
     with open(label_file, 'r') as f:
         json_data = json.load(f)
         tags = json_data['tags'] if 'tags' in json_data else None
         masks = json_data['mask']
         raw_tags = None
         invalid_detections = []
+        box_list = []
         
         if 'raw_tags' in json_data:
             raw_tags = json_data['raw_tags']
@@ -658,9 +964,20 @@ def load_pred(predict_folder, frame_name, write_label_id=False):
                 bbox = ele['box']  
                 labels = ele['labels'] # {label:conf}
 
-                if (bbox[2]-bbox[0])/img_width>MAX_BOX_RATIO and (bbox[3]-bbox[1])/img_height>MAX_BOX_RATIO:
-                    continue # remove bbox that are too large
-                z_ = Detection(bbox[0],bbox[1],bbox[2],bbox[3],labels)            
+                box_area_normal = (bbox[2]-bbox[0])*(bbox[3]-bbox[1])/(img_width*img_height)
+                if box_area_normal > MAX_BOX_RATIO: continue
+                # if (bbox[2]-bbox[0])/img_width>MAX_BOX_RATIO and (bbox[3]-bbox[1])/img_height>MAX_BOX_RATIO:
+                #     continue # remove bbox that are too large
+                if valid_openset_names is not None:
+                    valid = False
+                    for label in labels:
+                        if label in valid_openset_names:
+                            valid = True
+                            break
+                    if valid==False: continue
+                z_ = Detection(bbox[0],bbox[1],bbox[2],bbox[3],labels)
+                # box = torch.tensor(z_.get_bbox()).unsqueeze(0)  
+                # box_list.append(box)          
                 z_.add_mask(mask[instance_id,:,:]==1)
                 detections.append(z_)
                 
@@ -668,8 +985,22 @@ def load_pred(predict_folder, frame_name, write_label_id=False):
                 continue  
         f.close()
         
+        
+        #todo: check overlap between bbox. scene0011/frame500
+        valid_detections = []
+        iou_threshold=0.95
+        max_overlap = 2
+        # box_list = torch.cat(box_list,dim=0)
+        # iou = torchvision.ops.box_iou(box_list,box_list)
+        # for id_a, det_a in enumerate(detections):
+        #     box_a = det_a.get_bbox()
+        #     for id_b, det_b in enumerate(detections):
+        #         if id_a==id_b:continue
+        #         box_b = det_b.get_bbox()
+                
+        
         # print('invalid :{}'.format(invalid_detections))
-        detections = [detections[k] for k in range(len(detections)) if k not in invalid_detections]
+        # detections = [detections[k] for k in range(len(detections)) if k not in invalid_detections]
         
         print('{}/{} detections are loaded in {}'.format(len(detections),len(masks)-1, frame_name))
         return tags, detections
@@ -818,6 +1149,7 @@ def process_scene(args):
     K_rgb, K_depth,rgb_dim,depth_dim = project_util.read_intrinsic(os.path.join(scene_dir,INTRINSIC_FOLDER))
     rgb_out_dim = depth_dim
     K_rgb_out = project_util.adjust_intrinsic(K_rgb,rgb_dim,rgb_out_dim)
+    
     predict_folder = os.path.join(scene_dir,PREDICTION_FOLDER)
     predict_frames =  glob.glob(os.path.join(predict_folder,'*_label.json'))  
     print('---- {}/{} find {} prediction frames'.format(DATASET,scene_name,len(predict_frames)))
@@ -855,6 +1187,7 @@ def process_scene(args):
         
         if (frame_stamp-prev_frame_stamp) < FRAME_GAP: continue
         # if frameidx>300: break
+        print('processing {}'.format(frame_name))
         
         rgbdir = os.path.join(scene_dir,RGB_FOLDER,frame_name+RGB_POSFIX)
         pose_dir = os.path.join(scene_dir,'pose',frame_name+'.txt')
@@ -870,10 +1203,12 @@ def process_scene(args):
         assert depth.shape[0] == rgbimg.shape[0] and depth.shape[1] == rgbimg.shape[1]
         T_wc = np.loadtxt(pose_dir)
 
+        # continue
         # projection
         mask, points_uv, _, _ = project_util.project(
             points, normals,T_wc, K_rgb_out, rgb_out_dim, 5.0, 0.5) # Nx3
-        filter_mask = project_util.filter_occlusion(points_uv,depth,max_dist_gap,depth_kernal_size,kernal_valid_ratio,kernal_max_var)
+        filter_mask = project_util.filter_occlusion(points_uv,depth,
+                                                    max_dist_gap,depth_kernal_size,kernal_valid_ratio,kernal_max_var)
         
         # test_mask = points_uv[:,1] >= 0
         # assert mask.sum() == test_mask.sum()
@@ -992,6 +1327,8 @@ def process_scene(args):
     
     # return 0 
     # Export
+    
+    # return None
     instance_map.save_debug_results(os.path.join(dataroot,'debug',method), scene_name, mean_time=time_array.mean())
     
     # Save visualization
@@ -1005,7 +1342,7 @@ def process_scene(args):
         pcd.colors = o3d.utility.Vector3dVector(instance_colors/255.0)
         o3d.io.write_point_cloud(os.path.join(viz_folder,'{}_instance.ply'.format(scene_name)),pcd)
 
-    if DATASET=='scannet':
+    if DATASET=='ScanNet':
         instance_map.save_scannet_results(os.path.join(dataroot,'eval',method), scene_name)    
 
 
@@ -1031,7 +1368,7 @@ if __name__=='__main__':
     valid_scans = []
     # scans = ['scene0011_01']
     # scans = ['rgbd_dataset_freiburg1_room']
-    scans = ['255']
+    # scans = ['255']
     
     for scan in scans:
         if len(glob.glob(os.path.join(dataroot,split,scan,PREDICTION_FOLDER,'*.json')))>0:
