@@ -43,8 +43,6 @@ class Detection:
         self.v0 = v0
         self.u1 = u1
         self.v1 = v1
-        # self.label_name = label_name # string, semantic name
-        # self.conf = conf
         self.labels = labels # K, {label:score}
         self.mask = None # H*W, bool
         self.assignment = ''
@@ -53,15 +51,18 @@ class Detection:
     def cal_centroid(self):
         centroid = np.array([(self.u0+self.u1)/2.0,(self.v0+self.v1)/2.0])
         return centroid.astype(np.int32)
-    # def write_label_name(self,label_name):
-    #     self.label_name = label_name
+
     def get_bbox(self):
         ''' [u0,v0,u1,v1] '''
         bbox = np.array([self.u0,self.v0,self.u1,self.v1])
         return bbox
     
+    def get_bbox_area(self):
+        return (self.u1-self.u0)*(self.v1-self.v0)
+    
     def add_mask(self,mask):
         self.mask = mask 
+        
     def scanned_pts(self,iuv):
         '''
         Input:
@@ -77,6 +78,7 @@ class Detection:
         # print('detection {} has {} valid pts'.format(self.label,np.sum(valid)))
         pt_indices = iuv[valid,0]
         return pt_indices
+    
     def get_label_str(self):
         msg = ''
         for name, score in self.labels.items():
@@ -95,27 +97,21 @@ class Instance:
             value_element_shapes=((1,),),
             device = device)
         
+        self.uv_map = None
         self.points = np.array([]) # (N,3), float32, points from voxel grid
         self.dense_points = np.array([]) # (N,), int32, points indices from volumetric map
         self.voxel_length = 0.0
         self.prob_weight = 0
-        self.prob_vector = np.zeros(J,dtype=np.float32) # probability for each nyu20 types, append 'unknown' at the end
-        self.pos_observed = 0   # number of times been observed
+        self.prob_vector = (1/J) + np.zeros(J,dtype=np.float32) # probability for each nyu20 types, append 'unknown' at the end
+        self.pos_observed = 1   # number of times been observed
         self.neg_observed = 0   # number of times been ignored
-        self.negative = np.array([]) # aggreate negative points
-        self.filter_points= np.array([]) # points after filtering
-        self.merged_points = np.array([]) # points after merging geometric segments
+        # self.negative = np.array([]) # aggreate negative points
+        # self.filter_points= np.array([]) # points after filtering
+        # self.merged_points = np.array([]) # points after merging geometric segments
         self.centroid = np.zeros(3,dtype=np.float32) # 3D centroid
     
     def get_exist_confidence(self):
         return self.pos_observed/(self.pos_observed+self.neg_observed+1e-6)    
-    
-    # def create_volume(self, resolution=256.0):
-    #     self.voxel_length = 4.0/resolution
-    #     self.volume = o3d.pipelines.integration.ScalableTSDFVolume(
-    #         voxel_length=self.voxel_length,
-    #         sdf_trunc=0.04,
-    #         color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8)
     
     def create_volume_debug(self, point_cloud:o3d.geometry.PointCloud, resolution=256.0):
         ''' create with point_cloud in (N,3), np.float32'''
@@ -142,27 +138,114 @@ class Instance:
         if new_voxels.shape[0]>0:
             new_weights = o3c.Tensor.ones((new_voxels.shape[0],1),dtype=o3c.uint8)
             self.mhashmap.insert(new_voxels, new_weights)
+        
+        # other update
+        self.pos_observed += 1
+    
+    def query_voxels(self, query_voxels):
+        buf_indices, mask  = self.mhashmap.find(query_voxels)
+        return buf_indices[mask].to(o3c.int64)
+    
+    def merge_volume(self, other_hash_table):
+        '''
+        other_hash_table: o3c.HashMap
+        '''
+        other_voxels_indices = other_hash_table.active_buf_indices()
+        other_voxels_coordinate = other_hash_table.key_tensor()[other_voxels_indices].to(o3c.int32)
+        other_voxels_weight = other_hash_table.value_tensor()[other_voxels_indices].to(o3c.uint8)
+        
+        # query
+        recalled_indices, mask = self.mhashmap.find(other_voxels_coordinate)
+        recalled_indices = recalled_indices[mask].to(o3c.int64)
+        
+        # update 
+        self.mhashmap.value_tensor()[recalled_indices] += other_voxels_weight[mask]
+        
+        # insert new 
+        new_voxels = other_voxels_coordinate[mask==False]
+        new_weights=  other_voxels_weight[mask==False]
+        if new_voxels.shape[0]>0:
+            self.mhashmap.insert(new_voxels, new_weights)
+        
+    
+    def query_voxel_centroids(self,query_voxels):
+        '''
+        Input: query_voxels (N,3), o3c.Tensor
+        Output: centroids (M,3), np.float32
+        '''
+        valid_indices = self.query_voxels(query_voxels=query_voxels)
+
+        if valid_indices.shape[0]<1:
+            return np.array([]),0.0
+        else:
+            all_active_indices = self.mhashmap.active_buf_indices().to(o3c.int64)
+            valid_ratio = valid_indices.shape[0]/all_active_indices.shape[0]
+            vx_centroids = self.mhashmap.key_tensor()[valid_indices].to(o3c.int32).numpy() * self.voxel_length + self.voxel_length/2.0
+            return vx_centroids, valid_ratio
+    
+    def query_from_point_cloud(self,points,inflat_ratio=None,min_weight=1):
+        '''
+        Query the overlaped voxels from a point cloud.
+        Input:
+        - points: (N,3), np.float32
+        Output:
+        - recall_voxels_indices: (M,), np.int64, indices of the voxels that are recalled
+        '''
+
+        if inflat_ratio is None:
+            query_voxels = np.floor(points/self.voxel_length).astype(np.int32)
+            recall_voxels_indices = self.query_voxels(o3c.Tensor(query_voxels,dtype=o3c.int32))
+        else:
+            # inflat voxel grid map
+            inflat_vx_length = self.voxel_length*inflat_ratio
+            inflat_voxels = np.floor(self.points/inflat_vx_length).astype(np.int32)
+            inflat_hash_table = o3c.HashMap(100,
+                key_dtype=o3c.int32,
+                key_element_shape=(3,),
+                value_dtypes=(o3c.uint8,),
+                value_element_shapes=((1,),),
+                device = self.mhashmap.device)
+            inflat_hash_table.insert(o3c.Tensor(inflat_voxels,dtype=o3c.int32), o3c.Tensor.ones((inflat_voxels.shape[0],1),dtype=o3c.uint8))
+            # print('{}->{} voxels number after inflation'.format(self.mhashmap.active_buf_indices().shape[0],inflat_hash_table.active_buf_indices().shape[0]))
+            
+            #
+            query_voxels = np.floor(points/inflat_vx_length).astype(np.int32)
+            
+            # query from the inflat voxel grid map
+            recall_voxels_indices, mask = inflat_hash_table.find(o3c.Tensor(query_voxels,dtype=o3c.int32))
+            recall_voxels_indices = recall_voxels_indices[mask].to(o3c.int64)
+        
+        return recall_voxels_indices
+    
+    # def refine_voxel_grid(self,global_points,device = o3c.Device('cpu:0')):
+    #     global_voxels = np.floor(global_points/self.voxel_length).astype(np.int32)
+    #     recall_voxels_indices = self.query_voxels(o3c.Tensor(global_voxels,dtype=o3c.int32))
     
     def read_voxel_grid(self, dir, resolution=256.0):        
         # voxels = np.load(dir)
         self.voxel_length = 4.0/resolution
         self.mhashmap = o3c.HashMap.load(dir)
         active_voxel_indices = self.mhashmap.active_buf_indices().to(o3c.int64)
-
         
         print('read {} voxels from {}'.format(active_voxel_indices.shape[0],dir))
 
-    def update_voxels_from_dense_points(self,points, device = o3c.Device('cpu:0')):
+
+    def update_voxels_from_dense_points(self,dense_xyz, device = o3c.Device('cpu:0'),
+                                        update_voxel_weight=5,
+                                        insert_new = True):
         '''
         read the points xyz and update the mhashmap accordingly.
-        voxels that been queried is kept, other voxels are removed. 
+        voxels that been queried are kept, other voxels are removed. 
         New points are inserted into the hashmap.
         '''
-        UPDATE_VOXEL_WEGIGHT = 5
-        if self.dense_points.shape[0]<1:
+        # update_voxel_weight = 5
+        # if self.dense_points.shape[0]<1:
+        #     return None
+        
+        # dense_xyz = points[self.dense_points,:] # (N,3)
+        if dense_xyz.shape[0]<1:
             return None
         
-        dense_xyz = points[self.dense_points,:] # (N,3)
         dense_voxels = np.floor(dense_xyz/self.voxel_length).astype(np.int32) # (N,3)
         dense_voxels = o3c.Tensor(dense_voxels,dtype=o3c.int32)
                 
@@ -172,8 +255,8 @@ class Instance:
         queried_indices = queried_indices[mask]
         
         # Update existed voxels
-        if queried_indices.shape[0]>0:
-            self.mhashmap.value_tensor()[queried_indices] = UPDATE_VOXEL_WEGIGHT
+        if queried_indices.shape[0]>0 and update_voxel_weight>0:
+            self.mhashmap.value_tensor()[queried_indices] = update_voxel_weight
         
         # Remove invalid voxels
         toremove_indices = o3c.Tensor(np.setdiff1d(all_active_indices.numpy(),queried_indices.numpy()),
@@ -184,9 +267,12 @@ class Instance:
         
         # Insert new voxels
         new_voxels = dense_voxels[mask==False]
-        if new_voxels.shape[0]>0:
-            new_weights = UPDATE_VOXEL_WEGIGHT * o3c.Tensor.ones((new_voxels.shape[0],1),dtype=o3c.uint8)
+        if new_voxels.shape[0]>0 and insert_new:
+            new_weights = update_voxel_weight * o3c.Tensor.ones((new_voxels.shape[0],1),dtype=o3c.uint8)
             self.mhashmap.insert(new_voxels, new_weights)
+        
+        print('before integration {} voxels, after {} voxels'.format(all_active_indices.shape[0],self.mhashmap.active_buf_indices().shape[0]))
+        return self.mhashmap.active_buf_indices().shape[0]
         
     def update_current_uv(self,uv_map):
         ''' uv_map: H*W, np.unit8, valid uv are set to 1. '''
@@ -266,34 +352,8 @@ class Instance:
         # check = np.isin(self.negative,self.points)
         # assert check.sum() == self.negative.shape[0], 'negative points not in the instance'        
 
-    def get_points(self,min_fg=0.2,min_viewed=0,verbose=False):
-        ''' Return the point indices of the instance
-        '''
-        M = self.points.max()+1
-        indices = np.unique(self.points) # (M',), M'<=M
-        assert indices.shape[0]>0, 'instance {} has no points'.format(self.id)
 
-        pos_count, _ = np.histogram(self.points,bins=np.arange(M+1)) # (M)
-        neg_count, _ = np.histogram(self.negative,bins=np.arange(M+1)) # (M)
-        assert pos_count.shape[0] == M
-        positive = pos_count[indices] # (M',)
-        negative = neg_count[indices] # (M',)
-        
-        conf  = positive.astype(np.float32)/(positive+negative+1e-6)
-        viewed = positive + negative
-        valid = (conf >=min_fg) & (viewed >=min_viewed)
-        # valid = (conf >= 0.2) & (positive>=2) # (M',)
-        if verbose:
-            print('instance {} has {}/{} valid points'.format(self.id,np.sum(valid),len(valid)))
-        if valid.sum()<1:
-            return np.array([])
-        else:
-            self.filter_points = indices[valid].astype(np.int32)          
-            return indices[valid].astype(np.int32)     
-    
-    def update_label_probility(self, current_prob, score, os_labels=None):
-        self.prob_weight += score
-        self.prob_vector += current_prob
+    def save_label_measurements(self, os_labels):
         if os_labels is not None:
             self.os_labels.append(os_labels)
     
@@ -339,81 +399,72 @@ class Instance:
         valid_mask  = weights>=min_weight # (M,), bool
         valid_points_indices = mask.nonzero()[0]
         
+        # print('{}/{} voxels been queried'.format(len(valid_mask),len(self.mhashmap.active_buf_indices())))
+        
         return valid_points_indices[valid_mask].numpy()
-
-    def extract_nearby_points(self,global_pcd,min_dist = 0.1):
-        instance_points = self.points
-        instance_pcd = o3d.geometry.PointCloud()
-        instance_pcd.points = o3d.utility.Vector3dVector(instance_points)
-        instance_kd_tree = o3d.geometry.KDTreeFlann(instance_pcd)
-        N = len(global_pcd.points)
-        global_point_indices = []
-        
-        for i in np.arange(N):
-            [k,idx,_] = instance_kd_tree.search_radius_vector_3d(global_pcd.points[i], min_dist)
-            if k>0:global_point_indices.append(i)
-        
-        return np.array(global_point_indices).astype(np.int32)
 
 
 class LabelFusion:
-    def __init__(self,dir,fuse_all_tokens=True,propogate_method='mean'):
+    def __init__(self,dir,fusion_method=''):
         # priors,association_count,likelihood,det_cond_probability,kimera_probability, openset_names, nyu20names = np.load(dir,allow_pickle=True)
         with open(os.path.join(dir,'label_names.json'),'r') as f:
             data = json.load(f)
             openset_names = data['openset_names']
             closet_names = data['closet_names']
         
-        likelihood = np.load(os.path.join(dir,'likelihood.npy'))
+        likelihood = np.load(os.path.join(dir,'multip_likelihood.npy'))
         
         self.openset_names =  openset_names #[openset_id2name[i] for i in np.where(valid_rows)[0].astype(np.int32)]# list of openset names, (K,)
         self.closet_names = closet_names # In ScanNet, uses NYU20
-        # self.priors = priors # (K,), np.float32
         self.likelihood = likelihood
-        self.fuse_all_tokens = fuse_all_tokens
-        self.propogate_method = propogate_method # mean, multiply
+        self.fusion_method = 'bayesian'
+        # self.propogate_method = propogate_method # mean, multiply
         
         print('{} valid openset names are {}'.format(len(self.openset_names),self.openset_names))
-        if fuse_all_tokens:
-            print('predictor fuse all token with scores!')
-
-        # if self.use_baseline:
-        #     print('-------- using empirical likelihood --------')
 
         assert len(self.closet_names) == self.likelihood.shape[1], 'likelihood and nyu20 must have same number of rows'
         assert len(self.openset_names) == self.likelihood.shape[0], 'likelihood and openset must have same number of columns,{}!={}'.format(
             len(self.openset_names),self.likelihood.shape[0])
         
-    def bayesian_single_prob(self,openset_measurement):
+    def bayesian_single_prob(self,zk_measurement,multiplicative):
         '''
         single-frame measurement, the measurements if a map of {name:score}
         '''
-        prob = np.zeros(len(self.closet_names),np.float32)
-        weight = 0.0
-        labels = []
-        scores = []
-        assert isinstance(openset_measurement,dict)
+        if multiplicative:
+            zk_likelihood = np.ones(len(self.closet_names),np.float32)
+        else:
+            zk_likelihood = np.zeros(len(self.closet_names),np.float32)
+        # weight = 0.0
+        label_measurements = []
+        score_measurements = []
+        assert isinstance(zk_measurement,dict)
 
-        for zk,score in openset_measurement.items():
-            if zk in self.openset_names:
-                labels.append(self.openset_names.index(zk))
-                scores.append(score)
+        for y_j,score_j in zk_measurement.items():
+            if y_j in self.openset_names:
+                label_measurements.append(self.openset_names.index(y_j))
+                score_measurements.append(score_j)
                 
-        if len(labels)<1: return prob,weight
+        if len(label_measurements)<1: return zk_likelihood,False
         
-        labels = np.array(labels)
-        scores = np.array(scores)
+        label_measurements = np.array(label_measurements)
+        score_measurements = np.array(score_measurements)
         
-        for i in range(labels.shape[0]):
-            prob_vector = self.likelihood[labels[i],:]
+        for j in range(label_measurements.shape[0]):
+            j_likelihood = score_measurements[j] * self.likelihood[label_measurements[j],:]
+            if multiplicative:
+                zk_likelihood *= j_likelihood
+            else:
+                zk_likelihood += j_likelihood
+            
+            continue
             prob_vector = prob_vector / np.sum(prob_vector)
             assert np.abs(prob_vector.sum() - 1.0) < 1e-6, '{}({}) prob vector is not normalized {}'.format(
-                self.openset_names[labels[i]],labels[i],self.likelihood[labels[i],:])
-            assert np.sum(prob_vector) > 1e-3, '{} prob vector is all zero'.format(self.openset_names[labels[i]])
-            prob += scores[i] * prob_vector
+                self.openset_names[label_measurements[j]],label_measurements[j],self.likelihood[label_measurements[j],:])
+            assert np.sum(prob_vector) > 1e-3, '{} prob vector is all zero'.format(self.openset_names[label_measurements[j]])
+            zk_likelihood += score_measurements[j] * prob_vector
             
-        weight = 1.0    
-        return prob,weight    
+        # weight = 1.0    
+        return zk_likelihood,True    
     
     def baseline_single_prob(self, openset_measurement):
         max_label =''
@@ -434,45 +485,33 @@ class LabelFusion:
             weight = 1.0
         return prob, weight
 
-    def estimate_single_prob(self, openset_measurement):
-        if self.fuse_all_tokens:
-            prob, weight = self.bayesian_single_prob(openset_measurement)
-        else:
-            prob, weight = self.baseline_single_prob(openset_measurement)
-        return prob, weight
-
-    def estimate_batch_prob(self,openset_measurements):
-        '''·
-        multiple-frame measurement, the measurements if a map of {name:[score1,score2,...]}
-        '''
+    def update_measurement(self, zk_measurement, semantic_probability):
         
-        prob = np.zeros((len(self.closet_names),),np.float32)
-        weight = 0.0
-
-        if self.propogate_method=='mean':
-            for zk in openset_measurements:
-                if self.fuse_all_tokens:
-                    prob_k, weight_k = self.bayesian_single_prob(zk)
+        multiplicative=False
+        regularization_factor = 1e-6
+        if self.fusion_method=='bayesian':
+            zk_likelihood, flag = self.bayesian_single_prob(zk_measurement,multiplicative=multiplicative)
+            if flag == True:
+                if multiplicative:
+                    semantic_probability = semantic_probability * zk_likelihood
+                    semantic_probability += regularization_factor
+                    semantic_probability = semantic_probability / np.sum(semantic_probability)
                 else:
-                    prob_k, weight_k = self.baseline_single_prob(zk)
-                    
-                if weight_k>1e-6:
-                    prob += prob_k
-                    weight += weight_k
+                    semantic_probability += zk_likelihood
         else:
-            raise NotImplementedError                                
-        # elif self.propogate_method=='multiply': #todo
-        #     for zk, score in openset_measurements.items():
-        #         prob *= self.estimate_current_prob(zk)
-        #         weight += score
-                       
+            raise NotImplementedError
         
-        return prob, weight
+        # if np.abs(np.sum(semantic_probability)-1.0)>1e-6:
+        #     print('todebug')    
+        
+        return semantic_probability, flag
     
-    #todo: propogate along new measurements
-    def update_probability(self,prob_vector,openset_measurement):
-        fused_prob_vector = prob_vector
-        return fused_prob_vector
+    def is_valid_labels(self, zk_labels:dict):
+        for name,score in zk_labels.items():
+            if name in self.openset_names:
+                return True
+
+        return False
 
 
 class ObjectMap:
@@ -482,6 +521,7 @@ class ObjectMap:
         # self.colors = colors
         self.instance_map:dict[str,Instance] = {}
         self.semantic_query_map = dict() # {class: [instance id]}
+        self.max_instance_id = 1
     
     def load_dense_points(self,map_dir:str, voxel_size:float):
         dense_map = o3d.io.read_point_cloud(map_dir)
@@ -506,15 +546,29 @@ class ObjectMap:
     
     def insert_instance(self,instance:Instance):
         self.instance_map[str(instance.id)] = instance
+        self.max_instance_id += 1
+    
+    def update_instance_with_global_map(self, global_pcd:o3d.geometry.PointCloud, active_instances:list, small_instance_size:int):
+        if len(active_instances)<1: return False
+        global_points = np.asarray(global_pcd.points,dtype=np.float32)
+        remove_instances = []
+        for idx in active_instances:
+            if idx not in self.instance_map.keys(): continue
+            voxels_number = self.instance_map[idx].update_voxels_from_dense_points(global_points,update_voxel_weight=-1,insert_new=False)
+            if voxels_number<small_instance_size:
+                remove_instances.append(idx)
+        
+        for idx in remove_instances:
+            self.instance_map.pop(idx)  
+            # active_instances.remove(idx)   
+        print('remove {} instances after fused global volume'.format(len(remove_instances)))
+        return True
     
     def update_volume_points(self):
+        ''' Update points from voxel grid centroid '''
         for idx, instance in self.instance_map.items():
             instance.update_points()
-    
-    def update_result_points(self,min_fg,min_viewed):
-        for idx, instance in self.instance_map.items():
-            instance.get_points(min_fg=min_fg,min_viewed=min_viewed)
-            # print('instance {} has {} points'.format(idx,instance.filter_points.size))
+            instance.uv_map = None
     
     def extract_instance_voxel_map(self):
         ''' Ensemble the voxel map of all the instances into One Instance Map'''
@@ -522,19 +576,25 @@ class ObjectMap:
         voxel_points = []
         instances = []
         semantics = []
+        min_weights = 2
         
         for idx, instance in self.instance_map.items():
             label_id, conf = instance.estimate_label()
             buf_indices = instance.mhashmap.active_buf_indices()
             voxels = instance.mhashmap.key_tensor()[buf_indices].to(o3c.int32).numpy()
-            # weights = instance.mhashmap.value_tensor()[buf_indices].to(o3c.uint8).numpy()
-            # valid = np.squeeze(weights>=min_weights)
+            weights = instance.mhashmap.value_tensor()[buf_indices].to(o3c.uint8).numpy()
+            valid = np.squeeze(weights>=min_weights)
             
-            voxel_coordinates.append(voxels)
-            voxel_points.append(instance.points)
-            instances.append(instance.id * np.ones((voxels.shape[0],1),dtype=np.int32))
-            semantics.append(label_id * np.ones((voxels.shape[0],1),dtype=np.int32))
-        
+            if valid.sum()>0:
+                voxels = voxels[valid,:]
+                # weights = weights[valid,:]
+                instance_points = voxels * instance.voxel_length + instance.voxel_length/2.0
+                voxel_coordinates.append(voxels)
+                voxel_points.append(instance_points)
+                instances.append(instance.id * np.ones((voxels.shape[0],1),dtype=np.int32))
+                semantics.append(label_id * np.ones((voxels.shape[0],1),dtype=np.int32))
+        if len(voxel_coordinates)<1:
+            return None,None,None,None
         voxel_coordinates = np.concatenate(voxel_coordinates,axis=0)
         voxel_points = np.concatenate(voxel_points,axis=0)
         instances = np.concatenate(instances,axis=0)
@@ -550,7 +610,7 @@ class ObjectMap:
         
         return voxel_coordinates, voxel_points, instances, semantics
     
-    def extract_object_map(self,external_points = None,extract_from_dense_points=False):
+    def extract_object_map(self,external_points = None,extract_from_dense_points=False,min_weight=1):
         '''
         If extract from dense points, the points are from the instance-wise points. 
         Otherwise, the points are from the fusing global point cloud into instance-wise voxel grid map.
@@ -564,7 +624,7 @@ class ObjectMap:
         points_label = np.zeros(global_dense_points.shape[0]) -100
         count = 0
         msg =''
-        min_weight = 2
+        # min_weight = 2
         
         for instance_id,instance in self.instance_map.items():
             if extract_from_dense_points:
@@ -586,21 +646,15 @@ class ObjectMap:
         return global_dense_points,points_label
     
     def save_debug_results(self,output_folder, vx_resolution, time_record):
-        # output_folder = os.path.join(eval_dir,scene_name)
-        # if os.path.exists(output_folder)==False:
-        #     os.makedirs(output_folder)
             
         label_debug_file = open(os.path.join(output_folder,'fusion_debug.txt'),'w')
         label_debug_file.write('# mask_file label_id label_conf pos_observe neg_observe point_number label_name \n')
         count = 0
-        for instance_id,instance in self.instance_map.items():
-            # points = instance.points
-            # voxels = np.floor(points/(4.0/vx_resolution)).astype(np.int32)
+        for idx,instance in self.instance_map.items():
             active_voxels = instance.mhashmap.active_buf_indices().to(o3c.int64)
             
             if active_voxels.shape[0]>0:
                 label_instance,label_conf = instance.estimate_label()
-                # exist_conf = instance.get_exist_confidence()
 
                 if label_instance <len(SEMANTIC_NAMES):
                     label_name = SEMANTIC_NAMES[label_instance]
@@ -615,8 +669,8 @@ class ObjectMap:
                 
                 # pred_file.write('{} {} {:.3f}\n'.format(
                     # os.path.basename(mask_file),label_nyu40,label_conf))
-                label_debug_file.write('{} {} {:.3f} {};'.format(
-                    os.path.basename(mask_file),label_nyu40,label_conf,active_voxels.shape[0]))
+                label_debug_file.write('{} {} {:.3f} {} {} {};'.format(
+                    os.path.basename(mask_file),label_nyu40,label_conf,instance.pos_observed, instance.neg_observed,active_voxels.shape[0]))
                 for det in instance.os_labels:
                     for os_name, score in det.items():
                         label_debug_file.write('{}:{:.4f}_'.format(os_name,score))
@@ -631,18 +685,23 @@ class ObjectMap:
                 count +=1
         label_debug_file.write('# {}/{} instances extracted \n'.format(count,len(self.instance_map)))
         label_debug_file.write('# voxel resolution: {} \n'.format(vx_resolution))
-        label_debug_file.write('# time record: {} \n'.format(time_record))
+        label_debug_file.write('# time record: {} \n'.format(time_record[0]))
+        label_debug_file.write('# objects record: {:.0f} {:.0f} \n'.format(time_record[1][0],time_record[1][1]))
         # pred_file.close()
         label_debug_file.close()
         
-    def save_scannet_results(self, eval_dir, gt_points):
+    # def save_semantic_results(self, eval_dir, gt_points):
+        
+    
+    def save_scannet_results(self, eval_dir, gt_points, semantic_eval_folder=None):
         '''
         Input,
             - eval_dir: str, the folder directory to save the results
             - points: N*3, np.float32, the point cloud provided by ScanNet
         '''
-        MIN_DIST = 0.1
+        MIN_DIST = 0.06
         MIN_POINTS = 1
+        scene_name = os.path.basename(eval_dir)
         output_folder = eval_dir #os.path.join(eval_dir,scene_name)
         if os.path.exists(output_folder)==False: os.makedirs(output_folder)
         count = 0
@@ -670,17 +729,7 @@ class ObjectMap:
         for i, idx in enumerate(instance_list):    
             label_id = instance_labels[i]
             points_indices = points_indices_list[i]
-            
-        # for idx,instance in self.instance_map.items():
-        #     # points_indices_voxel = instance.extract_aligned_points(gt_points)
-        #     # points_indices_debug = instance.extract_nearby_points(gt_pcd,min_dist=MIN_DIST)
-        #     points_indices = points_indices_list[instance_list.index(idx)]
-            
-        #     # assert np.sum(points_indices-points_indices_debug) == 0, 'extracted points are not the same'
-            
-        #     label_id,label_conf = instance.estimate_label()
-        #     assert label_id<20, 'contain unexpected label id'.format(label_id)
-
+        
             if points_indices.size>MIN_POINTS and label_id<20:
                 points_mask = np.zeros(gt_points.shape[0],dtype=np.uint8)
                 points_mask[points_indices] = 1
@@ -694,14 +743,24 @@ class ObjectMap:
                 pred_file.write('{} {} {:.3f}\n'.format(os.path.basename(mask_file),label_nyu40,label_conf))
                 np.savetxt(mask_file,points_mask,fmt='%d')
                 count +=1
-                     
+                 
+        # Export semantic result
+        if semantic_eval_folder is not None:
+            semantic_output_labels = np.zeros(gt_points.shape[0],dtype=np.uint8)
+            count = 0
+            for i, idx in enumerate(instance_list):
+                points_indices = points_indices_list[i]
+                if points_indices.size>MIN_POINTS and label_id<20:
+                    label_nyu40 = SEMANTIC_IDX[label_id]
+                    semantic_output_labels[points_indices] = label_nyu40
+                    count +=1 
+            print('Extract {}/{} instances for semantic evaluation'.format(count,len(self.instance_map)))
+            print('{}/{} points are annotated with semantic label'.format(np.sum(semantic_output_labels>0),semantic_output_labels.shape[0]))
+            np.savetxt(os.path.join(semantic_eval_folder,'{}.txt'.format(scene_name)),semantic_output_labels,fmt='%d')
+        
         pred_file.close()
         print('Extract {}/{} instances to evaluate'.format(count,len(self.instance_map)))
 
-    def extract_all_centroids(self):
-        for idx, instance in self.instance_map.items():
-            points = self.points[instance.get_points()]
-            instance.centroid = np.mean(points,axis=0)
     
     def non_max_suppression(self,ious, scores, threshold):
         ixs = scores.argsort()[::-1]
@@ -780,6 +839,56 @@ class ObjectMap:
                 del self.instance_map[str(instance_id)]
         return None
     
+    def merge_overlap_instances(self, active_instances, nms_iou, nms_similarity,inflat_ratio=None):
+        '''
+        Input:
+        - active instances: list of instance ids, sorted from small to large
+        '''
+        if len(active_instances)<2:
+            return None
+
+        # Na = len(active_instances)
+        merge_pairs = [] # [(a,b)]
+        leaf_instances = [] # for debug. it records the instances are merged.
+        
+        # find pairs to be merged. instance_a is smaller than instance_b
+        for a, id_a in enumerate(active_instances[:-1]):
+            instance_a = self.instance_map[str(id_a)]
+            label_a,_ = instance_a.estimate_label()
+            # if self.labels[label_a]=='cabinet':
+            #     print(instance_a.get_normalized_probability())
+            for b,id_b in enumerate(active_instances[a+1:]):
+                instance_b = self.instance_map[str(id_b)]
+                semantic_similarity = instance_a.get_normalized_probability().dot(instance_b.get_normalized_probability())
+                assert instance_a.points.shape[0]<=instance_b.points.shape[0], 'instance_a must be smaller than instance_b'
+                
+                if semantic_similarity>nms_similarity:             
+                    recalled_voxels = instance_b.query_from_point_cloud(instance_a.points,inflat_ratio=inflat_ratio)
+                    overlap = recalled_voxels.shape[0]/instance_a.points.shape[0]
+                    if overlap>nms_iou:
+                        label_b, _ = instance_b.estimate_label()
+                        assert id_b not in leaf_instances, 'instance {} is already in the merged list'.format(id_b)
+                        merge_pairs.append((id_a,id_b))
+                        leaf_instances.append(id_a)
+                        # print('{}-{}'.format(self.labels[label_a],self.labels[label_b]))
+                        break # instance_a can only be merged into one instance_b
+        
+        # merge pairs
+        # if len(merge_pairs)>0:
+        #     print('!!!!!!!!! {} instance pairs are merged !!!!!!!!!!!!!'.format(len(merge_pairs)))
+            
+        for (id_a,id_b) in merge_pairs:
+            instance_a = self.instance_map[str(id_a)]
+            instance_b = self.instance_map[str(id_b)]
+            instance_b.merge_volume(instance_a.mhashmap)
+
+            instance_b.prob_vector += instance_a.prob_vector
+            instance_b.prob_weight += instance_a.prob_weight
+            instance_b.os_labels += instance_a.os_labels
+            del self.instance_map[id_a]
+        
+        return True
+  
     def merge_conflict_instances(self,nms_iou=0.1,nms_similarity=0.2):
         J = len(self.instance_map)
         instance_indices = np.zeros((J,),dtype=np.int32) # (J,), indices \in [0,J) to instance idx
@@ -841,6 +950,20 @@ class ObjectMap:
         
         print('remove {} small instances'.format(len(remove_idx)))
     
+    def remove_rs_small_instances(self,max_negative_observe,min_points):
+        ''' Incrementally remove small instances '''
+        remove_instances = []
+        for idx, instance in self.instance_map.items():
+            if instance.neg_observed>=max_negative_observe and instance.points.shape[0]<min_points:
+                remove_instances.append(idx)
+                print('Remove instance {} with {} points'.format(idx,instance.points.shape[0]))
+    
+        if len(remove_instances)>0:
+            print('remove {} small instances'.format(len(remove_instances)))    
+        for idx in remove_instances:
+            del self.instance_map[idx]
+
+    
     def verify_curtains(self):
         if len(self.semantic_query_map)<1: 
             print('update the query map before refine spatial objects')
@@ -879,6 +1002,32 @@ class ObjectMap:
                 
         print('{} curtains are verified'.format(len(curtain_list)))
     
+    def merge_background(self,merge_categories=['floor']):
+        
+        for category in merge_categories:
+            if category in self.semantic_query_map:
+                merge_instances = self.semantic_query_map[category]
+                if len(merge_instances)<2: continue
+                root_instance_id = None
+                root_instance_size = 0
+                
+                # find the root instance
+                for idx in merge_instances:
+                    instance = self.instance_map[idx]
+                    if instance.points.shape[0]>root_instance_size:
+                        root_instance_id = idx
+                        root_instance_size = instance.points.shape[0]
+        
+                # merge other instances into the root instance
+                root_instance = self.instance_map[root_instance_id]
+                for idx in merge_instances:
+                    if idx!=root_instance_id:
+                        instance = self.instance_map[idx]
+                        root_instance.merge_volume(instance.mhashmap)
+                        del self.instance_map[idx]
+        
+                print('{} {} are merged into one'.format(len(merge_instances),category))
+    
     def update_semantic_queries(self):
         
         for idx, instance in self.instance_map.items():
@@ -891,7 +1040,8 @@ class ObjectMap:
     
     def update_instances_voxel_grid(self,device):
         for idx, instance in self.instance_map.items():
-            instance.update_voxels_from_dense_points(self.points,device=device)         
+            instance_xyz = self.points[instance.dense_points,:]
+            instance.update_voxels_from_dense_points(instance_xyz,device=device)         
         print('ALL Instances update voxel grid')
     
     def get_num_instances(self):
@@ -935,6 +1085,8 @@ def load_pred(predict_folder, frame_name, valid_openset_names=None):
     '''
     label_file = os.path.join(predict_folder,'{}_label.json'.format(frame_name))
     mask_file = os.path.join(predict_folder,'{}_mask.npy'.format(frame_name))
+    if os.path.exists(label_file)==False or os.path.exists(mask_file)==False:
+        return None, None
     
     mask = np.load(mask_file) # (M,H,W), int, [0,1]
     img_height = mask.shape[1]
@@ -1004,6 +1156,68 @@ def load_pred(predict_folder, frame_name, valid_openset_names=None):
         
         print('{}/{} detections are loaded in {}'.format(len(detections),len(masks)-1, frame_name))
         return tags, detections
+
+def non_max_suppression(ious, scores, threshold):
+    ixs = scores.argsort()[::-1]
+    pick = []
+    
+    while len(ixs) > 0:
+        i = ixs[0]
+        pick.append(i)
+        iou = ious[i, ixs[1:]]
+        remove_ixs = np.where(iou > threshold)[0] + 1
+                    
+        ixs = np.delete(ixs, remove_ixs)
+        ixs = np.delete(ixs, 0)
+        
+    return np.array(pick,dtype=np.int32)
+
+def filter_overlap_detections(detections:list(), min_iou:float=0.5):
+    K = len(detections)
+    if K<3: return detections
+    ious = np.zeros((K,K),dtype=np.float32)
+    volumes = np.zeros((K,),dtype=np.float32)
+
+    # compute scores and iou    
+    for i, zi in enumerate(detections):
+        uv_i = zi.mask # (H,W), bool, detection mask
+        for j, zj in enumerate(detections):
+            if j==i:ious[i,j]=0.0;continue
+            uv_j = zj.mask # (H,W), bool, detection mask
+            overlap = np.logical_and(uv_i,uv_j)
+            ious[i,j] = np.sum(overlap)/(np.sum(uv_i)+np.sum(uv_j)-np.sum(overlap))
+        volumes[i] = (np.sum(uv_i))
+
+    volumes = volumes/np.max(volumes)
+    scores = np.exp(-volumes)
+
+    # nms
+    pick_idxs = non_max_suppression(ious,scores,threshold=min_iou)
+    if len(pick_idxs)<K:
+        detections = [detections[k] for k in pick_idxs]
+        print('!!!!!!!!!remove {} overlaped detections!!!!!!'.format(K-len(pick_idxs)))
+    return detections
+
+def filter_detection_depth(detections:list(),depth:np.ndarray):
+    K = len(detections)
+    if K<3: return detections
+    
+    min_depth = 2.0
+    remove_detection = []
+    
+    for k,zk in enumerate(detections):
+        if 'floor' in zk.get_label_str():
+            zk_depth = np.zeros(zk.mask.shape,dtype=np.float32)
+            zk_depth[zk.mask] = depth[zk.mask]
+            valid_mask = zk_depth > min_depth
+            zk.mask = np.logical_and(zk.mask,valid_mask)
+            if np.sum(zk.mask)<50:
+                remove_detection.append(k)
+    
+    for k in remove_detection:
+        del detections[k]
+            
+    return detections
 
 def find_assignment(detections,instances,points_uv, min_iou=0.5,min_observe_points=200, verbose=False):
     '''
@@ -1246,14 +1460,14 @@ def process_scene(args):
                 new_instance = Instance(instance_map.get_num_instances(),J=prob_current.shape[0])
                 new_instance.create_instance(z.scanned_pts(iuv),z.labels,True)
                 if new_instance.points.shape[0] < MIN_OBJECT_POINTS: continue # 50
-                new_instance.update_label_probility(prob_current,weight)
+                new_instance.save_label_measurements(prob_current,weight)
                 instance_map.insert_instance(new_instance)
                 z.assignment = 'new'
                 
             else: # integration
                 j = np.argmax(assignment[k,:])
                 matched_instance = instance_map.instance_map[str(j)]
-                matched_instance.update_label_probility(prob_current, weight)
+                matched_instance.save_label_measurements(prob_current, weight)
                 matched_instance.integrate_positive(z.scanned_pts(iuv),z.labels,True)
                 matched_instance.integrate_negative(z.mask, points_uv, mask)
                 z.assignment = 'match'

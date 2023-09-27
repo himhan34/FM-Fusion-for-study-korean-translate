@@ -7,26 +7,6 @@ import argparse
 
 SEMANTIC_NAMES = fuse_detection.SEMANTIC_NAMES
 SEMANTIC_IDX = fuse_detection.SEMANTIC_IDX
-
-def load_semantic_voxels(voxel_folder, resolution=256.0):
-    voxels = np.load(os.path.join(voxel_folder,'voxels.npy'))
-    instances = np.load(os.path.join(voxel_folder,'instances.npy'))
-    semantics = np.load(os.path.join(voxel_folder,'semantics.npy'))
-        
-    capacity = 10
-    device = o3c.Device('cpu:0')
-    mhashmap = o3c.HashMap(capacity,
-                    key_dtype=o3c.int32,
-                    key_element_shape=(3,),
-                    value_dtypes=(o3c.int32, o3c.int32),
-                    value_element_shapes=((1,), (1,)),
-                    device=device)
-    voxel_coords = o3c.Tensor(voxels,dtype=o3c.int32,device=device)
-    semantics = o3c.Tensor(semantics,dtype=o3c.int32,device=device)
-    instances = o3c.Tensor(instances,dtype=o3c.int32,device=device)
-    mhashmap.insert(voxel_coords, (semantics, instances))
-
-    return {'voxels':mhashmap,'resolution':resolution}
     
 def write_scannet_gt(voxel_map,clean_map_dir,out_folder):
     pcd = o3d.io.read_point_cloud(clean_map_dir)
@@ -43,7 +23,17 @@ def write_scannet_gt(voxel_map,clean_map_dir,out_folder):
     print('{}/{} points find semantic labels'.format(len(buf_indices),N))
     voxel_semantic = voxel_map['voxels'].value_tensor(0)[buf_indices]
     voxel_instance = voxel_map['voxels'].value_tensor(1)[buf_indices]
-    
+
+def time_analysis(frame_time_table, object_time_table, output_folder):
+    mean_frame_time = frame_time_table[:,1:].sum(axis=0)/frame_time_table[:,0].sum()
+    mean_object_time = object_time_table[:,1:].sum(axis=0)/object_time_table[:,0].sum()
+    print('mean frame time(msec): ', 1000*mean_frame_time)
+    print('mean object time(msec): ',1000*mean_object_time)
+    with open(os.path.join(output_folder,'time.txt'),'w') as f:
+        f.write('mean frame time(msec): {}\n'.format(1000*mean_frame_time))
+        f.write('mean object time(msec): {}\n'.format(1000*mean_object_time))
+        f.close()
+
 def process_scene(args):
     map_root, pred_root, scene_name, predictor,eval_folder, viz_folder = args
     map_folder = os.path.join(map_root,scene_name)
@@ -56,16 +46,16 @@ def process_scene(args):
         SEGFILE_POSFIX = '0.010000.segs.json'
         map_dir = os.path.join(map_folder,'{}.ply'.format(MAP_POSFIX))
         segfile_dir = os.path.join(map_folder,'{}.{}'.format(MAP_POSFIX,SEGFILE_POSFIX))
-        MIN_VOXEL_WEIGTH = 3
+        MIN_VOXEL_WEIGTH = 2
         VX_RESOLUTION = 256.0
-        SMALL_INSTANCE = 500
+        SMALL_INSTANCE = 200
         MIN_GEOMETRY = 100
         SEGMENT_IOU = 0.1
-        NMS_IOU = 0.1
-        NMS_SIMILARITY=0.3
-        # merge_semantic_classes = []
-        merge_semantic_classes = ['wall', 'floor', 'cabinet', 'bed', 'chair', 'sofa', 'table', 'window', 'bookshelf', 'counter',
-                        'desk', 'curtain', 'refridgerator', 'shower curtain', 'toilet', 'sink', 'bathtub', 'otherfurniture']
+        NMS_IOU = 0.2
+        NMS_SIMILARITY=0.1
+        merge_semantic_classes = []
+        # merge_semantic_classes = ['wall', 'floor', 'cabinet', 'bed', 'chair', 'sofa', 'table', 'bookshelf', 'counter',
+        #                 'desk', 'curtain', 'refridgerator', 'shower curtain', 'toilet', 'sink', 'bathtub', 'otherfurniture']
 
     elif 'tum' in map_root:
         MAP_POSFIX = 'mesh_o3d256_ds.ply'
@@ -94,6 +84,7 @@ def process_scene(args):
 
     pred_dir = os.path.join(pred_folder,'fusion_debug.txt')
     time_record = None
+    object_time_record = None
 
     # return None
     print('----- Processing {} -----'.format(scene_name))
@@ -105,6 +96,7 @@ def process_scene(args):
     instance_map.load_segments(segfile_dir)
     # return None
     
+    count_overcf = 0
     with open(pred_dir,'r') as f:
         for line in f.readlines():
             if 'time record' in line:
@@ -112,6 +104,10 @@ def process_scene(args):
                 time_record = [float(ele.strip()) for ele in time_record_string.split(' ') if len(ele)>1]
                 # time_record = np.array(time_record)
                 print('time record: ',time_record)
+            elif 'objects record' in line:
+                object_time_record_string = line.split(':')[-1][2:-3]
+                object_time_record = [float(ele.strip()) for ele in object_time_record_string.split(' ') if len(ele)>1]
+                print('object time record: ',object_time_record)
             
             if line[0] == '#':continue
             secs = line.split(';')
@@ -127,36 +123,39 @@ def process_scene(args):
 
             openset_detections = secs[1].split(',')
 
-            for det in openset_detections[:-1]:
+            # update measurements
+            for zk in openset_detections[:-1]:
                 # print(det.strip())
-                labels = {}
-                label_score_pairs = det.split('_')
+                labels = {} # {y: score}
+                label_score_pairs = zk.split('_')
                 for pair in label_score_pairs[:-1]:
                     label, score = pair.split(':')
                     label = label.strip()
                     score = score.strip()
                     labels[label] = float(score)
-                new_instance.os_labels.append(labels)
+                
+                new_instance.prob_vector, flag = predictor.update_measurement(labels,new_instance.prob_vector)
+                if flag: new_instance.prob_weight +=1
 
-            prob_vector, weight = predictor.estimate_batch_prob(new_instance.os_labels)
-            new_instance.prob_weight = weight
-            new_instance.prob_vector = prob_vector
-    
-            if np.sum(prob_vector)>1e-6:
+            if new_instance.prob_weight > 0:
+                label, conf = new_instance.estimate_label()
+                # print('id: {}, label: {}, conf: {:.3f}'.format(id,predictor.closet_names[label],conf))
                 instance_map.insert_instance(new_instance)
-            
-            # msg += str(weight)
-
-            
-            # print(msg)       
+            # else:
+                # print('skip instance: {}'.format(id))
+                # print(new_instance.prob_vector)
+                    
         f.close()
+        # print('{} overconfidence instances'.format(count_overcf))
+    
+    # return None
     print('Load {} instances done'.format(len(instance_map.instance_map)))
     import time 
     
     t_start = time.time()
     # Merge over-segmentation
-    # instance_map.update_result_points(min_fg=MIN_FOREGROUND,min_viewed=MIN_VIEW_COUNT)
-    instance_map.fuse_instance_segments(merge_types=merge_semantic_classes,min_voxel_weight=MIN_VOXEL_WEIGTH,min_segments=MIN_GEOMETRY, segment_iou=SEGMENT_IOU)
+    instance_map.fuse_instance_segments(merge_types=merge_semantic_classes,
+                                        min_voxel_weight=MIN_VOXEL_WEIGTH,min_segments=MIN_GEOMETRY, segment_iou=SEGMENT_IOU)
     instance_map.merge_conflict_instances(nms_iou=NMS_IOU, nms_similarity=NMS_SIMILARITY)
     instance_map.remove_small_instances(min_points=SMALL_INSTANCE)
     t_end = time.time()
@@ -166,7 +165,8 @@ def process_scene(args):
     instance_map.update_volume_points()
     instance_map.update_semantic_queries()
     instance_map.verify_curtains()
-    
+    instance_map.merge_background()
+
     # Export
     if 'ScanNet' in map_root:
         print('Saving evaluation results')
@@ -181,7 +181,7 @@ def process_scene(args):
     import render_result
     unlabel_point_color = 'remove' # remove or black
     if viz_folder is not None:
-        dense_points, dense_labels = instance_map.extract_object_map(external_points=None,extract_from_dense_points=False)
+        dense_points, dense_labels = instance_map.extract_object_map(external_points=None,extract_from_dense_points=False,min_weight=MIN_VOXEL_WEIGTH)
         semantic_colors, instance_colors = render_result.generate_colors(dense_labels.astype(np.int64))
         
         viz_pcd = o3d.geometry.PointCloud()
@@ -198,7 +198,8 @@ def process_scene(args):
         viz_pcd.colors = o3d.utility.Vector3dVector(instance_colors/255.0)
         o3d.io.write_point_cloud(os.path.join(viz_folder,'{}_instance.ply'.format(scene_name)),viz_pcd)
     
-    return time_record
+    print('finished {}'.format(scene_name))
+    return (time_record, object_time_record)
                 
 if __name__ =='__main__':
     
@@ -209,52 +210,64 @@ if __name__ =='__main__':
     parser.add_argument('--debug_folder', type=str, help='folder in the the debug directory', default='baseline')
     parser.add_argument('--prior_model',type=str, default='bayesian')
     parser.add_argument('--measurement_dir', type=str, default='noaugment')
-    parser.add_argument('--fuse_all_tokens', action='store_true', help='fuse all tokens')
+    # parser.add_argument('--fuse_all_tokens', action='store_true', help='fuse all tokens')
     
     opt = parser.parse_args()
     
     # root_folder = '/data2/ScanNet'
     split = opt.split #'val'
     pred_root_dir = os.path.join(opt.dataroot,'debug',opt.debug_folder) # '/data2/ScanNet/debug/baseline' # bayesian_forward
-    eval_folder = os.path.join(opt.dataroot,'eval','{}_offline'.format(opt.debug_folder)) #'/data2/ScanNet/eval/'+METHOD_NAME
-    output_folder = os.path.join(opt.dataroot,'output','{}_offline'.format(opt.debug_folder)) #'/data2/ScanNet/output/'+METHOD_NAME
-    # FUSE_ALL_TOKENS = True
+    eval_folder = os.path.join(opt.dataroot,'eval','{}_refined'.format(opt.debug_folder)) #'/data2/ScanNet/eval/'+METHOD_NAME
+    viz_folder = os.path.join(opt.dataroot,'output','{}_refined'.format(opt.debug_folder)) #'/data2/ScanNet/output/'+METHOD_NAME
+    # semantic_eval_folder = os.path.join(opt.dataroot,'eval','{}_semantic'.format(opt.debug_folder)) #'/data2/ScanNet/eval/'+METHOD_NAME
 
     # if opt.prior_model=='bayesian':
     prior_model = os.path.join(opt.measurement_dir,opt.prior_model)
 
-
     scans = fuse_detection.read_scans(os.path.join(opt.dataroot,'splits','{}.txt'.format(opt.split_file)))
-    # scans = ['scene0011_01']
+    # scans = ['scene0616_00']
     
-    if output_folder is not None:
-        if os.path.exists(output_folder) is False:
-            os.makedirs(output_folder)
+    if viz_folder is not None:
+        if os.path.exists(viz_folder) is False:
+            os.makedirs(viz_folder)
 
     if os.path.exists(eval_folder) is False:
         os.makedirs(eval_folder)
     
-    label_predictor = fuse_detection.LabelFusion(prior_model, fuse_all_tokens=opt.fuse_all_tokens)
+    label_predictor = fuse_detection.LabelFusion(prior_model, fusion_method='bayesian')
     map_root_dir = os.path.join(opt.dataroot,split)
     # exit(0)
     
     valid_scans = []
-    time_record_table = []
+    frame_time_table = [] # [frame_number,t0,t1,t2]
+    object_time_table = [] # [aggregate_object_number,t0,t1,t2]
     for scan in scans:
         fuse_file = os.path.join(pred_root_dir,scan,'fusion_debug.txt')
+        output_file = os.path.join(eval_folder,scan,'predinfo.txt')
+        # if os.path.exists(output_file):continue
         if os.path.exists(fuse_file):
             valid_scans.append(scan)
-            time_record = process_scene((map_root_dir,pred_root_dir,scan,label_predictor,eval_folder,output_folder))
-            time_record_table.append(time_record)
+            (time_record, object_time_record) = process_scene((map_root_dir,pred_root_dir,scan,label_predictor,eval_folder,viz_folder))
+            
+            if time_record is not None:
+                frame_time_table.append(np.array(time_record))
+            if object_time_table is not None:
+                object_time_table.append(np.array(object_time_record))
             # break
-    mean_time = np.mean(np.array(time_record_table),axis=0)
-    print('mean time: ',mean_time)
-    print('processing {} scans'.format(len(valid_scans)))
+        else:
+            print('skip scan: {}'.format(scan))
+            break
+    
+    frame_time_table = np.array(frame_time_table)
+    object_time_table = np.array(object_time_table)
+    time_analysis(frame_time_table,object_time_table,pred_root_dir)
+    
+    print('processed {} scans'.format(len(valid_scans)))
     exit(0)
 
 
     import multiprocessing as mp
     p = mp.Pool(processes=32)
-    p.map(process_scene, [(map_root_dir, pred_root_dir,scan,label_predictor,eval_folder,output_folder) for scan in valid_scans])
+    p.map(process_scene, [(map_root_dir, pred_root_dir,scan,label_predictor,eval_folder,viz_folder) for scan in valid_scans])
     p.close()
     p.join()

@@ -251,12 +251,77 @@ def load_light_results(dir, class_info):
         
         return class_info
 
+def load_image_results(dir, image_info):
+    '''image_info={scan_name: {viewed:_, prompts:[]}}'''
+    
+    with open(dir,'r') as f:
+        data = json.load(f)
+        images = data['ram']
+        # MIN_VIEW = 100
+        count_gt_sofa_tags = 0
+
+        
+        for frame_name, frame_info in images.items():
+            # unique observation list
+            observation = frame_info['observed']
+            unique_observations = []
+            for obs in observation:
+                if obs not in unique_observations: unique_observations.append(obs)
+            if 'refridgerator' in unique_observations:
+                unique_observations[unique_observations.index('refridgerator')] = 'refrigerator'
+                
+            # unique tag list
+            unique_tags = [tag.strip() for tag in frame_info['prompts'].split('.')] 
+                
+            # update for each observed class
+            for gt_label in unique_observations:
+                if gt_label not in image_info:
+                    image_info[gt_label] = {'viewed':1,'prompts':unique_tags}
+                else:
+                    image_info[gt_label]['viewed'] += 1
+                    # image_info[gt_label]['prompts'] += unique_tags
+                    updated_prompts = image_info[gt_label]['prompts'] + unique_tags
+                    image_info[gt_label]['prompts'] = updated_prompts
+
+                if gt_label=='sofa': #and tag=='bookshelf':
+                    count_gt_sofa_tags += len(unique_tags)
+
+        return len(images)        
+
+def extract_ram_matrix(image_info, prompt_list):
+    '''
+        Output:
+        - ram_likelihood: (|prompts|,|nyu20_aug_label_names|)
+    '''
+    
+    ram_likelihood = np.zeros((len(prompt_list),len(nyu20_aug_label_names)),dtype=np.float32)
+    
+    for gt_label, gt_info in image_info.items():
+        if gt_label =='debug':
+            print('bksf-sofa:{}'.format(gt_info))
+            continue
+        prompt_hist = Counter(gt_info['prompts'])
+        if gt_label not in nyu20_aug_label_names: continue
+        col_id = nyu20_aug_label_names.index(gt_label)
+        print('-----{} is viewed {} times-----'.format(gt_label,gt_info['viewed']))
+        
+        for p_name, p_count in prompt_hist.items():
+            if p_name not in prompt_list: continue
+            row_id = prompt_list.index(p_name)
+            ram_likelihood[row_id,col_id] = p_count / gt_info['viewed']
+            # print('{}:{},{:.3f}'.format(p_name,p_count,ram_likelihood[row_id,col_id]))
+            if p_count> gt_info['viewed']:
+                print('({},{}) has {}>{} viewed'.format(p_name,gt_label,p_count,gt_info['viewed']))
+            
+    return {'rows':prompt_list,'cols':nyu20_aug_label_names,'likelihood':ram_likelihood}
+
+            
 def extract_det_prompts_mat(class_info, prompt_list, J_=20):
     # prompt_hist = Counter(prompt_occurance)
     # prompt_list = [k for k,v in prompt_hist.items()]
     detect_count_matrix = np.zeros((len(prompt_list),J_),dtype=np.int32)
     given_count_matrix = np.zeros((len(prompt_list),J_),dtype=np.int32) + 1e-3
-    MIN_PRIOR = 0.12
+    MIN_PRIOR = 0.06
     MIN_DETECTION = 20
     MIN_PROMPTS = 10
     IGNORE_TYPES = ['blanket','bag','computer monitor','pillow','television','dish washer']
@@ -275,6 +340,7 @@ def extract_det_prompts_mat(class_info, prompt_list, J_=20):
         # print('bb')
         
         for p_name, p_count in row_prompt_hist.items():
+            if p_name not in prompt_list:continue
             row_id = prompt_list.index(p_name)
             if p_name in row_detect_hist and p_count>MIN_PROMPTS:
                 detect_count_matrix[row_id,label20_id] += min(row_detect_hist[p_name],p_count)
@@ -289,7 +355,7 @@ def extract_det_prompts_mat(class_info, prompt_list, J_=20):
     valid_rows = np.ones(len(prompt_list),dtype=np.bool_)
     skipped_names = []
     for row in range(len(prompt_list)):
-        if np.sum(detect_count_matrix[row,:])<MIN_DETECTION or prompt_list[row] in IGNORE_TYPES:
+        if np.sum(detect_count_matrix[row,:])<20 or prompt_list[row] in IGNORE_TYPES:
             valid_rows[row] = False
             skipped_names.append(prompt_list[row])
     print('{}/{} valid prompts'.format(np.sum(valid_rows),len(prompt_list)))
@@ -300,8 +366,8 @@ def extract_det_prompts_mat(class_info, prompt_list, J_=20):
     
     # filter cells
     detection_priors = normalize(detect_count_matrix, norm='l1', axis=1)
-    # filter_cells = detect_count_matrix < MIN_DETECTION
-    filter_cells = detection_priors<MIN_PRIOR
+    filter_cells = detect_count_matrix < MIN_DETECTION
+    # filter_cells = detection_priors<MIN_PRIOR
     detect_count_matrix[filter_cells] = 0
     
     # 3. Probability
@@ -316,6 +382,13 @@ def extract_det_prompts_mat(class_info, prompt_list, J_=20):
         for os_name in os_names:
             os_id = prompt_list.index(os_name)
             likelihood[os_id,gt_id] = 0.9
+    
+    hardcode_cells = {'dresser':{'refrigerator':0.2}}
+    for os_name, gt_dict in hardcode_cells.items():
+        for gt_name, probability in gt_dict.items():
+            os_id = prompt_list.index(os_name)
+            gt_id = nyu20_aug_label_names.index(gt_name)
+            likelihood[os_id,gt_id] = probability
 
     # 5. Check the sum of each row
     for row in range(len(prompt_list)):
@@ -456,13 +529,15 @@ def reorder_openset_names(openset_names, prompt_det_probability):
         assert name in openset_names, 'name {} not in openset_names'.format(name)
         new_k = openset_names.index(name)
         reorder_likelihood[new_k] = prompt_det_probability['likelihood'][k]
-        reorder_det_matrix[new_k] = prompt_det_probability['det_mat'][k]
-        reorder_prompt_matrix[new_k] = prompt_det_probability['prompt_mat'][k]
+        if 'det_mat' in prompt_det_probability:
+            reorder_det_matrix[new_k] = prompt_det_probability['det_mat'][k]
+            reorder_prompt_matrix[new_k] = prompt_det_probability['prompt_mat'][k]
         
     prompt_det_probability['rows'] = openset_names
     prompt_det_probability['likelihood'] = reorder_likelihood
-    prompt_det_probability['det_mat'] = reorder_det_matrix
-    prompt_det_probability['prompt_mat'] = reorder_prompt_matrix
+    if 'det_mat' in prompt_det_probability:
+        prompt_det_probability['det_mat'] = reorder_det_matrix
+        prompt_det_probability['prompt_mat'] = reorder_prompt_matrix
     return prompt_det_probability
 
 def concat_openset_names(probability_map, dir):
@@ -495,15 +570,18 @@ if __name__=='__main__':
     count = 0
     count_detections = 0
     count_views = 0
-
+    count_frames = 0
     
     class_info = {} # {nyu40id: {viewed:_, prompts:[], detections:[]}}
+    image_info = {'debug':0} # {scan_name: {viewed:_, prompts:[]}}
     
     # Read data
+    # files = ['/data2/ScanNet/measurements/bayesian/scene0296_00.json']
     for file in files:
         scan_name = os.path.basename(file).split('.')[0]
         print('reading {}'.format(scan_name))
         class_info = load_light_results(file, class_info)
+        count_frames = load_image_results(file, image_info)
         count += 1
         # break
     
@@ -512,8 +590,7 @@ if __name__=='__main__':
         count_views += info['viewed']
         print('{}, {} viewed, prompts:{}, detections:{}'.format(gtlabel,info['viewed'],len(info['prompts']),len(info['detections'])))
     
- 
-    
+    print('--------- summarize {} frames ---------'.format(count_frames))
     print('--------- summarize {} scans with {} instances ---------'.format(count,len(class_info)))
     print('--------- {} detections, {} views ---------'.format(count_detections,count_views))
     # exit(0)
@@ -529,11 +606,13 @@ if __name__=='__main__':
     print('--------------- analysis ----------------')
     # detections_gt_matrix = extract_det_matrix(class_pairs, openset_name_mapper)
     prompt_det_probability = extract_det_prompts_mat(class_info, openset_names)
+    ram_likelihood = extract_ram_matrix(image_info, prompt_det_probability['rows'])
     # exit(0)
 
     # maskrcnn_probability = create_kimera_probability(maskrcnn_model_dir, valid_opensets=None)
     kimera_probability = create_kimera_probability(kimera_model_dir, prompt_det_probability['rows'])
     prompt_det_probability = reorder_openset_names(kimera_probability['rows'], prompt_det_probability)
+    ram_likelihood = reorder_openset_names(kimera_probability['rows'], ram_likelihood)
     # prompt_det_probability = concat_openset_names(prompt_det_probability, kimera_model_dir)
     # kimera_probability = concat_openset_names(kimera_probability, kimera_model_dir)
 
@@ -550,7 +629,13 @@ if __name__=='__main__':
     # filter_probability['cols'] = prompt_det_probability['cols'] #[:filter_col]
     # filter_probability['likelihood'] = prompt_det_probability['likelihood'] #[:filter_row,:filter_col]
     
+    export.general_likelihood_matrix(ram_likelihood, output_folder)
     export.likelihood_matrix(prompt_det_probability, output_folder)
+    multip_likelihood = {'likelihood':prompt_det_probability['likelihood']*ram_likelihood['likelihood'],
+                         'rows':prompt_det_probability['rows'],
+                         'cols':prompt_det_probability['cols']}
+    export.general_likelihood_matrix(multip_likelihood, output_folder, 'multip_likelihood')
+    
     # export.likelihood_matrix(kimera_probability,output_folder,'kimera openset likelihood')
     # export.likelihood_matrix(maskrcnn_probability,output_folder,'maskrcnn_likelihood')
     exit(0)

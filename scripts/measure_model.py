@@ -365,16 +365,16 @@ def process_scene_new(args):
     predict_frames =  glob.glob(os.path.join(predict_folder,'*_label.json'))  
     print('---- {} find {} prediction frames'.format(scene_name,len(predict_frames)))
     if len(predict_frames)==0: return 0
-    association_map = {}
+    association_map = {} # {frame_name: frame_association}. It only considers the instances been detected.
+    ram_results = {} # {frame_name: ram_result}. All the observed instances should be considered.
 
-    
     for index,pred_frame in enumerate(sorted(predict_frames)):   
         frame_name = os.path.basename(pred_frame).split('_')[0] 
         frameidx = int(frame_name.split('-')[-1])
         if frameidx % FRAME_GAP != 0: continue
 
         # load prediction
-        tags, detections = fuse_detection.load_pred(predict_folder, frame_name, True)
+        tags, detections = fuse_detection.load_pred(predict_folder, frame_name)
         if len(detections)<1: continue
         
         # load gt
@@ -403,6 +403,7 @@ def process_scene_new(args):
         instances = []
         
         # Update data
+        frame_ram = {'observed':[], 'prompts':create_prompts(tags)[1][0]} 
         frame_association = dict()
         _, frame_association['prompts'] = create_prompts(tags)
         frame_association['detections'] = create_measurements(detections)
@@ -416,6 +417,7 @@ def process_scene_new(args):
             if gt_label40_id not in SEMANTIC_IDX: continue
             gt_label20_id = np.where(SEMANTIC_IDX==gt_label40_id)[0][0]
             # print('find instance {} with label {}'.format(inst_id,SEMANTIC_NAMES[gt_label40_id]))
+            frame_ram['observed'].append(SEMANTIC_NAMES[gt_label20_id])
             
             ious = cal_overlap(gt_mask,detections)
             k_ = np.argmax(ious)
@@ -432,12 +434,15 @@ def process_scene_new(args):
 
         frame_association['instances'] = instances
         association_map[frame_name] = frame_association
+        ram_results[frame_name] = frame_ram
+        
         print('find {}/{} matched instances'.format(len(instances),len(instant_indices)))
         # break
 
     # Export data
     json_data = {"min_iou":MIN_IOU,"frame_gap":FRAME_GAP}
     json_data['associations'] = association_map
+    json_data['ram'] = ram_results
 
     with open(outfile,'w') as f:
         json.dump(json_data,f)
@@ -448,14 +453,14 @@ if __name__=='__main__':
     dataroot = '/data2/ScanNet'
     split='train'
     # PREDICT = 'prediction_no_augment'
-    PREDICT = 'prediction_backward'
-    result_folder = os.path.join(dataroot,'measurements','backward_augmented')
+    PREDICT = 'prediction_forward'
+    result_folder = os.path.join(dataroot,'measurements','bayesian')
     if os.path.exists(result_folder)==False:
         os.makedirs(result_folder)
     scans = render_result.read_scans(os.path.join(dataroot,'splits','train_micro.txt'))
     valid_scans =  [scan for scan in scans if os.path.exists(os.path.join(dataroot,split,scan,PREDICT))]
     print('{}/{} scans are valid'.format(len(valid_scans),len(scans)))
-    exit(0)
+    # exit(0)
     
     # scans = ['scene0407_01']
     
@@ -465,7 +470,7 @@ if __name__=='__main__':
     # exit(0)
     
     import multiprocessing as mp
-    p = mp.Pool(processes=32)
+    p = mp.Pool(processes=16)
     p.map(process_scene_new, [(os.path.join(dataroot,split,scan), result_folder, PREDICT) for scan in valid_scans])
     p.close()
     p.join()

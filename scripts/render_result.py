@@ -133,47 +133,40 @@ if __name__=='__main__':
     
     dataroot = '/data2/ScanNet'
     split = 'val'
-    test_set = 'filtertag_proposed' 
+    test_set = 'projection' 
     # test_set = 'fusion++'
-
-    eval_dir = '/data2/ScanNet/eval'
-    save_map_dir = None  
-    save_map_dir = os.path.join('/data2/ScanNet/output',test_set)
+    map_folder = '/data2/ScanNet/output'
+    
+    # save_map_dir = None  
+    # save_map_dir = os.path.join('/data2/ScanNet/output',test_set)
     os.environ.setdefault('WEBRTC_IP', '143.89.46.75')
     os.environ.setdefault('WEBRTC_PORT', '8020')
-    scans = read_scans(os.path.join(dataroot,'splits','val_clean.txt'))
-    valid_scans = [scan for scan in scans if os.path.exists(os.path.join(eval_dir,test_set,scan,'result.npy'))]
+    scans = read_scans(os.path.join(dataroot,'splits','val_tmp.txt'))
+    valid_scans = [scan for scan in scans if os.path.exists(os.path.join(map_folder,test_set,'{}_semantic.ply'.format(scan)))]
     
     print('find {} scans'.format(len(valid_scans)))
     # RENDER_TYPE='semantic_pred'
     # RENDER_TYPE='instance_pred'
     # scans = ['scene0064_00']
+    # exit(0)
 
     for scan in valid_scans:
-        scan_dir = os.path.join(dataroot,split,scan)
-        result_dir = os.path.join(eval_dir,test_set,scan,'result.npy')
-
-        scene_name = os.path.basename(scan_dir)
-        map_dir = os.path.join(scan_dir,'{}_{}'.format(scene_name,'vh_clean_2.ply'))
-        pcd_semantic = o3d.io.read_point_cloud(map_dir)
-        pcd_instance = o3d.io.read_point_cloud(map_dir)
+        semantic_dir = os.path.join(map_folder,test_set,'{}_semantic.ply'.format(scan))
+        instance_dir = os.path.join(map_folder,test_set,'{}_instance.ply'.format(scan))
+        pcd_semantic = o3d.io.read_point_cloud(semantic_dir)
+        pcd_instance = o3d.io.read_point_cloud(instance_dir)
         
-        rgb, _, _ = get_coords_color('semantic_pred',result_dir)
-        pcd_semantic.colors = o3d.utility.Vector3dVector(rgb/255.0)
-        rgb, _, _ = get_coords_color('instance_pred',result_dir)
-        pcd_instance.colors = o3d.utility.Vector3dVector(rgb/255.0)
-        pcd_instance = pcd_instance.translate([0,10,0])
 
         out = [pcd_semantic]
         # print(pcd_semantic)
         
         
         # break
-        if save_map_dir is not None:
-            if os.path.exists(save_map_dir) is False:
-                os.makedirs(save_map_dir)
-            o3d.io.write_point_cloud(os.path.join(save_map_dir,'{}_semantic.ply'.format(scan)),pcd_semantic)
-            o3d.io.write_point_cloud(os.path.join(save_map_dir,'{}_instance.ply'.format(scan)),pcd_instance)
-        else:        
-            o3d.visualization.webrtc_server.enable_webrtc()
-            o3d.visualization.draw(out)
+        # if save_map_dir is not None:
+        #     if os.path.exists(save_map_dir) is False:
+        #         os.makedirs(save_map_dir)
+        #     o3d.io.write_point_cloud(os.path.join(save_map_dir,'{}_semantic.ply'.format(scan)),pcd_semantic)
+        #     o3d.io.write_point_cloud(os.path.join(save_map_dir,'{}_instance.ply'.format(scan)),pcd_instance)
+        # else:        
+        o3d.visualization.webrtc_server.enable_webrtc()
+        o3d.visualization.draw(out)
