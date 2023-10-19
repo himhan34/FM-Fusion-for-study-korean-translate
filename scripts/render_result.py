@@ -78,7 +78,7 @@ def get_coords_color(task,result_dir):
 
     return rgb, sem_pred, instances
 
-def generate_colors(composite_labels):
+def generate_colors(composite_labels,random_color=False):
     '''
     Semantic types outside of the 20 classes are ignored.
     '''
@@ -100,8 +100,10 @@ def generate_colors(composite_labels):
     instance_colors = np.zeros((N,3)).astype(np.int32)
     instance_list = np.unique(instances)
     for idx in instance_list[:-1]:
-        # instance_colors[instances == idx] = COLOR20[random.randint(0,len(COLOR20)-1)]
-        instance_colors[instances == idx] = COLOR20[idx % len(COLOR20)]
+        if random_color:
+            instance_colors[instances == idx] = COLOR20[random.randint(0,len(COLOR20)-1)]
+        else:
+            instance_colors[instances == idx] = COLOR20[idx % len(COLOR20)]
         
     return semantic_colors, instance_colors
 

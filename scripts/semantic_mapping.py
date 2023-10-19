@@ -182,7 +182,11 @@ def overlay_detection_mask(rgb:np.ndarray, detections:list):
         color_mask[zk.mask] = zk_color
         overlay = cv2.addWeighted(overlay,0.9,color_mask,0.5,0)
 
-    out = np.concatenate([rgb,overlay],axis=1)
+    # 
+    white_gap = np.ones((64,rgb.shape[1],3),dtype=np.uint8)*255
+    out = np.concatenate([rgb,white_gap,overlay,white_gap],axis=0)
+    whilte_col = np.ones((out.shape[0],32,3),dtype=np.uint8)*255
+    out = np.concatenate([whilte_col,out,whilte_col],axis=1)
 
     return out
 
@@ -345,9 +349,26 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
         INFLAT_RATIO = 2.0
         SMALL_INSTANCE_SIZE = 500
         SMALL_INSTANCE_NEG = 5
-        REFINE_FRAME_GAP = 250
+        REFINE_FRAME_GAP = 200
         K_rgb,K_depth,rgb_dim,depth_dim = project_util.read_intrinsic(os.path.join(scene_dir,'intrinsic'),align_depth=True)    
-
+    elif 'scenenn' in dataroot:
+        DEPTH_SCALE = 1000.0
+        RGB_FOLDER = 'image'
+        RGB_POSFIX = '.png'
+        DATASET = 'scenenn'
+        FRAME_GAP = 5
+        VX_RESOLUTION = 256
+        MIN_VIEW_POINTS = 800 # instance-wise
+        MIN_MASK_POINTS = 1000 # detection-wise pcd
+        FILTER_DETECTION_IOU = 0.1
+        ASSIGNMENT_IOU = 0.5
+        NMS_IOU = 0.4
+        NMS_SIMILARITY = 0.15
+        INFLAT_RATIO = 2.0
+        SMALL_INSTANCE_SIZE = 2000
+        SMALL_INSTANCE_NEG = 8
+        REFINE_FRAME_GAP = 300
+        K_rgb,K_depth,rgb_dim,depth_dim = project_util.read_intrinsic(os.path.join(scene_dir,'intrinsic'),align_depth=True) 
     else:
         raise NotImplementedError
     
@@ -384,7 +405,10 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
         o3d_view_control.update_visualizer(o3d_visulizer)
         o3d_visulizer.poll_events()
         o3d_visulizer.update_renderer()
-        prev_o3d_viz = None
+        prev_viz_pcd = None
+        prev_viz_lineset = None
+        positions = []
+        lines = []
     
     count_frames = 0
     
@@ -393,6 +417,12 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
         if DATASET=='scannet':
             frame_stamp = float(frame_name[6:])
             depth_dir = os.path.join(scene_dir,'depth',frame_name+'.png')
+            pose_dir = os.path.join(scene_dir,'pose',frame_name+'.txt')
+        elif DATASET=='scenenn':
+            frame_stamp = float(frame_name[5:])
+            depth_dir = os.path.join(scene_dir,'depth',frame_name.replace('image','depth')+'.png')
+            pose_dir = os.path.join(scene_dir,'pose',frame_name.replace('image','frame-')+'.txt')
+
         else:
             raise NotImplementedError
         
@@ -400,11 +430,14 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
         
         # Load RTB-D and pose
         rgbdir = os.path.join(scene_dir,RGB_FOLDER,frame_name+RGB_POSFIX)
-        pose_dir = os.path.join(scene_dir,'pose',frame_name+'.txt')
+        # pose_dir = os.path.join(scene_dir,'pose',frame_name+'.txt')
         if os.path.exists(pose_dir)==False:
             print('no pose file for frame {}. Stop the fusion.'.format(frame_name))
             break
         T_wc = np.loadtxt(pose_dir)
+        if T_wc.size<1:
+            print('Skip empty pose')
+            continue
 
         # Integrate global map
         if DENSE_MAPPING:
@@ -460,7 +493,7 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
                         
             if matches[k] < -0.1:# new instance            
                 new_instance = fuse_detection.Instance(instance_map.max_instance_id,J=len(label_predictor.closet_names))
-                new_instance.create_volume_debug(pcd_zk,VX_RESOLUTION)
+                new_instance.create_voxel_map(pcd_zk,VX_RESOLUTION)
                 new_instance.prob_vector,flag = label_predictor.update_measurement(zk.labels,new_instance.prob_vector)
                 if flag:
                     new_instance.save_label_measurements(zk.labels)
@@ -514,11 +547,17 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
         #
         if visualize:
             semantic_pcd, instance_pcd = extract_object_map(instance_map, scene_name, viz_folder)
+            positions.append(T_wc[:3,3])
+            lines.append([len(positions)-2,len(positions)-1])
+            line_set = o3d.geometry.LineSet(points=o3d.utility.Vector3dVector(positions),lines=o3d.utility.Vector2iVector(lines))
+            
             if semantic_pcd is None: continue
-            if prev_o3d_viz is not None:
-                o3d_visulizer.remove_geometry(prev_o3d_viz)
+            if prev_viz_pcd is not None:
+                o3d_visulizer.remove_geometry(prev_viz_pcd)
+                # o3d_visulizer.remove_geometry(prev_viz_lineset)
                 # cv2.destroyWindow(prev_o3d_viz)
             o3d_visulizer.add_geometry(semantic_pcd)
+            # o3d_visulizer.add_geometry(line_set)
             o3d_view_control.update_visualizer(o3d_visulizer)
             o3d_visulizer.poll_events()
             o3d_visulizer.update_renderer()
@@ -526,7 +565,8 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
             rgb_masked = overlay_detection_mask(rgb_np, projection_detections)
             cv2.imshow('rgb',rgb_masked)
             cv2.waitKey(10) & 0XFF
-            prev_o3d_viz=semantic_pcd
+            prev_viz_pcd=semantic_pcd
+            prev_viz_lineset = line_set
 
     instance_map.update_volume_points()
     # Export 
@@ -584,7 +624,7 @@ if __name__ == '__main__':
     if os.path.exists(viz_folder)==False: os.makedirs(viz_folder)
     if os.path.exists(eval_folder)==False: os.makedirs(eval_folder)
     
-    # scans = ['scene0025_01']
+    # scans = ['scene0011_01']
     
     for scan in scans:
         args = os.path.join(opt.data_root,opt.split,scan), opt.data_root, opt.output_folder, opt.prediction_folder, label_predictor, opt.visualize

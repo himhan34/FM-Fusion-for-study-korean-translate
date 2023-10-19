@@ -17,6 +17,14 @@ SEMANTIC_NAMES = render_result.SEMANTIC_NAMES
 SEMANTIC_IDX = render_result.SEMANTIC_IDXS
 
 def extract_instance_points_thread(args):
+    '''
+    Input:
+    - gt_points: (N,3), np.float32
+    - instance_points: (M,3), np.float32
+    - min_dist: float
+    Output:
+    - global_point_indices: (K,), np.int32, indices of gt_points that are inside the instance_points
+    '''
     # MIN_DIST   = 0.1
     gt_points,instance_points,min_dist = args
     
@@ -113,7 +121,7 @@ class Instance:
     def get_exist_confidence(self):
         return self.pos_observed/(self.pos_observed+self.neg_observed+1e-6)    
     
-    def create_volume_debug(self, point_cloud:o3d.geometry.PointCloud, resolution=256.0):
+    def create_voxel_map(self, point_cloud:o3d.geometry.PointCloud, resolution=256.0):
         ''' create with point_cloud in (N,3), np.float32'''
         self.voxel_length = 4.0/resolution
         points = np.asarray(point_cloud.points,dtype=np.float32)
@@ -412,7 +420,7 @@ class LabelFusion:
             openset_names = data['openset_names']
             closet_names = data['closet_names']
         
-        likelihood = np.load(os.path.join(dir,'multip_likelihood.npy'))
+        likelihood = np.load(os.path.join(dir,'likelihood_matrix.npy'))
         
         self.openset_names =  openset_names #[openset_id2name[i] for i in np.where(valid_rows)[0].astype(np.int32)]# list of openset names, (K,)
         self.closet_names = closet_names # In ScanNet, uses NYU20
@@ -533,7 +541,8 @@ class ObjectMap:
         '''
         fn3: scannet segmentation file xxxx_vh_clean_2.0.010000.segs.json
         '''
-        assert os.path.exists(fn3), 'segmentation file {} does not exist'.format(fn3)
+        if os.path.exists(fn3)==False:
+            print('segmentation file {} does not exist'.format(fn3))
         segments = read_scannet_segjson(fn3)
         self.segments = [np.array(segpoints) for segid,segpoints in segments.items()]
         print('Load {} segments'.format(len(self.segments)))
@@ -699,13 +708,12 @@ class ObjectMap:
             - eval_dir: str, the folder directory to save the results
             - points: N*3, np.float32, the point cloud provided by ScanNet
         '''
-        MIN_DIST = 0.06
+        MIN_DIST = 0.08
         MIN_POINTS = 1
         scene_name = os.path.basename(eval_dir)
         output_folder = eval_dir #os.path.join(eval_dir,scene_name)
         if os.path.exists(output_folder)==False: os.makedirs(output_folder)
         count = 0
-        pred_file = open(os.path.join(output_folder,'predinfo.txt'),'w')
 
         # Extract aliged points in multi-thread
         import multiprocessing as mp
@@ -725,7 +733,8 @@ class ObjectMap:
         p.join()
         print('Points aligned')
 
-        # Export results         
+        # Export results     
+        pred_file = open(os.path.join(output_folder,'predinfo.txt'),'w')
         for i, idx in enumerate(instance_list):    
             label_id = instance_labels[i]
             points_indices = points_indices_list[i]
@@ -743,7 +752,8 @@ class ObjectMap:
                 pred_file.write('{} {} {:.3f}\n'.format(os.path.basename(mask_file),label_nyu40,label_conf))
                 np.savetxt(mask_file,points_mask,fmt='%d')
                 count +=1
-                 
+        pred_file.close()
+    
         # Export semantic result
         if semantic_eval_folder is not None:
             semantic_output_labels = np.zeros(gt_points.shape[0],dtype=np.uint8)
@@ -758,7 +768,6 @@ class ObjectMap:
             print('{}/{} points are annotated with semantic label'.format(np.sum(semantic_output_labels>0),semantic_output_labels.shape[0]))
             np.savetxt(os.path.join(semantic_eval_folder,'{}.txt'.format(scene_name)),semantic_output_labels,fmt='%d')
         
-        pred_file.close()
         print('Extract {}/{} instances to evaluate'.format(count,len(self.instance_map)))
 
     

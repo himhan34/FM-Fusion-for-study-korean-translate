@@ -25,17 +25,23 @@ def write_scannet_gt(voxel_map,clean_map_dir,out_folder):
     voxel_instance = voxel_map['voxels'].value_tensor(1)[buf_indices]
 
 def time_analysis(frame_time_table, object_time_table, output_folder):
+    sum_frame_time = frame_time_table[:,1:].sum(axis=0)
+    sum_object_info = object_time_table.sum(axis=0)
+    aggregate_active_objects = sum_object_info[1]
     mean_frame_time = frame_time_table[:,1:].sum(axis=0)/frame_time_table[:,0].sum()
-    mean_object_time = object_time_table[:,1:].sum(axis=0)/object_time_table[:,0].sum()
+    mean_object_time = frame_time_table[:,1:].sum(axis=0)/aggregate_active_objects
     print('mean frame time(msec): ', 1000*mean_frame_time)
     print('mean object time(msec): ',1000*mean_object_time)
     with open(os.path.join(output_folder,'time.txt'),'w') as f:
+        f.write('sum frame time(s): {}\n'.format(sum_frame_time))
+        f.write('sum object item: {}\n'.format(sum_object_info))
+        f.write('sum frame number: {}\n'.format(frame_time_table[:,0].sum()))
         f.write('mean frame time(msec): {}\n'.format(1000*mean_frame_time))
         f.write('mean object time(msec): {}\n'.format(1000*mean_object_time))
         f.close()
 
 def process_scene(args):
-    map_root, pred_root, scene_name, predictor,eval_folder, viz_folder = args
+    map_root, pred_root, scene_name, predictor,eval_folder, viz_folder, semantic_eval_folder = args
     map_folder = os.path.join(map_root,scene_name)
     pred_folder = os.path.join(pred_root,scene_name)
     
@@ -70,17 +76,21 @@ def process_scene(args):
         NMS_SIMILARITY=0.2
         merge_semantic_classes = ['computer monitor','earth','teddy','table','desk','chair']
     elif 'scenenn' in map_root:
-        MAP_POSFIX = 'mesh_o3d256.ply'
+        MAP_POSFIX = 'dense_map.ply'
         SEGFILE_POSFIX = 'mesh_o3d256.0.010000.segs.json'
         map_dir = os.path.join(map_folder,'{}'.format(MAP_POSFIX))
         segfile_dir = os.path.join(map_folder,'{}'.format(SEGFILE_POSFIX))
         MIN_VIEW_COUNT = 3
         MIN_FOREGROUND = 0.4
+        MIN_VOXEL_WEIGTH = 1
+        VX_RESOLUTION = 256.0
         SMALL_INSTANCE = 1000
-        MIN_GEOMETRY = 200
-        NMS_IOU = 0.1
-        NMS_SIMILARITY=0.2
-        merge_semantic_classes = ['chair','bookshelf','floor','cabinet','refridgerator','table','desk','window','curtain','shower curtain']
+        MIN_GEOMETRY = 100
+        SEGMENT_IOU = 0.1
+        NMS_IOU = 0.2
+        NMS_SIMILARITY=0.1
+        merge_semantic_classes = []
+        # ['chair','bookshelf','floor','cabinet','refridgerator','table','desk','window','curtain','shower curtain']
 
     pred_dir = os.path.join(pred_folder,'fusion_debug.txt')
     time_record = None
@@ -105,9 +115,10 @@ def process_scene(args):
                 # time_record = np.array(time_record)
                 print('time record: ',time_record)
             elif 'objects record' in line:
-                object_time_record_string = line.split(':')[-1][2:-3]
+                object_time_record_string = line.split(':')[-1][2:-1]
                 object_time_record = [float(ele.strip()) for ele in object_time_record_string.split(' ') if len(ele)>1]
                 print('object time record: ',object_time_record)
+                # assert object_time_record[1] < time_record[0]
             
             if line[0] == '#':continue
             secs = line.split(';')
@@ -173,16 +184,16 @@ def process_scene(args):
         scannet_label_dir = os.path.join(map_folder,'{}_{}'.format(scene_name,'vh_clean_2.ply'))
         label_pcd = o3d.io.read_point_cloud(scannet_label_dir)
         label_points = np.asarray(label_pcd.points,dtype=np.float32)
-        instance_map.save_scannet_results(os.path.join(eval_folder,scene_name),label_points)
+        instance_map.save_scannet_results(os.path.join(eval_folder,scene_name),label_points,semantic_eval_folder)
     
-    # return None
+    # return np.ones(3), np.ones(3)
 
     # Save visualization
     import render_result
     unlabel_point_color = 'remove' # remove or black
     if viz_folder is not None:
         dense_points, dense_labels = instance_map.extract_object_map(external_points=None,extract_from_dense_points=False,min_weight=MIN_VOXEL_WEIGTH)
-        semantic_colors, instance_colors = render_result.generate_colors(dense_labels.astype(np.int64))
+        semantic_colors, instance_colors = render_result.generate_colors(dense_labels.astype(np.int64),random_color=True)
         
         viz_pcd = o3d.geometry.PointCloud()
         if unlabel_point_color=='remove':
@@ -210,7 +221,6 @@ if __name__ =='__main__':
     parser.add_argument('--debug_folder', type=str, help='folder in the the debug directory', default='baseline')
     parser.add_argument('--prior_model',type=str, default='bayesian')
     parser.add_argument('--measurement_dir', type=str, default='noaugment')
-    # parser.add_argument('--fuse_all_tokens', action='store_true', help='fuse all tokens')
     
     opt = parser.parse_args()
     
@@ -219,13 +229,13 @@ if __name__ =='__main__':
     pred_root_dir = os.path.join(opt.dataroot,'debug',opt.debug_folder) # '/data2/ScanNet/debug/baseline' # bayesian_forward
     eval_folder = os.path.join(opt.dataroot,'eval','{}_refined'.format(opt.debug_folder)) #'/data2/ScanNet/eval/'+METHOD_NAME
     viz_folder = os.path.join(opt.dataroot,'output','{}_refined'.format(opt.debug_folder)) #'/data2/ScanNet/output/'+METHOD_NAME
-    # semantic_eval_folder = os.path.join(opt.dataroot,'eval','{}_semantic'.format(opt.debug_folder)) #'/data2/ScanNet/eval/'+METHOD_NAME
+    semantic_eval_folder = os.path.join(opt.dataroot,'eval','{}_semantic'.format(opt.debug_folder)) #'/data2/ScanNet/eval/'+METHOD_NAME
 
     # if opt.prior_model=='bayesian':
     prior_model = os.path.join(opt.measurement_dir,opt.prior_model)
 
     scans = fuse_detection.read_scans(os.path.join(opt.dataroot,'splits','{}.txt'.format(opt.split_file)))
-    # scans = ['scene0616_00']
+    # scans = ['scene0568_01']
     
     if viz_folder is not None:
         if os.path.exists(viz_folder) is False:
@@ -233,6 +243,9 @@ if __name__ =='__main__':
 
     if os.path.exists(eval_folder) is False:
         os.makedirs(eval_folder)
+        
+    if os.path.exists(semantic_eval_folder) is False:
+        os.makedirs(semantic_eval_folder)
     
     label_predictor = fuse_detection.LabelFusion(prior_model, fusion_method='bayesian')
     map_root_dir = os.path.join(opt.dataroot,split)
@@ -247,7 +260,7 @@ if __name__ =='__main__':
         # if os.path.exists(output_file):continue
         if os.path.exists(fuse_file):
             valid_scans.append(scan)
-            (time_record, object_time_record) = process_scene((map_root_dir,pred_root_dir,scan,label_predictor,eval_folder,viz_folder))
+            (time_record, object_time_record) = process_scene((map_root_dir,pred_root_dir,scan,label_predictor,eval_folder,viz_folder,semantic_eval_folder))
             
             if time_record is not None:
                 frame_time_table.append(np.array(time_record))

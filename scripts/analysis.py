@@ -559,11 +559,11 @@ def concat_openset_names(probability_map, dir):
 if __name__=='__main__':
     method = 'bayesian' #'bayesian'
     results_dir = '/data2/ScanNet/measurements/'+method
-    output_folder = '/home/cliuci/code_ws/OpensetFusion/measurement_model/bayesian'# + method
+    output_folder = '/home/cliuci/code_ws/OpensetFusion/measurement_model'# + method
     files = glob.glob(os.path.join(results_dir,'*.json'))
     print('analysis {} scan results'.format(len(files)))
     kimera_model_dir = '/home/cliuci/code_ws/OpensetFusion/measurement_model/categories.json'
-    maskrcnn_model_dir = '/home/cliuci/code_ws/OpensetFusion/measurement_model/coco_categories.json'
+    # maskrcnn_model_dir = '/home/cliuci/code_ws/OpensetFusion/measurement_model/coco_categories.json'
     # kimera_label_mapper = read_hard_association(kimera_model_dir)
 
     ## Init
@@ -622,21 +622,15 @@ if __name__=='__main__':
     # print('find {} unique pred names:{}'.format(len(openset_name_mapper),openset_name_mapper))
     print('--------------- Export Data ----------------')
     import export
-    # filter_row = 10
-    # filter_col = 22
-    # filter_probability = {}
-    # filter_probability['rows'] = prompt_det_probability['rows'] #[:filter_row]
-    # filter_probability['cols'] = prompt_det_probability['cols'] #[:filter_col]
-    # filter_probability['likelihood'] = prompt_det_probability['likelihood'] #[:filter_row,:filter_col]
     
-    export.general_likelihood_matrix(ram_likelihood, output_folder)
-    export.likelihood_matrix(prompt_det_probability, output_folder)
+    export.general_likelihood_matrix(ram_likelihood, os.path.join(output_folder,'bayesian'),'ram_likelihood')
+    export.general_likelihood_matrix(prompt_det_probability, os.path.join(output_folder,'bayesian'),'detection_likelihood')
     multip_likelihood = {'likelihood':prompt_det_probability['likelihood']*ram_likelihood['likelihood'],
                          'rows':prompt_det_probability['rows'],
                          'cols':prompt_det_probability['cols']}
-    export.general_likelihood_matrix(multip_likelihood, output_folder, 'multip_likelihood')
+    export.general_likelihood_matrix(multip_likelihood, os.path.join(output_folder,'bayesian'), 'likelihood_matrix')
     
-    # export.likelihood_matrix(kimera_probability,output_folder,'kimera openset likelihood')
+    export.general_likelihood_matrix(kimera_probability,os.path.join(output_folder,'hardcode'),'likelihood_matrix')
     # export.likelihood_matrix(maskrcnn_probability,output_folder,'maskrcnn_likelihood')
     exit(0)
 

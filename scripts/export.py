@@ -297,7 +297,7 @@ def general_likelihood_matrix(probability, output_folder,output_name='ram_likeli
                        cmap="YlGn", cbarlabel="p(q|l)")
     # ax.set(title='Open-set Labels', ylabel='Close-set Labels'.format(len(openset_names)))
     ax.set_title('Open-set Labels',fontsize=10)
-    ax.set_ylabel('Close-set Labels',fontsize=10)
+    ax.set_ylabel('Close-set Labels ({})'.format(len(openset_names)),fontsize=10)
     plt.xticks(fontsize=8,rotation=90,va='bottom')
     plt.yticks(fontsize=8)
     
@@ -323,11 +323,11 @@ def likelihood_matrix(probability,output_folder):
                        cmap="YlGn", cbarlabel="p(z|l)")
     # ax.set(title='Open-set Labels', ylabel='Close-set Labels'.format(len(openset_names)))
     ax.set_title('Open-set Labels',fontsize=10)
-    ax.set_ylabel('Close-set Labels',fontsize=10)
+    ax.set_ylabel('Close-set Labels ({})'.format(len(openset_names)),fontsize=10)
     plt.xticks(fontsize=8,rotation=90,va='bottom')
     plt.yticks(fontsize=8)
 
-    plt.savefig(os.path.join(output_folder,'detection_likelihood.png'))
+    plt.savefig(os.path.join(output_folder,'detection.png'))
     
     with open(os.path.join(output_folder,'label_names.json'),'w') as f:
         label_data = {'openset_names':openset_names,'closet_names':nyu20names}
@@ -335,7 +335,7 @@ def likelihood_matrix(probability,output_folder):
         f.close()
     
     # np.save(os.path.join(output_folder,'label_names.json'.format(model_name)),(openset_names, nyu20names),allow_pickle=True)
-    np.save(os.path.join(output_folder,'detection_likelihood.npy'),likelihood,allow_pickle=True)
+    np.save(os.path.join(output_folder,'detection.npy'),likelihood,allow_pickle=True)
     
     if 'det_mat' in probability and 'prompt_mat' in probability:
         detection_count = probability['det_mat']
@@ -567,7 +567,7 @@ if __name__=='__main__':
     label_names = json.load(open(os.path.join(model_folder,method,'label_names.json'),'r'))
     openset_names = label_names['openset_names']
     closet_names = label_names['closet_names']
-    bayesian_matrix = np.load(os.path.join(model_folder,method,'likelihood.npy'))
+    bayesian_matrix = np.load(os.path.join(model_folder,method,'likelihood_matrix.npy'))
     
     assert bayesian_matrix.shape[0] == len(openset_names)
     assert bayesian_matrix.shape[1] == len(closet_names)
@@ -580,7 +580,7 @@ if __name__=='__main__':
     draw_regional_likelihood({'rows':selected_openset,'cols':selected_closeset,'likelihood':bayesian_matrix},
                       os.path.join(model_folder,'selection'))
     
-    
+    exit(0)
     # hardcode 
     label_names = json.load(open(os.path.join(model_folder,'hardcode','label_names.json'),'r'))
     openset_names = label_names['openset_names']
