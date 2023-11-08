@@ -1,9 +1,10 @@
 import os, glob,sys
 import numpy as np
 import open3d as o3d
+import open3d.core as o3c
 import cv2, plyfile
 import json
-from numpy import linalg as LA
+# from numpy import linalg as LA
 import inspect
 
 import render_result, fuse_detection

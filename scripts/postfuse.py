@@ -100,11 +100,9 @@ def process_scene(args):
     print('----- Processing {} -----'.format(scene_name))
             
     # Load instance map
-    instance_map = fuse_detection.ObjectMap(None,None)
+    instance_map = fuse_detection.ObjectMap()
     instance_map.load_semantic_names(predictor.closet_names)
     instance_map.load_dense_points(map_dir,4.0/VX_RESOLUTION)
-    instance_map.load_segments(segfile_dir)
-    # return None
     
     count_overcf = 0
     with open(pred_dir,'r') as f:
@@ -165,8 +163,7 @@ def process_scene(args):
     
     t_start = time.time()
     # Merge over-segmentation
-    instance_map.fuse_instance_segments(merge_types=merge_semantic_classes,
-                                        min_voxel_weight=MIN_VOXEL_WEIGTH,min_segments=MIN_GEOMETRY, segment_iou=SEGMENT_IOU)
+    instance_map.merge_global_points(min_voxel_weight=MIN_VOXEL_WEIGTH)
     instance_map.merge_conflict_instances(nms_iou=NMS_IOU, nms_similarity=NMS_SIMILARITY)
     instance_map.remove_small_instances(min_points=SMALL_INSTANCE)
     t_end = time.time()

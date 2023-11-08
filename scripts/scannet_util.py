@@ -4,8 +4,9 @@ import cv2
 
 g_label_names = ['unannotated', 'wall', 'floor', 'chair', 'table', 'desk', 'bed', 'bookshelf', 'sofa', 'sink', 'bathtub', 'toilet', 'curtain', 'counter', 'door', 'window', 'shower curtain', 'refridgerator', 'picture', 'cabinet', 'otherfurniture']
 
-def get_raw2scannetv2_label_map():
-    lines = [line.rstrip() for line in open('/data2/ScanNet/scannetv2-labels.combined.tsv')]
+def get_raw2scannetv2_label_map(scannet_label_dir):
+    # scannet_label_dir='/media/lch/SeagateExp/dataset_/ScanNet/scannetv2-labels.combined.tsv'
+    lines = [line.rstrip() for line in open(scannet_label_dir)]
     lines_0 = lines[0].split('\t')
     # print(lines_0)
     # print(len(lines))
@@ -24,7 +25,7 @@ def get_raw2scannetv2_label_map():
             raw2scannet[raw_name] = nyu40_name
     return raw2scannet
 
-g_raw2scannetv2 = get_raw2scannetv2_label_map()
+# g_raw2scannetv2 = get_raw2scannetv2_label_map()
 
 # if string s represents an int
 def represents_int(s):

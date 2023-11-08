@@ -10,8 +10,6 @@ import render_result
 import time
 import multiprocessing as mp
 
-
-
 Detection = fuse_detection.Detection
 InstanceMap = fuse_detection.ObjectMap
 Project = project_util.project
@@ -194,14 +192,15 @@ def filter_depth(depth:np.ndarray, mask:np.ndarray, max_percentile=0.9, min_perc
     depth_zk = np.zeros(depth.shape,dtype=np.uint16)
     depth_zk[mask] = depth[mask]
     
-    depth_list = depth_zk[mask].reshape(-1)
-    depth_list = sorted(depth_list)
-    max_depth = depth_list[int(len(depth_list)*max_percentile)-1]
-    min_depth = depth_list[int(len(depth_list)*min_percentile)]
-    filter_mask = np.logical_and(depth_zk>min_depth,depth_zk<max_depth)
-    # depth = depth[filter_mask]  
-
-    depth_zk[~filter_mask] = 0
+    if max_percentile>0.0:
+        depth_list = depth_zk[mask].reshape(-1)
+        depth_list = sorted(depth_list)
+        max_depth = depth_list[int(len(depth_list)*max_percentile)-1]
+        min_depth = depth_list[int(len(depth_list)*min_percentile)]
+        filter_mask = np.logical_and(depth_zk>min_depth,depth_zk<max_depth)
+        # depth = depth[filter_mask]  
+        depth_zk[~filter_mask] = 0
+        
     return depth_zk
 
 def generate_voxel_from_points(rgb:o3d.geometry.Image, depth:o3d.geometry.Image,
@@ -332,13 +331,13 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
     assert os.path.exists(os.path.join(scene_dir,'intrinsic')), 'intrinsic file not found'
     
     if 'ScanNet' in dataroot:
-        gt_map_dir = os.path.join(scene_dir,'{}_{}'.format(scene_name,'vh_clean_2.ply'))
         DEPTH_SCALE = 1000.0
         MAP_POSFIX = 'mesh_o3d_256'
         RGB_FOLDER = 'color'
         RGB_POSFIX = '.jpg'
         DATASET = 'scannet'
-        FRAME_GAP = 10
+        FRAME_GAP = 100
+        DEPTH_CLIP_MAX= 0.9
         VX_RESOLUTION = 256
         MIN_VIEW_POINTS = 800 # instance-wise
         MIN_MASK_POINTS = 1000 # detection-wise pcd
@@ -357,6 +356,7 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
         RGB_POSFIX = '.png'
         DATASET = 'scenenn'
         FRAME_GAP = 5
+        DEPTH_CLIP_MAX = 0.9
         VX_RESOLUTION = 256
         MIN_VIEW_POINTS = 800 # instance-wise
         MIN_MASK_POINTS = 1000 # detection-wise pcd
@@ -369,6 +369,44 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
         SMALL_INSTANCE_NEG = 8
         REFINE_FRAME_GAP = 300
         K_rgb,K_depth,rgb_dim,depth_dim = project_util.read_intrinsic(os.path.join(scene_dir,'intrinsic'),align_depth=True) 
+    elif 'FusionPortable' in dataroot:
+        DEPTH_SCALE = 1000.0
+        RGB_FOLDER = 'color'
+        RGB_POSFIX = '.png'
+        DATASET = 'fusionportable'
+        FRAME_GAP = 10
+        DEPTH_CLIP_MAX = -1.0
+        VX_RESOLUTION = 256
+        MIN_VIEW_POINTS = 80 # instance-wise
+        MIN_MASK_POINTS = 10 # detection-wise pcd
+        FILTER_DETECTION_IOU = 0.1
+        ASSIGNMENT_IOU = 0.3
+        NMS_IOU = 0.4
+        NMS_SIMILARITY = 0.15
+        INFLAT_RATIO = 2.0
+        SMALL_INSTANCE_SIZE = 2000
+        SMALL_INSTANCE_NEG = 8
+        REFINE_FRAME_GAP = 300
+        K_rgb,K_depth,rgb_dim,depth_dim = project_util.read_intrinsic(os.path.join(scene_dir,'intrinsic'),align_depth=True) 
+    elif 'sgslam' in dataroot:
+        DEPTH_SCALE = 1000.0
+        RGB_FOLDER = 'color'
+        RGB_POSFIX = '.png'
+        DATASET = 'sgslam'
+        FRAME_GAP = 10
+        DEPTH_CLIP_MAX= 0.9
+        VX_RESOLUTION = 256
+        MIN_VIEW_POINTS = 800 # instance-wise
+        MIN_MASK_POINTS = 1000 # detection-wise pcd
+        FILTER_DETECTION_IOU = 0.1
+        ASSIGNMENT_IOU = 0.5
+        NMS_IOU = 0.4
+        NMS_SIMILARITY = 0.15
+        INFLAT_RATIO = 2.0
+        SMALL_INSTANCE_SIZE = 500
+        SMALL_INSTANCE_NEG = 5
+        REFINE_FRAME_GAP = 200
+        K_rgb,K_depth,rgb_dim,depth_dim = project_util.read_intrinsic(os.path.join(scene_dir,'intrinsic'),align_depth=True)    
     else:
         raise NotImplementedError
     
@@ -380,7 +418,7 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
     print('---- {}/{} find {} rgb frames'.format(DATASET,scene_name,len(frame_sequence)))
     
     # Create instance map manager
-    instance_map = InstanceMap(None,None)
+    instance_map = InstanceMap()
     instance_map.load_semantic_names(label_predictor.closet_names)
     recent_instances = []
 
@@ -414,7 +452,7 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
     
     for i,frame_dir in enumerate(sorted(frame_sequence)):   
         frame_name = os.path.basename(frame_dir).split('_')[0][:-4] 
-        if DATASET=='scannet':
+        if DATASET=='scannet' or DATASET=='sgslam':
             frame_stamp = float(frame_name[6:])
             depth_dir = os.path.join(scene_dir,'depth',frame_name+'.png')
             pose_dir = os.path.join(scene_dir,'pose',frame_name+'.txt')
@@ -422,7 +460,10 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
             frame_stamp = float(frame_name[5:])
             depth_dir = os.path.join(scene_dir,'depth',frame_name.replace('image','depth')+'.png')
             pose_dir = os.path.join(scene_dir,'pose',frame_name.replace('image','frame-')+'.txt')
-
+        elif DATASET=='fusionportable':
+            frame_stamp = float(frame_name)
+            depth_dir = os.path.join(scene_dir,'depth',frame_name+'.png')
+            pose_dir = os.path.join(scene_dir,'pose',frame_name+'.txt')
         else:
             raise NotImplementedError
         
@@ -482,11 +523,11 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
         projection_detections = []
         for k, zk in enumerate(detections):
             valid_zk = label_predictor.is_valid_labels(zk.labels)
-            if valid_zk==False: continue
+            if valid_zk==False or np.sum(zk.mask)<1: continue
             # or np.sum(zk.mask)<MIN_MASK_POINTS: continue            
             
             # prepare detection mask
-            depth_zk = filter_depth(depth_np, zk.mask, max_percentile=0.9, min_percentile=0.1)
+            depth_zk = filter_depth(depth_np, zk.mask, max_percentile=DEPTH_CLIP_MAX, min_percentile=0.1)
             depth_zk = o3d.geometry.Image(depth_zk)
             pcd_zk = generate_voxel_from_points(o3d.geometry.Image(rgb_np),depth_zk,VX_RESOLUTION,DEPTH_SCALE,T_wc,intrinsic)            
             if len(pcd_zk.points)<MIN_MASK_POINTS: continue
@@ -517,8 +558,6 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
         #
         for idx in missed:
             instance_map.instance_map[idx].neg_observed += 1
-
-        # save_projection(scene_dir, frame_name, rgb_np, projection_detections, active_instances, instance_map, label_predictor.closet_names, intrinsic) # for debug
         
         # Refine and update
         if MERGE_INSTANCES:

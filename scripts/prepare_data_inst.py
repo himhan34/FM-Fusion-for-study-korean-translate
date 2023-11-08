@@ -14,8 +14,7 @@ remapper = np.ones(150) * (-100)
 for i, x in enumerate([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 24, 28, 33, 34, 36, 39]):
     remapper[x] = i
 
-label_map_nyu40 = scannet_util.read_label_mapping('/data2/ScanNet/scannetv2-labels.combined.tsv', 
-                                                  label_from='id', label_to='nyu40id')
+
 
 def create_image_features(dataset,scene_dir,points_color,output_dir,rgb_posix,depth_posix,visualize=False,folder_name='preprocessed'):
     '''
@@ -26,6 +25,8 @@ def create_image_features(dataset,scene_dir,points_color,output_dir,rgb_posix,de
     '''
     import project_util
     save_aligned_features = False
+    label_map_nyu40 = scannet_util.read_label_mapping('/media/lch/SeagateExp/dataset_/ScanNet/scannetv2-labels.combined.tsv', 
+                                                  label_from='id', label_to='nyu40id')
     
     # scene_dir = os.path.join(split_dir,scene_name)
     scene_name = os.path.basename(scene_dir)

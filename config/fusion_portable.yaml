@@ -1,0 +1,29 @@
+%YAML:1.0
+
+dataset: "fusion_portable"  # scannet, fusion_portable, realsense
+
+# camera parameters 
+image_width: 1024
+image_height: 768
+camera_fx: 605.128
+camera_fy: 604.974
+camera_cx: 520.45
+camera_cy: 393.88
+depth_scale: 1000.0
+depth_max: 20.0
+
+# volumetric 
+voxel_length: 0.04
+sdf_trunc: 0.6
+min_instance_points: 100 # for initial new instance
+
+# associations
+min_det_masks: 30 # pixel-wise
+max_box_area_ratio: 0.9 # box_area/image_area
+min_instance_masks: 20 # pixel-wise
+dilate_kernal: 3 
+min_iou: 0.3
+
+# output
+save_da_images: 1
+tmp_dir: "/media/lch/SeagateExp/dataset_/FusionPortable/output"

@@ -4,12 +4,13 @@ import numpy as np
 import measure_model
 from collections import Counter
 import scannet_util
-from sklearn.preprocessing import normalize
+# from sklearn.preprocessing import normalize
 
-raw_label_mapper = scannet_util.read_label_mapping('/data2/ScanNet/scannetv2-labels.combined.tsv', 
+raw_label_mapper = scannet_util.read_label_mapping('/media/lch/SeagateExp/dataset_/ScanNet/scannetv2-labels.combined.tsv', 
                                                   label_from='raw_category', label_to='nyu40id')
-name_label_mapper = scannet_util.read_label_mapping('/data2/ScanNet/scannetv2-labels.combined.tsv', 
+name_label_mapper = scannet_util.read_label_mapping('/media/lch/SeagateExp/dataset_/ScanNet/scannetv2-labels.combined.tsv', 
                                                     label_from='nyu40class', label_to='nyu40id')
+
 remapper = np.ones(150) * (-100)
 for i, x in enumerate([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 24, 28, 33, 34, 36, 39]):
     remapper[x] = i
@@ -365,7 +366,7 @@ def extract_det_prompts_mat(class_info, prompt_list, J_=20):
     given_count_matrix = given_count_matrix[valid_rows,:]
     
     # filter cells
-    detection_priors = normalize(detect_count_matrix, norm='l1', axis=1)
+    # detection_priors = normalize(detect_count_matrix, norm='l1', axis=1)
     filter_cells = detect_count_matrix < MIN_DETECTION
     # filter_cells = detection_priors<MIN_PRIOR
     detect_count_matrix[filter_cells] = 0
@@ -559,12 +560,11 @@ def concat_openset_names(probability_map, dir):
 if __name__=='__main__':
     method = 'bayesian' #'bayesian'
     results_dir = '/data2/ScanNet/measurements/'+method
-    output_folder = '/home/cliuci/code_ws/OpensetFusion/measurement_model'# + method
+    output_folder = '/home/cliuci/code_ws/OpensetFusion/measurement_model'
+    kimera_model_dir = output_folder+'/categories.json'
+
     files = glob.glob(os.path.join(results_dir,'*.json'))
     print('analysis {} scan results'.format(len(files)))
-    kimera_model_dir = '/home/cliuci/code_ws/OpensetFusion/measurement_model/categories.json'
-    # maskrcnn_model_dir = '/home/cliuci/code_ws/OpensetFusion/measurement_model/coco_categories.json'
-    # kimera_label_mapper = read_hard_association(kimera_model_dir)
 
     ## Init
     count = 0
@@ -576,7 +576,6 @@ if __name__=='__main__':
     image_info = {'debug':0} # {scan_name: {viewed:_, prompts:[]}}
     
     # Read data
-    # files = ['/data2/ScanNet/measurements/bayesian/scene0296_00.json']
     for file in files:
         scan_name = os.path.basename(file).split('.')[0]
         print('reading {}'.format(scan_name))
@@ -605,17 +604,17 @@ if __name__=='__main__':
 
     print('--------------- analysis ----------------')
     # detections_gt_matrix = extract_det_matrix(class_pairs, openset_name_mapper)
-    prompt_det_probability = extract_det_prompts_mat(class_info, openset_names)
-    ram_likelihood = extract_ram_matrix(image_info, prompt_det_probability['rows'])
+    gdino_likelihood = extract_det_prompts_mat(class_info, openset_names)
+    ram_likelihood = extract_ram_matrix(image_info, gdino_likelihood['rows'])
     # exit(0)
 
     # maskrcnn_probability = create_kimera_probability(maskrcnn_model_dir, valid_opensets=None)
-    kimera_probability = create_kimera_probability(kimera_model_dir, prompt_det_probability['rows'])
-    prompt_det_probability = reorder_openset_names(kimera_probability['rows'], prompt_det_probability)
+    kimera_probability = create_kimera_probability(kimera_model_dir, gdino_likelihood['rows'])
+    gdino_likelihood = reorder_openset_names(kimera_probability['rows'], gdino_likelihood)
     ram_likelihood = reorder_openset_names(kimera_probability['rows'], ram_likelihood)
+    
     # prompt_det_probability = concat_openset_names(prompt_det_probability, kimera_model_dir)
     # kimera_probability = concat_openset_names(kimera_probability, kimera_model_dir)
-
     # gt_prompts = extract_prompts_connections(class_pairs)
     
     # print(detections_gt_matrix.sum(axis=0))
@@ -624,37 +623,11 @@ if __name__=='__main__':
     import export
     
     export.general_likelihood_matrix(ram_likelihood, os.path.join(output_folder,'bayesian'),'ram_likelihood')
-    export.general_likelihood_matrix(prompt_det_probability, os.path.join(output_folder,'bayesian'),'detection_likelihood')
-    multip_likelihood = {'likelihood':prompt_det_probability['likelihood']*ram_likelihood['likelihood'],
-                         'rows':prompt_det_probability['rows'],
-                         'cols':prompt_det_probability['cols']}
+    export.general_likelihood_matrix(gdino_likelihood, os.path.join(output_folder,'bayesian'),'detection_likelihood')
+    multip_likelihood = {'likelihood':gdino_likelihood['likelihood']*ram_likelihood['likelihood'],
+                         'rows':gdino_likelihood['rows'],
+                         'cols':gdino_likelihood['cols']}
     export.general_likelihood_matrix(multip_likelihood, os.path.join(output_folder,'bayesian'), 'likelihood_matrix')
     
     export.general_likelihood_matrix(kimera_probability,os.path.join(output_folder,'hardcode'),'likelihood_matrix')
-    # export.likelihood_matrix(maskrcnn_probability,output_folder,'maskrcnn_likelihood')
     exit(0)
-
-    ASSOCIATION_THRESHOLD = 0.05
-    likelihood_data =(detections_gt_matrix, openset_id_mapper, nyu20_aug_label_names)
-    export.class_model(likelihood_data,output_folder,ASSOCIATION_THRESHOLD)
-    # export.prompts_histogram(gt_prompts, output_folder, door_det_prompt)
-    export.instance_histogram(nyu20_aug_label_names,class20_hist, output_folder)
-    
-    exit(0)
-    
-    nyu40_name_list = name_label_mapper.keys()
-    openset_name_list = [k for k,v in openset_name_mapper.items()]
-    assert len(nyu20_aug_label_names) == J_
-    
-    assert len(openset_name_list) == K_, 'openset_name_list:{} K_:{}'.format(len(openset_name_list),K_)
-    
-    out = (detections_gt_matrix, openset_id_mapper, nyu20_aug_label_names)
-    # out = np.array([association_matrix, openset_id_mapper, nyu20_label_names]).astype(np.object_)
-    np.save(os.path.join(output_folder,'association_matrix.npy'),out, allow_pickle=True)
-    
-    # with open(os.path.join(output_folder,'pair_measurements.json'),'w') as f:
-    #     json.dump(match_pair_measurements,f)
-    #     f.close()
-    
-
-    

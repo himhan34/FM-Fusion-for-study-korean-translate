@@ -1,0 +1,28 @@
+%YAML:1.0
+
+dataset: "scannet"  # scannet, fusion_portable, realsense
+
+# camera parameters 
+image_width: 640
+image_height: 480
+camera_fx: 557.59
+camera_fy: 578.73
+camera_cx: 318.91
+camera_cy: 242.68
+depth_scale: 1000.0
+depth_max: 20.0
+
+# volumetric 
+voxel_length: 0.02
+sdf_trunc: 0.04
+min_instance_points: 800 # for initial new instance
+
+# associations
+min_det_masks: 30 # pixel-wise
+max_box_area_ratio: 0.9 # box_area/image_area
+min_instance_masks: 20 # pixel-wise
+dilate_kernal: 3 
+min_iou: 0.3
+
+# output
+tmp_dir: "/data2/ScanNet/output_new/tmp"
