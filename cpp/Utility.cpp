@@ -57,15 +57,22 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
 
         config->min_det_masks = fs["min_det_masks"];
         config->max_box_area_ratio = fs["max_box_area_ratio"];
-        config->min_instance_masks = fs["min_instance_masks"];
+        // config->min_instance_masks = fs["min_instance_masks"];
         config->dilation_size = fs["dilate_kernal"];
         config->min_iou = fs["min_iou"];
+
+        // config->cluster_eps = fs["cluster_eps"];
+        // config->cluster_min_points = fs["cluster_min_points"];
+        config->min_voxel_weight = fs["min_voxel_weight"];
+
+        config->merge_iou = fs["merge_iou"];
+        config->merge_inflation = fs["merge_inflation"];
 
         int save_da_images = fs["save_da_images"];
         if (save_da_images>0) config->save_da_images = true;
         else config->save_da_images = false;
         
-        fs["tmp_dir"]>>config->tmp_dir;
+        // fs["tmp_dir"]>>config->tmp_dir;
 
         // Close and print
         fs.release();
@@ -108,12 +115,13 @@ std::string config_to_message(const fmfusion::Config &config)
 
     message << "min_det_masks: " + std::to_string(config.min_det_masks) + "\n";
     message << "max_box_area_ratio: "<< std::fixed<<std::setprecision(2)<<config.max_box_area_ratio << "\n";
-    message << "min_instance_masks: " + std::to_string(config.min_instance_masks) + "\n";
     message << "dilate_kernal: " + std::to_string(config.dilation_size) + "\n";
     message << "min_iou: "<< std::fixed<<std::setprecision(2)<<config.min_iou << "\n";
 
+    message << "min_voxel_weight: " << std::fixed<<std::setprecision(2)<<config.min_voxel_weight << "\n";
+
     message << "save_da_images: " + std::to_string(config.save_da_images) + "\n";
-    message << "tmp_dir: " + config.tmp_dir + "\n";
+    // message << "tmp_dir: " + config.tmp_dir + "\n";
 
     return message.str();
 }
@@ -238,8 +246,9 @@ std::shared_ptr<cv::Mat> PrjectionCloudToDepth(const open3d::geometry::PointClou
     return depth_out;
 }
 
-int create_masked_rgbd(
+bool create_masked_rgbd(
     const open3d::geometry::Image &rgb, const open3d::geometry::Image &float_depth, const cv::Mat &mask,
+    const int &min_points,
     std::shared_ptr<open3d::geometry::RGBDImage> &masked_rgbd)
 {
     // auto masked_rgbd = std::make_shared<open3d::geometry::RGBDImage>();
@@ -249,21 +258,47 @@ int create_masked_rgbd(
     assert (float_depth.bytes_per_channel_==4), "depth is not in float";
     masked_rgbd->color_ = rgb;
 
+    float CLIP_RATIO = 0.1;
     masked_depth.Prepare(float_depth.width_, float_depth.height_, 1, 4);
-    int valid_points_counter = 0;
+    std::vector<float> valid_depth_array;
 
     for(int v=0; v<float_depth.height_;v++){
         for(int u=0; u<float_depth.width_;u++){
             if(mask.at<uint8_t>(v,u)>0){
                 *masked_depth.PointerAt<float>(u,v) = *float_depth.PointerAt<float>(u,v);
-                if(*masked_depth.PointerAt<float>(u,v)>0.2) valid_points_counter++;
+                if(*masked_depth.PointerAt<float>(u,v)>0.2) {
+                    valid_depth_array.push_back(*masked_depth.PointerAt<float>(u,v));
+                }
             }
         }
     }
+    if(valid_depth_array.size()<min_points) return false;
+    else{
+        // sort depth array
+        std::sort(valid_depth_array.begin(), valid_depth_array.end());
+        // double min_depth_clip = valid_depth_array[std::floor(valid_depth_array.size()*CLIP_RATIO)];
+        double max_depth_clip = valid_depth_array[std::ceil(valid_depth_array.size()*(1-CLIP_RATIO))];
+        // std::cout<<"["<<min_depth_clip<<","<<max_depth_clip<<"]"<<std::endl;
+        masked_depth.ClipIntensity(0.0,max_depth_clip);
 
-    masked_rgbd->depth_ = masked_depth;
+        masked_rgbd->depth_ = masked_depth;
+        return true;
+        // return valid_depth_array.size();
+    }
+}
 
-    return valid_points_counter;
+O3d_Image_Ptr extract_masked_o3d_image(const O3d_Image &depth, const O3d_Image &mask)
+{
+    auto masked_depth = std::make_shared<open3d::geometry::Image>();
+    masked_depth->Prepare(depth.width_, depth.height_, 1, 4);
+    for(int v=0; v<depth.height_;v++){
+        for(int u=0; u<depth.width_;u++){
+            if(mask.PointerAt<unsigned char>(u,v)>0){
+                *masked_depth->PointerAt<float>(u,v) = *depth.PointerAt<float>(u,v);
+            }
+        }
+    }
+    return masked_depth;
 }
 
 

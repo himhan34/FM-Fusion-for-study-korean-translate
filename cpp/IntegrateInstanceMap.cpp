@@ -160,34 +160,24 @@ int main(int argc, char *argv[])
 {
     using namespace open3d;
 
-    std::string config_file = utility::GetProgramOptionAsString(argc, argv, "--config");
+    std::string config_file = 
+            utility::GetProgramOptionAsString(argc, argv, "--config");
     std::string root_dir =
             utility::GetProgramOptionAsString(argc, argv, "--root");
     std::string association_name = 
-        utility::GetProgramOptionAsString(argc, argv, "--association");
-    std::string trajectory_name = 
-        utility::GetProgramOptionAsString(argc, argv, "--trajectory");
-    std::string intrinsic_filename =
-            utility::GetProgramOptionAsString(argc, argv, "--intrinsic");
+            utility::GetProgramOptionAsString(argc, argv, "--association");
     std::string output_folder = 
-        utility::GetProgramOptionAsString(argc, argv, "--output","./");
+            utility::GetProgramOptionAsString(argc, argv, "--output","./");
+    int begin_frames = 
+            utility::GetProgramOptionAsInt(argc, argv, "--begin_frames", 0);
     int max_frames =
             utility::GetProgramOptionAsInt(argc, argv, "--max_frames", 5000);
-    bool save_pointcloud =
-            utility::ProgramOptionExists(argc, argv, "--save_pointcloud");
-    bool save_mesh = utility::ProgramOptionExists(argc, argv, "--save_mesh");
-    double depth_scale = utility::GetProgramOptionAsDouble(argc,argv,"--depth_scale", 1000.0);
-    int every_k_frames =
-            utility::GetProgramOptionAsInt(argc, argv, "--every_k_frames", 0);
-    double length =
-            utility::GetProgramOptionAsDouble(argc, argv, "--length", 4.0);
-    int resolution =
-            utility::GetProgramOptionAsInt(argc, argv, "--resolution", 256);
-    double sdf_trunc_percentage = utility::GetProgramOptionAsDouble(
-            argc, argv, "--sdf_trunc_percentage", 0.01);
-    int verbose = utility::GetProgramOptionAsInt(argc, argv, "--verbose", 5);
-    bool visualize_flag = utility::ProgramOptionExists(argc, argv, "--visualization");
-    int frame_gap = utility::GetProgramOptionAsInt(argc, argv, "--frame_gap", 1);
+    int verbose = 
+            utility::GetProgramOptionAsInt(argc, argv, "--verbose", 5);
+    bool visualize_flag = 
+            utility::ProgramOptionExists(argc, argv, "--visualization");
+    int frame_gap = 
+            utility::GetProgramOptionAsInt(argc, argv, "--frame_gap", 1);
 
     utility::SetVerbosityLevel((utility::VerbosityLevel)verbose);
     utility::LogInfo("Read RGBD sequence from {:s}", root_dir);
@@ -201,36 +191,17 @@ int main(int argc, char *argv[])
     if(association_name.empty()) {
         utility::LogInfo("--- Read all RGB-D frames in {:s} ---",root_dir);
         std::vector<std::string> depth_files, rgb_files;
-
         utility::filesystem::ListFilesInDirectory(root_dir+"/color", rgb_files);
         utility::filesystem::ListFilesInDirectory(root_dir+"/depth", depth_files);
-        // utility::LogInfo("Read {:d} rgb-d frames from {:s}",rgb_files.size(),root_dir);
         construct_sorted_frame_table(root_dir,rgb_files,depth_files,rgb_table,pose_table);
-
         utility::LogInfo("find {:d} rgb-d frame with pose",rgb_table.size());
-        // return 0;
+        if(rgb_table.size()>4000) return 0;
     }
     else{//todo
-        utility::LogInfo("Read association file {:s}", association_name);
-        std::string match_filename = root_dir+association_name; 
-        std::string trajectory_dir = root_dir+trajectory_name; 
-        auto camera_trajectory =
-                io::CreatePinholeCameraTrajectoryFromFile(trajectory_dir);
-        std::string dir_name =
-                utility::filesystem::GetFileParentDirectory(match_filename).c_str();
-        FILE *file = utility::filesystem::FOpen(match_filename, "r");
-        if (file == NULL) {
-            utility::LogWarning("Unable to open file {}", match_filename);
-            fclose(file);
-            return 0;
-        }
+        // auto camera_trajectory =
+        //         io::CreatePinholeCameraTrajectoryFromFile(trajectory_dir);
     }
 
-    char buffer[DEFAULT_IO_BUFFER_SIZE];
-    pipelines::integration::ScalableTSDFVolume global_volume(
-            length / (double)resolution, length * sdf_trunc_percentage,
-            pipelines::integration::TSDFVolumeColorType::RGB8);
-    global_volume.Reset();
 
     utility::FPSTimer timer("Process RGBD stream", (int)rgb_table.size());
     geometry::Image depth, color;
@@ -241,11 +212,12 @@ int main(int argc, char *argv[])
     
     //
     auto sg_config = fmfusion::utility::create_scene_graph_config(config_file, true);
+    if(sg_config->tmp_dir.empty())
+        sg_config->tmp_dir = output_folder;
     if(sg_config==nullptr) {
         utility::LogWarning("Failed to create scene graph config.");
         return 0;
     }
-    fmfusion::SceneGraph scene_graph(*sg_config);
 
     //
     std::string prediction_folder;
@@ -266,47 +238,49 @@ int main(int argc, char *argv[])
         break;
     }
 
-    // Start integration
-    int prev_frame_id = -100;
-    for(int k=0;k<rgb_table.size();k++){
-        RGBDFrameDirs frame_dirs = rgb_table[k];
-        std::string frame_name = frame_dirs.first.substr(frame_dirs.first.find_last_of("/")+1); // eg. frame-000000.png
-        frame_name = frame_name.substr(0,frame_name.find_last_of("."));
-        int frame_id;
-        if(sg_config->dataset==fmfusion::Config::DATASET_TYPE::REALSENSE)
-            frame_id = stoi(frame_name.substr(frame_name.find_last_of("-")+1));
-        else 
-            frame_id = stoi(frame_name);
-        
-        if(frame_id>max_frames) break;
-        if((frame_id-prev_frame_id)<5) continue;
-        
-        utility::LogInfo("Processing frame {:s} ...", frame_name);
+    //
+    std::array<std::string,2> sub_sequences = {"a","b"};
+    int sub_sequence_length = rgb_table.size()/2;
+    begin_frames = 0;
 
-        io::ReadImage(frame_dirs.second, depth);
-        io::ReadImage(frame_dirs.first, color);
+    for(std::string subseq:sub_sequences){
+        // Start integration
+        fmfusion::SceneGraph scene_graph(*sg_config);
+        int prev_frame_id = -100;
+        for(int k=begin_frames;k<rgb_table.size();k++){
+            RGBDFrameDirs frame_dirs = rgb_table[k];
+            std::string frame_name = frame_dirs.first.substr(frame_dirs.first.find_last_of("/")+1); // eg. frame-000000.png
+            frame_name = frame_name.substr(0,frame_name.find_last_of("."));
+            int frame_id;
+            if(sg_config->dataset==fmfusion::Config::DATASET_TYPE::REALSENSE || sg_config->dataset==fmfusion::Config::DATASET_TYPE::SCANNET)
+                frame_id = stoi(frame_name.substr(frame_name.find_last_of("-")+1));
+            else 
+                frame_id = stoi(frame_name);
+            
+            if(frame_id>max_frames) break;
+            if((frame_id-prev_frame_id)<frame_gap) continue;
+            
+            utility::LogInfo("Processing frame {:s} ...", frame_name);
 
-        auto rgbd = geometry::RGBDImage::CreateFromColorAndDepth(color, depth, sg_config->depth_scale, sg_config->depth_max, false);
+            io::ReadImage(frame_dirs.second, depth);
+            io::ReadImage(frame_dirs.first, color);
+
+            auto rgbd = geometry::RGBDImage::CreateFromColorAndDepth(color, depth, sg_config->depth_scale, sg_config->depth_max, false);
+            
+            std::vector<fmfusion::DetectionPtr> detections;
+            bool loaded = fmfusion::utility::LoadPredictions(root_dir+'/'+prediction_folder, frame_name, *sg_config, detections);
+            if(!loaded) continue; 
+            
+            scene_graph.integrate(frame_id,rgbd, pose_table[k], detections);
+            prev_frame_id = frame_id;
         
-        std::vector<fmfusion::DetectionPtr> detections;
-        bool loaded = fmfusion::utility::LoadPredictions(root_dir+'/'+prediction_folder, frame_name, *sg_config, detections);
-        if(!loaded) continue; 
-        
-        scene_graph.integrate(frame_id,rgbd, pose_table[k], detections);
+        }
 
-        // { //visualization
-            // std::shared_ptr<cv::Mat> rgb_img = std::make_shared<cv::Mat>(cv::imread(dir_name + st[1], -1));
-            // auto render = fmfusion::utility::RenderDetections(rgb_img, detections);
-            // cv::imwrite(root_dir+"/tmp/"+frame_name+".png",*render);
-        // }
+        // Save
+        utility::LogWarning("Finished sequence");
+        scene_graph.Save(output_folder+"/"+sequence_name+subseq);
+        begin_frames += sub_sequence_length;
 
-        prev_frame_id = frame_id;
-    
     }
-
-    // Save
-    utility::LogWarning("Finished sequence");
-    scene_graph.Save(sg_config->tmp_dir+"/"+sequence_name);
-
     return 0;
 }

@@ -28,11 +28,14 @@ std::shared_ptr<cv::Mat> RenderDetections(const std::shared_ptr<cv::Mat> &rgb_im
 std::shared_ptr<cv::Mat> PrjectionCloudToDepth(const open3d::geometry::PointCloud& cloud, 
     const Eigen::Matrix4d &pose_inverse,const open3d::camera::PinholeCameraIntrinsic& intrinsic, int dilation_size);
 
-int create_masked_rgbd(
+bool create_masked_rgbd(
     const open3d::geometry::Image &rgb, const open3d::geometry::Image &float_depth, const cv::Mat &mask,
+    const int &min_points,
     std::shared_ptr<open3d::geometry::RGBDImage> &masked_rgbd);
-
 }
+
+O3d_Image_Ptr extract_masked_o3d_image(const O3d_Image &depth, const O3d_Image &mask);
+
 }
 
 #endif //FMFUSION_UTILITY_H

@@ -5,6 +5,7 @@
 #include <string>
 
 #include "open3d/Open3D.h"
+
 #include "Common.h"
 #include "Detection.h"
 
@@ -16,6 +17,9 @@ struct InstanceConfig{
     double sdf_trunc = 0.04;
     open3d::camera::PinholeCameraIntrinsic intrinsic;
     int max_label_measures = 20;
+    double min_voxel_weight = 2.0;
+    double cluster_eps = 0.05;
+    int cluster_min_points = 20;
 };
 
 class Instance
@@ -34,13 +38,18 @@ public:
     /// \brief  Update the centroid from volume units origins.
     void fast_update_centroid(){centroid = volume_->get_centroid();};
 
+    void merge_with(const O3d_Cloud_Ptr &other_cloud, 
+        const std::unordered_map<string,float> &label_measurements, const int &observations_);
+
     std::shared_ptr<open3d::geometry::PointCloud> extract_point_cloud();
 
     open3d::pipelines::integration::InstanceTSDFVolume *get_volume(){return volume_;}
 
     LabelScore get_predicted_class()const{return predicted_label;}
     
-    std::string get_label_measurements()const{
+    std::unordered_map<std::string,float> get_measured_labels()const{return measured_labels;}    
+
+    std::string get_measured_labels_string()const{
         std::stringstream label_measurements;
         for (const auto &label_score: measured_labels){
             label_measurements<< label_score.first
@@ -48,6 +57,11 @@ public:
         }
         return label_measurements.str();
     }
+
+    void filter_pointcloud_statistic();
+    bool filter_pointcloud_by_cluster();
+
+    void CreateMinimalBoundingBox();
 
     int get_observation_count()const{
         return observation_count;}
@@ -68,6 +82,7 @@ public:
     open3d::pipelines::integration::InstanceTSDFVolume *volume_;
     O3d_Cloud_Ptr point_cloud;
     Eigen::Vector3d centroid;
+    std::shared_ptr<open3d::geometry::OrientedBoundingBox> min_box;
 
 private:
     InstanceConfig config_;

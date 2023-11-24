@@ -10,19 +10,26 @@ camera_fy: 578.73
 camera_cx: 318.91
 camera_cy: 242.68
 depth_scale: 1000.0
-depth_max: 20.0
+depth_max: 4.0
 
 # volumetric 
 voxel_length: 0.02
 sdf_trunc: 0.04
-min_instance_points: 800 # for initial new instance
+min_instance_points: 200 # active instances
 
 # associations
-min_det_masks: 30 # pixel-wise
+min_det_masks: 100 # pixel-wise
 max_box_area_ratio: 0.9 # box_area/image_area
-min_instance_masks: 20 # pixel-wise
 dilate_kernal: 3 
 min_iou: 0.3
 
+# shape
+min_voxel_weight: 0.2 # weight/observation_count
+
+# merge over-segmentation
+merge_inflation: 5.0
+merge_iou: 0.4
+
 # output
-tmp_dir: "/data2/ScanNet/output_new/tmp"
+save_da_images: 0 # 1 for save
+tmp_dir: "/media/lch/SeagateExp/dataset_/ScanNet/output_new"

@@ -25,14 +25,23 @@ struct Config
     // volumetric
     double voxel_length;
     double sdf_trunc;
-    int min_instance_points;
+    int min_instance_points;    
 
     // associations
     int min_det_masks;
     double max_box_area_ratio;
-    int min_instance_masks;
     int dilation_size;
     double min_iou;
+
+    // shape
+    // double cluster_eps;
+    // int cluster_min_points;
+    double min_voxel_weight;
+    int shape_min_points=1000;
+
+    // merge
+    double merge_iou;
+    double merge_inflation;
 
     // output
     bool save_da_images;
@@ -43,6 +52,7 @@ namespace o3d_utility = open3d::utility;
 typedef std::shared_ptr<cv::Mat> CvMatPtr;
 typedef open3d::geometry::Image O3d_Image;
 typedef open3d::geometry::PointCloud O3d_Cloud;
+typedef std::shared_ptr<open3d::geometry::Image> O3d_Image_Ptr;
 typedef std::shared_ptr<open3d::geometry::PointCloud> O3d_Cloud_Ptr;
 
 typedef uint32_t InstanceId;

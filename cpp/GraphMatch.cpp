@@ -31,8 +31,8 @@ int main(int argc, char *argv[])
     using namespace open3d;
 
     std::string config_file = utility::GetProgramOptionAsString(argc, argv, "--config");
-    std::string root_dir =
-            utility::GetProgramOptionAsString(argc, argv, "--root");
+    std::string map_folder =
+            utility::GetProgramOptionAsString(argc, argv, "--map_folder");
     std::string active_sequence = 
         utility::GetProgramOptionAsString(argc, argv, "--prev_sequence");
 
@@ -47,13 +47,21 @@ int main(int argc, char *argv[])
 
 
     // load
-    scene_graph.load(root_dir+"/output/"+active_sequence);
+    scene_graph.load(map_folder+"/"+active_sequence);
 
-    // Visualize 
-    auto &gui_app = gui::Application::GetInstance();  
-    gui_app.Initialize(argc, (const char**)argv);  
-    gui_app.AddWindow(std::make_shared<InstanceWindow>("Instance Window"));
-    gui_app.Run();
+    // Update 
+    scene_graph.merge_overlap_instances();
+    scene_graph.extract_bounding_boxes();
+    scene_graph.merge_overlap_structural_instances();
+
+    // Visualiza
+    auto geometries = scene_graph.get_geometries(true,true);
+    open3d::visualization::DrawGeometries(geometries, active_sequence, 1920, 1080);
+    
+    // auto &gui_app = gui::Application::GetInstance();  
+    // gui_app.Initialize(argc, (const char**)argv);  
+    // gui_app.AddWindow(std::make_shared<InstanceWindow>("Instance Window"));
+    // gui_app.Run();
 
     return 0;
 

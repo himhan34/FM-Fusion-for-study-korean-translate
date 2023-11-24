@@ -21,6 +21,16 @@ public:
         const std::shared_ptr<open3d::geometry::RGBDImage> &rgbd_image, const Eigen::Matrix4d &pose,
         std::vector<DetectionPtr> &detections);
 
+    void merge_overlap_instances(std::vector<InstanceId> active_instances=std::vector<InstanceId>());
+
+    void merge_overlap_structural_instances();
+
+    /// \brief  Extract and update bounding box for each instance.
+    void extract_bounding_boxes();
+
+    /// \brief  Get geometries for each instance.
+    std::vector<std::shared_ptr<const open3d::geometry::Geometry>> get_geometries(bool point_cloud=true, bool bbox=false);
+
     /// @brief  
     /// @param path output sequence folder 
     /// @return 
@@ -42,12 +52,24 @@ protected:
 
     void update_active_instances(const std::vector<InstanceId> &active_instances);
 
+    bool IsSemanticSimilar(const std::unordered_map<std::string,float> &measured_labels_a,
+        const std::unordered_map<std::string,float> &measured_labels_b);
+    
+    /// \brief  Compute the 2D IoU (horizontal plane) between two oriented bounding boxes.
+    double Compute2DIoU(const open3d::geometry::OrientedBoundingBox &box_a, const open3d::geometry::OrientedBoundingBox &box_b);
+
+    /// \brief  Compute the 3D IoU between two point clouds.
+    /// \param cloud_a, point cloud of the larger instance
+    /// \param cloud_b, point cloud of the smaller instance
+    double Compute3DIoU(const O3d_Cloud_Ptr &cloud_a, const O3d_Cloud_Ptr &cloud_b, double inflation=1.0);
+
     std::unordered_set<InstanceId> recent_instances;
 
 private:
     Config config_;
     InstanceConfig instance_config;
     std::unordered_map<InstanceId,InstancePtr> instance_map;
+    std::unordered_map<std::string, std::vector<InstanceId>> label_instance_map;
 
 };
 
