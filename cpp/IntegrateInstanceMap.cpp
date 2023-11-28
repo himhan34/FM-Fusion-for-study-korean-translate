@@ -166,6 +166,8 @@ int main(int argc, char *argv[])
             utility::GetProgramOptionAsString(argc, argv, "--root");
     std::string association_name = 
             utility::GetProgramOptionAsString(argc, argv, "--association");
+    std::string prediction_folder = 
+            utility::GetProgramOptionAsString(argc, argv, "--prediction");
     std::string output_folder = 
             utility::GetProgramOptionAsString(argc, argv, "--output","./");
     int begin_frames = 
@@ -180,6 +182,7 @@ int main(int argc, char *argv[])
             utility::GetProgramOptionAsInt(argc, argv, "--frame_gap", 1);
 
     utility::SetVerbosityLevel((utility::VerbosityLevel)verbose);
+    utility::LogInfo("Read configuration from {:s}",config_file);
     utility::LogInfo("Read RGBD sequence from {:s}", root_dir);
     std::string sequence_name = *utility::filesystem::GetPathComponents(root_dir).rbegin();
 
@@ -220,20 +223,16 @@ int main(int argc, char *argv[])
     }
 
     //
-    std::string prediction_folder;
     std::string rgb_folder;
     switch (sg_config->dataset)
     {
     case fmfusion::Config::DATASET_TYPE::SCANNET:
-        prediction_folder = "prediction_no_augment";
         utility::LogInfo("Dataset: scannet");
         break;
     case fmfusion::Config::DATASET_TYPE::FUSION_PORTABLE:
-        prediction_folder = "prediction_no_augment";
         utility::LogInfo("Dataset: fusion portable");
         break;
     case fmfusion::Config::DATASET_TYPE::REALSENSE:
-        prediction_folder = "prediction_no_augment";
         utility::LogInfo("Dataset: Realsense");
         break;
     }
@@ -241,13 +240,14 @@ int main(int argc, char *argv[])
     //
     std::array<std::string,2> sub_sequences = {"a","b"};
     int sub_sequence_length = rgb_table.size()/2;
-    begin_frames = 0;
+    int subseq_begin = 0;
+    int subseq_end = sub_sequence_length;
 
     for(std::string subseq:sub_sequences){
         // Start integration
         fmfusion::SceneGraph scene_graph(*sg_config);
         int prev_frame_id = -100;
-        for(int k=begin_frames;k<rgb_table.size();k++){
+        for(int k=subseq_begin;k<subseq_end;k++){
             RGBDFrameDirs frame_dirs = rgb_table[k];
             std::string frame_name = frame_dirs.first.substr(frame_dirs.first.find_last_of("/")+1); // eg. frame-000000.png
             frame_name = frame_name.substr(0,frame_name.find_last_of("."));
@@ -279,7 +279,8 @@ int main(int argc, char *argv[])
         // Save
         utility::LogWarning("Finished sequence");
         scene_graph.Save(output_folder+"/"+sequence_name+subseq);
-        begin_frames += sub_sequence_length;
+        subseq_begin += sub_sequence_length;
+        subseq_end   += sub_sequence_length;
 
     }
     return 0;

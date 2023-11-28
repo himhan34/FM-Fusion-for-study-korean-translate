@@ -148,6 +148,11 @@ void Instance::merge_with(const O3d_Cloud_Ptr &other_cloud,
         else{
             measured_labels[label_score.first] += label_score.second;
         }
+        // update prediction
+        if(measured_labels[label_score.first]>predicted_label.second){
+            predicted_label = std::make_pair(label_score.first,measured_labels[label_score.first]);
+        }
+
     }
 
     observation_count += observations_;

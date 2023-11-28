@@ -24,10 +24,10 @@ dilate_kernal: 3
 min_iou: 0.3
 
 # shape
-min_voxel_weight: 0.2 # weight/observation_count
+min_voxel_weight: 0.1 # weight/observation_count
 
 # merge over-segmentation
-merge_inflation: 5.0
+merge_inflation: 3.5
 merge_iou: 0.4
 
 # output

@@ -1,6 +1,10 @@
 
 # Ignore folders
-scripts/__pycache__/
+python/__pycache__/
 measurement_model/prompt
 build
 .history
+
+# Ignore files 
+*.pyc
+

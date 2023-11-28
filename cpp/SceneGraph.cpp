@@ -196,6 +196,7 @@ bool SceneGraph::create_new_instance(const DetectionPtr &detection, const unsign
     instance->integrate(rgbd_image,pose.inverse());
     instance->update_label(detection);
     instance->fast_update_centroid();
+    instance->color_ = InstanceColorBar[instance->id_%InstanceColorBar.size()];
     instance_map.emplace(instance->id_,instance);
 
     return true;
@@ -401,12 +402,22 @@ std::vector<std::shared_ptr<const open3d::geometry::Geometry>> SceneGraph::get_g
     std::vector<std::shared_ptr<const open3d::geometry::Geometry>> viz_geometries;
     for (const auto &instance: instance_map){
         if(instance.second->point_cloud->points_.size()<config_.shape_min_points) continue;
-        if(point_cloud) 
+        if(point_cloud){
             viz_geometries.emplace_back(instance.second->point_cloud);
-        if(bbox&&!instance.second->min_box->IsEmpty()) 
+        }
+        if(bbox&&!instance.second->min_box->IsEmpty()){ 
             viz_geometries.emplace_back(instance.second->min_box);
+        }
     }
     return viz_geometries;
+}
+
+void SceneGraph::Transform(const Eigen::Matrix4d &pose)
+{
+    for (const auto &instance: instance_map){
+        instance.second->point_cloud->Transform(pose);
+        instance.second->centroid = instance.second->point_cloud->GetCenter();
+    }
 }
 
 bool SceneGraph::Save(const std::string &path)
@@ -488,6 +499,7 @@ bool SceneGraph::load(const std::string &path)
         instance_toadd->load_previous_labels(label_measurments_str);
         instance_toadd->point_cloud = open3d::io::CreatePointCloudFromFile(path+"/"+instance_id_str+".ply");
         instance_toadd->centroid = instance_toadd->point_cloud->GetCenter();
+        instance_toadd->color_ = InstanceColorBar[instance_id%InstanceColorBar.size()];
         instance_map.emplace(instance_id,instance_toadd);
 
         // cout<<instance_id_str<<","<<label_measurments_str

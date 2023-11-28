@@ -2,6 +2,7 @@
 #include <fstream>
 
 #include "Common.h"
+#include "Color.h"
 #include "Detection.h"
 #include "Instance.h"
 #include "Utility.h"
@@ -30,6 +31,10 @@ public:
 
     /// \brief  Get geometries for each instance.
     std::vector<std::shared_ptr<const open3d::geometry::Geometry>> get_geometries(bool point_cloud=true, bool bbox=false);
+
+    bool is_empty() { return instance_map.empty(); }
+
+    void Transform(const Eigen::Matrix4d &pose);
 
     /// @brief  
     /// @param path output sequence folder 
