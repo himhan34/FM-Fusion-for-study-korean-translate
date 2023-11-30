@@ -184,14 +184,13 @@ void Instance::update_label(const DetectionPtr &detection)
 std::shared_ptr<open3d::geometry::PointCloud> Instance::extract_point_cloud()
 {
     double voxel_weight_threshold = config_.min_voxel_weight * observation_count;
-    auto cloud = volume_->ExtractWeightedPointCloud(std::min(std::max(voxel_weight_threshold,2.0),4.0));
-    // auto cloud = volume_->ExtractWeightedPointCloud(2.0);
+    point_cloud = volume_->ExtractWeightedPointCloud(std::min(std::max(voxel_weight_threshold,2.0),4.0));
+    // point_cloud = volume_->ExtractWeightedPointCloud(2.0);
 
+    centroid = point_cloud->GetCenter();
+    point_cloud->PaintUniformColor(color_);
 
-    centroid = cloud->GetCenter();
-    cloud->PaintUniformColor(color_);
-
-    return cloud;
+    return point_cloud;
 }
 
 void Instance::load_previous_labels(const std::string &labels_str)

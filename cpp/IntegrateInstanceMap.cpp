@@ -275,9 +275,19 @@ int main(int argc, char *argv[])
             prev_frame_id = frame_id;
         
         }
+        utility::LogWarning("Finished sequence");
+
+        // Post-process
+        scene_graph.extract_point_cloud();
+        scene_graph.merge_overlap_instances();
+        scene_graph.extract_bounding_boxes();
+        scene_graph.merge_overlap_structural_instances();
+        
+        // Visualize
+        // auto geometries = scene_graph.get_geometries(true,true);
+        // open3d::visualization::DrawGeometries(geometries, sequence_name+subseq, 1920, 1080);
 
         // Save
-        utility::LogWarning("Finished sequence");
         scene_graph.Save(output_folder+"/"+sequence_name+subseq);
         subseq_begin += sub_sequence_length;
         subseq_end   += sub_sequence_length;

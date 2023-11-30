@@ -420,6 +420,14 @@ void SceneGraph::Transform(const Eigen::Matrix4d &pose)
     }
 }
 
+void SceneGraph::extract_point_cloud()
+{
+    for(auto &instance:instance_map){
+        instance.second->point_cloud = instance.second->extract_point_cloud();
+    }
+    o3d_utility::LogInfo("Extract point cloud for {:d} instances",instance_map.size());
+}
+
 bool SceneGraph::Save(const std::string &path)
 {
     using namespace o3d_utility::filesystem;
@@ -429,11 +437,13 @@ bool SceneGraph::Save(const std::string &path)
 
     typedef std::pair<InstanceId,std::string> InstanceInfo;
     std::vector<InstanceInfo> instance_info;
+    std::vector<std::string> instance_box_info; // id:x,y,z;qw,qx,qy,qz;sx,sy,sz
 
     for (const auto &instance: instance_map){
         LabelScore semantic_class_score = instance.second->get_predicted_class();
-        auto instance_cloud = instance.second->extract_point_cloud();
-        if(instance_cloud->points_.size()<config_.min_instance_points) continue;
+        auto instance_cloud = instance.second->point_cloud;
+        if(!instance.second->point_cloud) continue;
+        if(instance_cloud->points_.size()<config_.shape_min_points) continue;
 
         global_instances_pcd += *instance_cloud;
         stringstream ss; // instance info string
@@ -445,31 +455,52 @@ bool SceneGraph::Save(const std::string &path)
             <<instance.second->get_observation_count()<<";"
             <<instance.second->get_measured_labels_string()<<";"
             <<instance_cloud->points_.size()<<";\n";
-
         instance_info.emplace_back(instance.second->id_,ss.str());
-        Eigen::Vector3d pt_centroid = instance_cloud->GetCenter();
-        Eigen::Vector3d vl_centroid = instance.second->centroid;
-        std::cout<<instance.second->id_<<":"<<pt_centroid.transpose()<<";  "<<vl_centroid.transpose()<<"\n";
+
+        if(!instance.second->min_box->IsEmpty()){
+            stringstream box_ss;
+            box_ss<<std::setw(4)<<std::setfill('0')<<instance.second->id_<<";";
+            auto box = instance.second->min_box;
+            box_ss<<box->center_(0)<<","<<box->center_(1)<<","<<box->center_(2)<<";"
+                <<box->R_.coeff(0,0)<<","<<box->R_.coeff(0,1)<<","<<box->R_.coeff(0,2)<<","<<box->R_.coeff(1,0)<<","<<box->R_.coeff(1,1)<<","<<box->R_.coeff(1,2)<<","<<box->R_.coeff(2,0)<<","<<box->R_.coeff(2,1)<<","<<box->R_.coeff(2,2)<<";"
+                <<box->extent_(0)<<","<<box->extent_(1)<<","<<box->extent_(2)<<";\n";
+            instance_box_info.emplace_back(box_ss.str());
+        }
+
+        // Eigen::Vector3d pt_centroid = instance_cloud->GetCenter();
+        // Eigen::Vector3d vl_centroid = instance.second->centroid;
+        // std::cout<<instance.second->id_<<":"<<pt_centroid.transpose()<<";  "<<vl_centroid.transpose()<<"\n";
 
         o3d_utility::LogInfo("Instance {:s} has {:d} points",semantic_class_score.first, instance_cloud->points_.size());
     }
 
     // Sort instance info and write it to text 
-    std::ofstream ofs(path+"/instance_info.txt",std::ofstream::out);
-    ofs<<"# instance_id;semantic_class(aggregate_score);observation_count;label_measurements;points_number\n";
     std::sort(instance_info.begin(),instance_info.end(),[](const InstanceInfo &a, const InstanceInfo &b){
         return a.first<b.first;
-    });
+    });    
+    std::ofstream ofs(path+"/instance_info.txt",std::ofstream::out);
+    ofs<<"# instance_id;semantic_class(aggregate_score);observation_count;label_measurements;points_number\n";
     for (const auto &info:instance_info){
         ofs<<info.second;
     }
     ofs.close();
 
+    // Sort box info and write it to text
+    std::sort(instance_box_info.begin(),instance_box_info.end(),[](const std::string &a, const std::string &b){
+        return std::stoi(a.substr(0,4))<std::stoi(b.substr(0,4));
+    });
+    std::ofstream ofs_box(path+"/instance_box.txt",std::ofstream::out);
+    ofs_box<<"# instance_id;center_x,center_y,center_z;R00,R01,R02,R10,R11,R12,R20,R21,R22;extent_x,extent_y,extent_z\n";
+    for (const auto &info:instance_box_info){
+        ofs_box<<info;
+    }
+    ofs_box.close();
+
     // Save global instance map
     if(global_instances_pcd.points_.size()<1) return false;
 
     open3d::io::WritePointCloud(path+"/instance_map.ply",global_instances_pcd);
-    o3d_utility::LogWarning("Save semantic instances to {:s}",path);
+    o3d_utility::LogWarning("Save {} semantic instances to {:s}",instance_info.size(),path);
 
     return true;
 }

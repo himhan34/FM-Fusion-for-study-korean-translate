@@ -26,6 +26,8 @@ public:
 
     void merge_overlap_structural_instances();
 
+    void extract_point_cloud();
+
     /// \brief  Extract and update bounding box for each instance.
     void extract_bounding_boxes();
 

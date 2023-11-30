@@ -20,9 +20,16 @@ min_instance_points: 100 # for initial new instance
 # associations
 min_det_masks: 30 # pixel-wise
 max_box_area_ratio: 0.9 # box_area/image_area
-min_instance_masks: 20 # pixel-wise
+# min_instance_masks: 20 # pixel-wise
 dilate_kernal: 3 
 min_iou: 0.3
+
+# shape
+min_voxel_weight: 0.05 # weight/observation_count
+
+# merge over-segmentation
+merge_inflation: 3.5
+merge_iou: 0.4
 
 # output
 save_da_images: 1
