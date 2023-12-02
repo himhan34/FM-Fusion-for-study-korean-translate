@@ -16,10 +16,10 @@ def convert_scan(scan_prediction_folder):
 
 if __name__=='__main__':
     
-    data_root = '/media/lch/SeagateExp/dataset_/ScanNet'
-    split='val'
-    split_file = 'val_clean'
-    PREDICTION_FOLDER = 'prediction_no_augment'
+    data_root = '/data2/ScanNet' #'/media/lch/SeagateExp/dataset_/ScanNet'
+    split='train'
+    split_file = 'train_micro'
+    PREDICTION_FOLDER = 'prediction_forward'
 
     scans = read_scans(os.path.join(data_root, 'splits', split_file + '.txt'))
     
