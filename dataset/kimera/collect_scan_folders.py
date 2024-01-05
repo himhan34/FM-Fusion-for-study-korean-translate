@@ -1,6 +1,6 @@
 import os,glob,sys
 import shutil
-sys.path.append('/home/cliuci/code_ws/OpensetFusion/scripts')
+sys.path.append('/home/cliuci/code_ws/OpensetFusion/python')
 import fuse_detection
 
 if __name__=='__main__':
@@ -21,8 +21,8 @@ if __name__=='__main__':
         # shutil.copytree(os.path.join(source_folder, 'color'), os.path.join(target_folder, 'color'))
         # shutil.copytree(os.path.join(source_folder, 'depth'), os.path.join(target_folder, 'depth'))
         # shutil.copytree(os.path.join(source_folder, 'pose'), os.path.join(target_folder, 'pose'))
-        # shutil.copytree(os.path.join(source_folder, 'pred_maskrcnn_color'), os.path.join(target_folder, 'pred_maskrcnn_color'))
-        # shutil.rmtree(os.path.join(target_folder, 'pred_maskrcnn_color'))
+        # shutil.copytree(os.path.join(source_folder, 'pred_maskrcnn_color_rf'), os.path.join(target_folder, 'pred_maskrcnn_color_rf'))
+        shutil.rmtree(os.path.join(target_folder, 'pred_gsam_color'))
         # print(target_folder)
         print('remove to {}/pred_maskrcnn_color'.format(target_folder))
         # break

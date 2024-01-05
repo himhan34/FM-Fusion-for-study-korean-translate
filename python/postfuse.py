@@ -44,14 +44,13 @@ def process_scene(args):
     map_root, pred_root, scene_name, predictor,eval_folder, viz_folder, semantic_eval_folder = args
     map_folder = os.path.join(map_root,scene_name)
     pred_folder = os.path.join(pred_root,scene_name)
+    evaluation = True
     
     mdevice = o3c.Device('cpu:0')
     if 'ScanNet' in map_root:
         MAP_POSFIX = 'mesh_o3d_256' 
         # MAP_POSFIX = 'scene0064_00_vh_clean_2' 
-        SEGFILE_POSFIX = '0.010000.segs.json'
         map_dir = os.path.join(map_folder,'{}.ply'.format(MAP_POSFIX))
-        segfile_dir = os.path.join(map_folder,'{}.{}'.format(MAP_POSFIX,SEGFILE_POSFIX))
         MIN_VOXEL_WEIGTH = 2
         VX_RESOLUTION = 256.0
         SMALL_INSTANCE = 200
@@ -65,9 +64,7 @@ def process_scene(args):
 
     elif 'tum' in map_root:
         MAP_POSFIX = 'mesh_o3d256_ds.ply'
-        SEGFILE_POSFIX = 'mesh_o3d256_ds.0.010000.segs.json'
         map_dir = os.path.join(map_folder,'{}'.format(MAP_POSFIX))
-        segfile_dir = os.path.join(map_folder,'{}'.format(SEGFILE_POSFIX))
         MIN_VIEW_COUNT = 4
         MIN_FOREGROUND = 0.4
         SMALL_INSTANCE = 500
@@ -77,16 +74,10 @@ def process_scene(args):
         merge_semantic_classes = ['computer monitor','earth','teddy','table','desk','chair']
     elif 'scenenn' in map_root:
         MAP_POSFIX = 'dense_map.ply'
-        SEGFILE_POSFIX = 'mesh_o3d256.0.010000.segs.json'
         map_dir = os.path.join(map_folder,'{}'.format(MAP_POSFIX))
-        segfile_dir = os.path.join(map_folder,'{}'.format(SEGFILE_POSFIX))
-        MIN_VIEW_COUNT = 3
-        MIN_FOREGROUND = 0.4
         MIN_VOXEL_WEIGTH = 1
         VX_RESOLUTION = 256.0
         SMALL_INSTANCE = 1000
-        MIN_GEOMETRY = 100
-        SEGMENT_IOU = 0.1
         NMS_IOU = 0.2
         NMS_SIMILARITY=0.1
         merge_semantic_classes = []
@@ -176,10 +167,10 @@ def process_scene(args):
     instance_map.merge_background()
 
     # Export
-    if 'ScanNet' in map_root:
+    if evaluation:
         print('Saving evaluation results')
-        scannet_label_dir = os.path.join(map_folder,'{}_{}'.format(scene_name,'vh_clean_2.ply'))
-        label_pcd = o3d.io.read_point_cloud(scannet_label_dir)
+        label_map_dir = os.path.join(map_folder,'{}_{}'.format(scene_name,'vh_clean_2.ply'))
+        label_pcd = o3d.io.read_point_cloud(label_map_dir)
         label_points = np.asarray(label_pcd.points,dtype=np.float32)
         instance_map.save_scannet_results(os.path.join(eval_folder,scene_name),label_points,semantic_eval_folder)
     
@@ -270,7 +261,7 @@ if __name__ =='__main__':
     
     frame_time_table = np.array(frame_time_table)
     object_time_table = np.array(object_time_table)
-    time_analysis(frame_time_table,object_time_table,pred_root_dir)
+    # time_analysis(frame_time_table,object_time_table,pred_root_dir)
     
     print('processed {} scans'.format(len(valid_scans)))
     exit(0)

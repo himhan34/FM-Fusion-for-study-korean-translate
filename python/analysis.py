@@ -1,15 +1,7 @@
 import os, glob, sys
 import json
 import numpy as np
-import measure_model
 from collections import Counter
-import scannet_util
-# from sklearn.preprocessing import normalize
-
-raw_label_mapper = scannet_util.read_label_mapping('/media/lch/SeagateExp/dataset_/ScanNet/scannetv2-labels.combined.tsv', 
-                                                  label_from='raw_category', label_to='nyu40id')
-name_label_mapper = scannet_util.read_label_mapping('/media/lch/SeagateExp/dataset_/ScanNet/scannetv2-labels.combined.tsv', 
-                                                    label_from='nyu40class', label_to='nyu40id')
 
 remapper = np.ones(150) * (-100)
 for i, x in enumerate([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 24, 28, 33, 34, 36, 39]):
@@ -18,208 +10,13 @@ for i, x in enumerate([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 24, 28, 33
 nyu20_label_idxs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 24, 28, 33, 34, 36, 39]
 nyu20_aug_label_names = ['wall', 'floor', 'cabinet', 'bed', 'chair', 'sofa', 'table', 'door', 'window', 'bookshelf', 'picture', 'counter', 'desk', 'curtain', 'refrigerator', 'shower curtain', 'toilet', 'sink', 'bathtub', 'otherfurniture']
 
-def converter():
+def converter(name_label_mapper_):
     label2name_mapper = {}
-    for label,id in name_label_mapper.items():
+    for label,id in name_label_mapper_.items():
         label2name_mapper[id] = label
-    # print('{} labels'.format(len(label2name_mapper)))
     return label2name_mapper
 
-label2name_mapper = converter()
-
-def read_hard_association(dir):
-    with open(dir,'r') as f:
-        data = json.load(f)
-        openset_mapper = {} # close-set to open-set: {closeset_label: [openset_labels]}
-        closeset_mapper = {} # close-set groups: {close-set_label: detected name}
-        for lc,lo_list in data['objects'].items():
-            # print('{}: {}'.format(lc,lo_list['main']))
-            openset_mapper[lc] = lo_list['main']
-            assert len(lo_list['maskrcnn'])<=1, 'each gt label associates to one maskrcnn label'
-            if len(lo_list['maskrcnn'])==1:
-                closeset_mapper[lc] = lo_list['maskrcnn'][0]
-            else:
-                closeset_mapper[lc] = lc
-        f.close()
-        return openset_mapper
-
-class DefPrompt:
-    def __init__(self, det_name):
-        self.det_name = det_name
-        
-    
-    def extract_all_prompts(self):
-        out = []
-        for k,v in self.prompts.items():
-            out.append(v)
-        return out
-        
-    def extract_related_prompts(self):
-        out = []
-        for k,v in self.prompts.items():
-            if self.det_name.find(v)!=-1:
-                out.append(v)
-        return out
-    
-    def find_specific_hist(self,prompts):
-        prompt_hist = np.zeros(len(prompts),dtype=np.int32)
-        prompt_list = self.extract_all_prompts()
-        for i in np.arange(len(prompts)):
-            if prompts[i] in prompt_list:
-                prompt_hist[i] += 1
-        
-        return prompt_hist
-
-def convert_curtain_name(det_name,prompts):
-    if det_name=='curtain':
-        convert = False
-        STRONG_PROMPTS = ['bath','tub','bathtub','shower']
-        for bath_word in STRONG_PROMPTS:
-            if bath_word in prompts:
-                convert = True
-                break
-        if convert:
-            adjust_prompts = []
-            for word in prompts:
-                if word=='curtain' and 'shower curtain' not in prompts: adjust_prompts.append('shower curtain')
-                else: adjust_prompts.append(word)
-            return 'shower curtain', adjust_prompts
-        else: return det_name, prompts
-    else:
-        raise ValueError('det_name {} not supported in covert curtain'.format(det_name))
-        
-
-def load_result(dir):
-    instances = []
-    with open(dir,'r') as f:
-        data = json.load(f)
-        assert 'frame_gap' in data, 'frame_gap not in json'
-        instances_data = data['instances']
-        label_idxs = []
-        
-        for j,instance_d in instances_data.items():
-            nyu40_id = raw_label_mapper[instance_d['label_name']]
-            if nyu40_id in label2name_mapper:
-                nyu40_name = label2name_mapper[nyu40_id]
-            else: nyu40_name = 'unknown'
-            label_idxs.append(nyu40_name)
-            lj = measure_model.Instance(j,nyu40_name,nyu40_id,-1,-1)
-            measurements = []
-            # print('{}:{}'.format(j,instance_d['label_name']))
-            assert len(instance_d['measurements'])>0, 'instance {} has no measurements'.format(j)
-            for zk_data in instance_d['measurements']:
-                zk = measure_model.Measurement(zk_data['label_name'],zk_data['score'],zk_data['iou'],zk_data['view_points'])
-                measurements.append(zk)
-            instances.append({'instance':lj,'measurements':measurements})
-        f.close()
-        print('load results for {} instances'.format(len(instances)))
-        # print('label_idxs:{}'.format(label_idxs))
-        
-        return instances
-
-def load_prompt_result(dir,mapper, ram_detect_results):
-    # ram_detect_results = {} # {nyu40id: {viewed:_, ram_detected:_}}
-
-    with open(dir,'r') as f:
-        data = json.load(f)
-        instances = data['instances'] # {j: instance_j}
-        associations = data['associations']
-        count_detections = 0
-        count = 0
-        
-        for frame_name, frame_info in associations.items():
-            prompt_phrase = frame_info['prompts']['0'].split('.')
-            prompts = []    # list of unique phrase
-            for phrase in prompt_phrase:
-                if phrase.strip() not in prompts:
-                    prompts.append(phrase.strip())
-                    # prompt_occurance.append(phrase.strip())
-                    
-            # assert 'viewed_instances' in frame_info, 'viewed_instances not in frame_info'
-            
-            for instance_id in frame_info['viewed_instances']:
-                assert instance_id < len(instances), 'instance {} not in instances'.format(instance_id)
-                instance = instances[instance_id]
-                gt_label = instances[instance_id]['label_name']
-                if gt_label not in mapper:continue
-                gt_nyu40_id = raw_label_mapper[gt_label]
-                desired_prompts = mapper[gt_label]
-                if gt_nyu40_id not in ram_detect_results:
-                    ram_detect_results[gt_nyu40_id] = {'viewed':0,'detected':0}
-                
-                if len((set(desired_prompts)&set(prompts)))>0: # ram detected instance
-                    ram_detect_results[gt_nyu40_id]['detected'] +=1
-                
-                ram_detect_results[gt_nyu40_id]['viewed'] +=1
-                    
-                
-                # if gt_label not in prompts:
-                #     print('instance {}({}) not in prompts {}'.format(gt_label,instance_id,prompts))
-        
-        return ram_detect_results
-
-def load_detection_result(dir,class_pairs, class_hist, detection_occurance,
-                          class_prompt_pairs,prompt_occurance):
-    '''
-    Returns:
-        1. class pair: {gt_id: openset_name_list}
-        2. class_hist: 40, count the number of instances
-    '''
-    
-    with open(dir,'r') as f:
-        data = json.load(f)
-        instances = data['instances'] # {j: instance_j}
-        associations = data['associations']
-        count_detections = 0
-        count = 0
-        debug_flag = False
-        
-        for frame_name, frame_info in associations.items():
-            prompt_phrase = frame_info['prompts']['0'].split('.')
-            prompts = []    # list of unique phrase
-            for phrase in prompt_phrase:
-                if phrase.strip() not in prompts:
-                    prompts.append(phrase.strip())
-                    prompt_occurance.append(phrase.strip())
-            
-            detections = frame_info['detections']
-            
-            # print('----- {} ------'.format(frame_name))
-            for pair_info in frame_info['matches_gt']:
-                assert pair_info['gt'] < len(instances), 'gt {} not in instances'.format(pair_info['gt'])
-                match_instance = instances[pair_info['gt']]
-                match_det = detections[pair_info['det']]
-                match_instance_nyu_id = raw_label_mapper[match_instance['label_name']]
-                if match_instance_nyu_id in class_pairs:     
-                    msg = match_instance['label_name']+':'
-                    
-                    # record detection
-                    min_score = 0.4
-                    for os_name, score in match_det['labels'].items():
-                        if len(os_name.split(' '))>3: continue
-                        if match_instance['label_name'] == 'door' and os_name=='closet':
-                            debug_flag = True
-                        
-                        class_pairs[match_instance_nyu_id].append(os_name)
-                        detection_occurance.append(os_name)
-                        count += 1
-                        msg += '{}({:.2f}) '.format(os_name,score)
-                        
-                    # record prompt
-                    for word in prompts:
-                        class_prompt_pairs[match_instance_nyu_id].append(word)
-                    class_hist[match_instance_nyu_id] +=1
-                count_detections +=1
-                
-        print('{} frames, {} detections, {} os_labels'.format(len(associations),count_detections,count))
-        f.close()
-        
-        # if debug_flag:
-        #     print('!!!{}'.format(scan_name))
-            
-        return class_pairs, class_hist, detection_occurance, class_prompt_pairs, prompt_occurance
-
-def load_light_results(dir, class_info):
+def load_detection_results(dir, class_info):
     '''
         class_info: {nyu40id: {viewed:_, prompts:[], detections:[]}}
     '''
@@ -316,8 +113,11 @@ def extract_ram_matrix(image_info, prompt_list):
             
     return {'rows':prompt_list,'cols':nyu20_aug_label_names,'likelihood':ram_likelihood}
 
-            
 def extract_det_prompts_mat(class_info, prompt_list, J_=20):
+    '''Organize the detection and prompt info.
+        Output info: {rows:_, cols:_, likelihood:_, det_mat:_, prompt_mat:_}
+    '''
+    
     # prompt_hist = Counter(prompt_occurance)
     # prompt_list = [k for k,v in prompt_hist.items()]
     detect_count_matrix = np.zeros((len(prompt_list),J_),dtype=np.int32)
@@ -326,7 +126,7 @@ def extract_det_prompts_mat(class_info, prompt_list, J_=20):
     MIN_DETECTION = 20
     MIN_PROMPTS = 10
     IGNORE_TYPES = ['blanket','bag','computer monitor','pillow','television','dish washer']
-    IGNORE_TYPES += ['infant bed','urinal','counter'] # kimera method keep these types
+    IGNORE_TYPES += ['infant bed','urinal','counter'] # 
     # IGNORE_TYPES += ['dresser']
             
     # 1. Construct given and detection count matrix
@@ -365,7 +165,7 @@ def extract_det_prompts_mat(class_info, prompt_list, J_=20):
     detect_count_matrix = detect_count_matrix[valid_rows,:]
     given_count_matrix = given_count_matrix[valid_rows,:]
     
-    # filter cells
+    # filter cells with variances
     # detection_priors = normalize(detect_count_matrix, norm='l1', axis=1)
     filter_cells = detect_count_matrix < MIN_DETECTION
     # filter_cells = detection_priors<MIN_PRIOR
@@ -403,33 +203,6 @@ def extract_det_prompts_mat(class_info, prompt_list, J_=20):
     return {'rows':prompt_list,'cols':nyu20_aug_label_names,'likelihood':likelihood,
             'det_mat':detect_count_matrix,'prompt_mat':given_count_matrix}
 
-def extract_det_matrix(class_pairs, openset_name_mapper, J_=21):
-    '''
-        Association matrix (K,J), all openset names are used.
-    '''
-    
-    K_ = len(openset_name_mapper)
-    detections_gt_matrix = np.zeros((K_,J_),dtype=np.float32)
-    
-    for nyu40_id,openset_names in class_pairs.items():
-        gt_id = int(remapper[nyu40_id])
-        if gt_id<0: continue # unknonwn
-        
-        pred_labels = openset_names #[pair.det_name for pair in pairlist]
-        openset_hist = Counter(pred_labels)
-        assert gt_id<J_,'gt_id {} exceeds J_ {}'.format(gt_id,J_)
-        
-        for o_name, o_count in openset_hist.items():
-            o_label_id = openset_name_mapper[o_name]
-            assert o_label_id<K_,'o_label_id {} exceeds K_ {}'.format(o_label_id,K_)
-            detections_gt_matrix[o_label_id,gt_id] = o_count
-        
-        # association_matrix[:,gt_id] /= np.sum(association_matrix[:,gt_id])
-        
-        print('nyu class {}({}): {}'.format(nyu20_aug_label_names[gt_id],nyu40_id,Counter(pred_labels)))
-    
-    return detections_gt_matrix
-
 def extract_prompts_connections(class_pairs, J_ = 21):
     '''
     gt_prompts: {gt_name: {related_prompts:_, } }
@@ -451,48 +224,6 @@ def extract_prompts_connections(class_pairs, J_ = 21):
         else: gt_prompts[gt_name] += related_prompts
 
     return gt_prompts
-    
-def extract_det_prompts(class_pair,openset_names,detections_gt_matrix,gt_name='door'):
-    '''
-    Find for each detected name, the histogram of given prompt names
-    hist_mat: (|top_prompts|,|topdet|+1)
-    '''
-    
-    topdet = 8
-    top_prompts = ['door','doorway','closet','cabinet','bathroom']
-    nyu40id = name_label_mapper[gt_name]
-    gt_id = int(remapper[nyu40id])
-    if gt_id<0: gt_id = 20 # unknonwn
-    
-    valid_openset_flags = detections_gt_matrix[:,gt_id]>0
-    valid_openset_names = np.array(openset_names)[valid_openset_flags]
-    valid_openset_counts = detections_gt_matrix[valid_openset_flags,gt_id]
-    srt_indices = np.argsort(valid_openset_counts)[::-1]
-    valid_openset_names = valid_openset_names[srt_indices]
-    valid_openset_counts = valid_openset_counts[srt_indices]
-    
-    pairlist = class_pair[nyu40id]
-    hist_mat = np.zeros((topdet,len(top_prompts)+1),dtype=np.int32)
-    
-    for k in np.arange(topdet): # iterate over top detections
-        det_name = valid_openset_names[k]
-        det_count = valid_openset_counts[k]
-        hist_col = np.zeros(len(top_prompts),dtype=np.int32)    # histogram of each prompt
-        
-        for pair in pairlist:
-            if pair.det_name==det_name:        
-                hist_col += pair.find_specific_hist(top_prompts)
-            # prompts = pair.extract_all_prompts()
-        
-        hist_mat[k,:-1] = hist_col
-        hist_mat[k,-1] = det_count
-        # det_prompt = [pair for pair in pairlist if pair.det_name==det_name][0]
-        # print('det {}({}): {}'.format(det_name,det_count,det_prompt.extract_related_prompts()))
-    
-    # print('matrix shape {}'.format(hist_mat.shape))
-    return {'top_prompts':top_prompts,
-            'valid_openset_names':valid_openset_names[:topdet], 
-            'hist_mat':hist_mat}
 
 def create_kimera_probability(dir, valid_opensets):
     # 'benchmark/output/categories.json'
@@ -558,10 +289,13 @@ def concat_openset_names(probability_map, dir):
     return {'rows':probability_map['rows'], 'cols':probability_map['cols'], 'likelihood':expand_likelihood}
 
 if __name__=='__main__':
-    method = 'bayesian' #'bayesian'
-    results_dir = '/data2/ScanNet/measurements/'+method
-    output_folder = '/home/cliuci/code_ws/OpensetFusion/measurement_model'
-    kimera_model_dir = output_folder+'/categories.json'
+    
+    ################### SET PARAMTERS ###########################
+    prediction_folder = 'prediction_augment' #'bayesian'
+    results_dir = '/data2/ScanNet/measurements/'+prediction_folder
+    output_folder = 'measurement_model'
+    kimera_model_dir = output_folder+'/categories.json' # manually set hard association. given by ChatGPT
+    ################### SET PARAMTERS ###########################
 
     files = glob.glob(os.path.join(results_dir,'*.json'))
     print('analysis {} scan results'.format(len(files)))
@@ -571,31 +305,30 @@ if __name__=='__main__':
     count_detections = 0
     count_views = 0
     count_frames = 0
+    class_summary_info = {} # {nyu40id: {viewed:_, prompts:[], detections:[]}}
+    image_summary_info = {'debug':0} # {scan_name: {viewed:_, prompts:[]}}
     
-    class_info = {} # {nyu40id: {viewed:_, prompts:[], detections:[]}}
-    image_info = {'debug':0} # {scan_name: {viewed:_, prompts:[]}}
-    
-    # Read data
+    # Read and summarize data 
     for file in files:
         scan_name = os.path.basename(file).split('.')[0]
         print('reading {}'.format(scan_name))
-        class_info = load_light_results(file, class_info)
-        count_frames = load_image_results(file, image_info)
+        class_summary_info = load_detection_results(file, class_summary_info)
+        count_frames = load_image_results(file, image_summary_info)
         count += 1
         # break
     
-    for gtlabel, info in class_info.items():
+    for gtlabel, info in class_summary_info.items():
         count_detections += len(info['detections'])
         count_views += info['viewed']
         print('{}, {} viewed, prompts:{}, detections:{}'.format(gtlabel,info['viewed'],len(info['prompts']),len(info['detections'])))
     
     print('--------- summarize {} frames ---------'.format(count_frames))
-    print('--------- summarize {} scans with {} instances ---------'.format(count,len(class_info)))
+    print('--------- summarize {} scans with {} instances ---------'.format(count,len(class_summary_info)))
     print('--------- {} detections, {} views ---------'.format(count_detections,count_views))
     # exit(0)
     openset_names = []
     
-    for gt_id, match_info in class_info.items():
+    for gt_id, match_info in class_summary_info.items():
         for name in match_info['detections']:
             if name not in openset_names:
                 openset_names.append(name)
@@ -604,24 +337,16 @@ if __name__=='__main__':
 
     print('--------------- analysis ----------------')
     # detections_gt_matrix = extract_det_matrix(class_pairs, openset_name_mapper)
-    gdino_likelihood = extract_det_prompts_mat(class_info, openset_names)
-    ram_likelihood = extract_ram_matrix(image_info, gdino_likelihood['rows'])
+    gdino_likelihood = extract_det_prompts_mat(class_summary_info, openset_names)
+    ram_likelihood = extract_ram_matrix(image_summary_info, gdino_likelihood['rows'])
     # exit(0)
 
-    # maskrcnn_probability = create_kimera_probability(maskrcnn_model_dir, valid_opensets=None)
     kimera_probability = create_kimera_probability(kimera_model_dir, gdino_likelihood['rows'])
     gdino_likelihood = reorder_openset_names(kimera_probability['rows'], gdino_likelihood)
     ram_likelihood = reorder_openset_names(kimera_probability['rows'], ram_likelihood)
     
-    # prompt_det_probability = concat_openset_names(prompt_det_probability, kimera_model_dir)
-    # kimera_probability = concat_openset_names(kimera_probability, kimera_model_dir)
-    # gt_prompts = extract_prompts_connections(class_pairs)
-    
-    # print(detections_gt_matrix.sum(axis=0))
-    # print('find {} unique pred names:{}'.format(len(openset_name_mapper),openset_name_mapper))
     print('--------------- Export Data ----------------')
     import export
-    
     export.general_likelihood_matrix(ram_likelihood, os.path.join(output_folder,'bayesian'),'ram_likelihood')
     export.general_likelihood_matrix(gdino_likelihood, os.path.join(output_folder,'bayesian'),'detection_likelihood')
     multip_likelihood = {'likelihood':gdino_likelihood['likelihood']*ram_likelihood['likelihood'],
@@ -630,4 +355,3 @@ if __name__=='__main__':
     export.general_likelihood_matrix(multip_likelihood, os.path.join(output_folder,'bayesian'), 'likelihood_matrix')
     
     export.general_likelihood_matrix(kimera_probability,os.path.join(output_folder,'hardcode'),'likelihood_matrix')
-    exit(0)

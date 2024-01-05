@@ -1,20 +1,15 @@
 import os, glob,sys
 import numpy as np
 import open3d as o3d
-import open3d.core as o3c
-import cv2, plyfile
+# import open3d.core as o3c
+import cv2
 import json
-# from numpy import linalg as LA
 import inspect
 
-import render_result, fuse_detection
-# sys.path.append(os.path.join(os.path.dirname(__file__),'../'))
-# sys.path.append('/home/cliuci/PointGroup/dataset')
-import project_util, prepare_data_inst
+import render_result, fuse_detection, prepare_data_inst
 
 SEMANTIC_NAMES = render_result.SEMANTIC_NAMES
 SEMANTIC_IDX = render_result.SEMANTIC_IDXS
-HARD_ASSOCIATION_DIR = '/home/cliuci/code_ws/OpensetFusion/measurement_model/categories.json'
 
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parentdir = os.path.dirname(currentdir)
@@ -56,28 +51,6 @@ class DetInstancePair:
         self.det = det
         self.instance_id = instance_id
         self.iou = iou
-
-# todo: remove this
-def extract_background_gt(fn2, segid_to_pointid,min_points=20000):
-    '''
-    Input:
-        - fn2: str, path to the label file
-    Output:
-        - background_points: (N,3), np.float32
-    '''
-    
-    f2 = plyfile.PlyData().read(fn2)
-    labels = prepare_data_inst.remapper[np.array(f2.elements[0]['label'])] # [0,19]
-    bg_instances = []
-    
-    for segid, points in segid_to_pointid.items():
-        points_np = np.array(points)
-        seg_labels = labels[points_np].astype(np.int32)
-        mask = np.logical_or(seg_labels ==0, seg_labels==1) # mask background
-        if np.all(mask) and len(points)>min_points:
-            bg_instances.append(Instance(segid,SEMANTIC_NAMES[seg_labels[0]],-1,points_np,labels.shape[0]))
-    print('add {} bg instances'.format(len(bg_instances)))
-    return bg_instances
 
 def read_scannet_gt(scene_folder, coords, min_points=500):
     scene_name = os.path.basename(scene_folder)
@@ -135,12 +108,9 @@ def create_prompts(tags):
     prompts ={}
     prompt_list = []
     tag_elements = tags.split(',')
-    # id_offset = len(prompts_map)
-    # current_prompts_id = []
     for i, tag in enumerate(tag_elements):
         prompts[i] = tag.strip() #Prompt(i,tag)
         prompt_list.append(tag.strip())
-        # current_prompts_id.append(i)
     return prompts, prompt_list
 
 def create_measurements(detections):
@@ -150,202 +120,10 @@ def create_measurements(detections):
         [measurement_id,measurement], a map of the measurement info
     '''
     measurments = {}
-    # id_offset = len(measurement_map)
-    # current_measurements_id = []
     for k,det in enumerate(detections):
-        # zk = Measurement(k, det.label_name, det.conf, 0, 0)
-        # assert det.conf>0.2, 'detection score {} too low'.format(det.conf)
         measurments[str(k)] = det.labels 
-            #{'k':k,'labels':det.labels}
-                            # 'label_name':det.label_name,'score':det.conf})
-        # current_measurements_id.append(k)
     
     return measurments
-
-def read_hard_association(dir):
-    with open(dir,'r') as f:
-        data = json.load(f)
-        label_mapper = {} # close-set to open-set: {closeset_label: [openset_labels]}
-        for lc,lo_list in data['objects'].items():
-            # print('{}: {}'.format(lc,lo_list['main']))
-            label_mapper[lc] = lo_list['main']
-        f.close()
-        return label_mapper
-
-def process_scene(args):
-    scene_dir, output_dir,prediction_name = args
-    scene_name = os.path.basename(scene_dir)
-    viz_dir = os.path.join(scene_dir,'tmp2')
-    outfile = os.path.join(output_dir,'{}.json'.format(scene_name))
-    # if os.path.exists(outfile):
-    #     print('skip {}'.format(scene_name))
-    #     return
-
-    if os.path.exists(viz_dir)==False:
-        os.mkdir(viz_dir)
-    
-    MAP_POSIX = 'vh_clean_2.ply'
-    INTRINSIC_FOLDER ='intrinsic'
-    MIN_VIEW_POINTS = 3000
-    FRAME_GAP = 20
-    MIN_IOU = 0.8
-    
-    # depth filter related params
-    visualize = False
-    max_dist_gap = 0.2
-    depth_kernal_size = 5
-    kernal_valid_ratio = 0.2
-    kernal_max_var = 0.15
-    
-    # Init
-    K_rgb, K_depth,rgb_dim,depth_dim = project_util.read_intrinsic(os.path.join(scene_dir,INTRINSIC_FOLDER))
-    rgb_out_dim = depth_dim
-    K_rgb_out = project_util.adjust_intrinsic(K_rgb,rgb_dim,rgb_out_dim)
-    predict_folder = os.path.join(scene_dir,prediction_name)
-    predict_frames =  glob.glob(os.path.join(predict_folder,'*_label.json'))  
-    print('---- {} find {} prediction frames'.format(scene_name,len(predict_frames)))
-    if len(predict_frames)==0: return 0
-    
-    # Load map
-    map_dir = os.path.join(scene_dir,'{}_{}'.format(scene_name,MAP_POSIX))
-    pcd = o3d.io.read_point_cloud(map_dir)
-    points = np.asarray(pcd.points,dtype=np.float32)
-    colors = np.asarray(pcd.colors,dtype=np.float32)*255.0
-    normals = np.zeros(points.shape,dtype=np.float32)
-    
-    N = points.shape[0]
-        
-    # 
-    Instances = read_scannet_gt(scene_dir,points,500)
-    association_map = {}
-    # exit(0)
-    # Run
-    for index,pred_frame in enumerate(sorted(predict_frames)):   
-        frame_name = os.path.basename(pred_frame).split('_')[0] 
-        frameidx = int(frame_name.split('-')[-1])
-        if frameidx % FRAME_GAP != 0: continue
-                
-        rgbdir = os.path.join(scene_dir,'color',frame_name+'.jpg')
-        pose_dir = os.path.join(scene_dir,'pose',frame_name+'.txt')
-        depth_dir = os.path.join(scene_dir,'depth',frame_name+'.png')
-
-        # load rgbd, pose
-        rgbimg = cv2.imread(rgbdir)
-        raw_depth = cv2.imread(depth_dir,cv2.IMREAD_UNCHANGED)
-        depth = raw_depth.astype(np.float32)/1000.0
-        assert raw_depth.shape[0]==depth_dim[0] and raw_depth.shape[1]==depth_dim[1], 'depth image dimension does not match'
-        assert depth.shape[0] == rgbimg.shape[0] and depth.shape[1] == rgbimg.shape[1]
-        pose = np.loadtxt(pose_dir)
-
-        # projection
-        view_mask, points_uv, _, _ = project_util.project(
-            points, normals,pose, K_rgb_out, rgb_out_dim, 5.0, 0.5) # Nx3
-        filter_mask = project_util.filter_occlusion(points_uv,depth,max_dist_gap,depth_kernal_size,kernal_valid_ratio,kernal_max_var)
-        view_mask = np.logical_and(view_mask,filter_mask)
-        points_uv[~view_mask] = np.array([-100,-100,-100]) # (N,3)
-        points_uv = points_uv.astype(np.int32)
-        
-        # load prediction
-        tags, detections = fuse_detection.load_pred(predict_folder, frame_name, True)
-        if len(detections)<1: continue
-        
-        # create current vertices
-        frame_association = dict()
-        _, frame_association['prompts'] = create_prompts(tags)
-        frame_association['detections'] = create_measurements(detections)
-
-        # assignment
-        proj_rgb = np.zeros(rgbimg.shape,dtype=np.uint8)
-        assignment_det_gt =  np.zeros((len(detections),len(Instances)),dtype=np.int32)
-        matches_gt = []
-        matches_promp = []
-        viewed_instances = []
-        
-        # viewed_instances = 0
-        instances_centroid = np.zeros((len(Instances),2),dtype=np.int32) # (N,2),[u,v]
-        for j,instance in enumerate(Instances): # assign detection and gt instances
-            instance_mask = instance.get_points() # (N,), bool
-            uv = points_uv[instance_mask&view_mask,:2]
-            uv_rgb = colors[instance_mask&view_mask,:3].astype(np.uint8)
-            if np.sum(uv)<MIN_VIEW_POINTS: continue
-            # viewed_instances +=1
-            uv_map = np.zeros((rgbimg.shape[0],rgbimg.shape[1]),dtype=np.bool_)
-            uv_map[uv[:,1],uv[:,0]] = True
-            ious = cal_overlap(uv_map,detections)
-            k_ = np.argmax(ious)
-            if ious[k_] > MIN_IOU: 
-                assignment_det_gt[k_,j] = 1
-                match_={'det':int(k_),'gt':int(j),'iou':ious[k_]}
-                # match_ = DetInstancePair(scene_name,frame_name,k_,j,ious[k_])
-                # associations_det_inst.append(match_)
-                matches_gt.append(match_)
-            viewed_instances.append(j)
-            centroid = np.mean(uv,axis=0)
-
-            # viz
-            for i in np.arange(uv.shape[0]):
-                cv2.circle(proj_rgb,(uv[i,0],uv[i,1]),1,(int(uv_rgb[i,2]),int(uv_rgb[i,1]),int(uv_rgb[i,0])),-1)
-            cv2.putText(proj_rgb,instance.gt_label,(int(centroid[0]+10),int(centroid[1]+10)),cv2.FONT_HERSHEY_SIMPLEX,0.3,(255,255,255),1,cv2.LINE_AA)
-            if assignment_det_gt[k_,j]==1: # record_measurement
-                centroid_color = (0,255,0)
-                zk_ = detections[k_]
-                bbox_centroid = zk_.cal_centroid()
-                cv2.line(proj_rgb,(int(centroid[0]),int(centroid[1])),(int(bbox_centroid[0]),int(bbox_centroid[1])),(0,255,255),1)
-                # measure_k = Measurement(0,zk_.label_name,zk_.conf,ious[k_],np.sum(uv))
-                # instance.measurements.append(measure_k)
-            else:
-                centroid_color = (0,0,255)
-            cv2.circle(proj_rgb,(int(centroid[0]),int(centroid[1])),3,centroid_color,-1)
-
-        # for i, prompt_name in frame_association['prompts'].items(): # assign prompt
-        #     for k, zk in enumerate(frame_association['detections']): 
-        #         if prompt_name in zk['label_name']:
-        #             matches_promp.append({'det':int(k),'prompt':int(i)})
-        
-        frame_association['matches_gt'] = matches_gt
-        frame_association['viewed_instances'] = viewed_instances
-        # frame_association['matches_promp'] = matches_promp
-        association_map[frame_name] = frame_association
-        
-        # print('{}/{} instances are matched'.format(np.sum(assignment_det_gt),len(viewed_instances)))
-        
-        if visualize:
-            for k_,zk in enumerate(detections): # mark detection
-                # print('{} has {} masks'.format(zk.label_name,np.sum(zk.mask)))
-                if assignment_det_gt[k_,:].max()>0:
-                    bbox_color = (0,255,0)
-                else: bbox_color = (0,0,255)
-                
-                token_msg = ''
-                for os_label, score in zk.labels.items():
-                    token_msg += '{}({:.2f}) '.format(os_label,score)
-
-                cv2.rectangle(proj_rgb,pt1=(int(zk.u0),int(zk.v0)),pt2=(int(zk.u1),int(zk.v1)),color=bbox_color,thickness=1)
-                cv2.putText(proj_rgb, token_msg, (int(zk.u0+10),int(zk.v0+10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1, cv2.LINE_AA)
-            
-            out = proj_rgb
-            cv2.imwrite(os.path.join(viz_dir,'{}_measure.png'.format(frame_name)),out)
-        # if index>2:
-        #     break
-
-    # Export data
-    json_data = {"min_iou":MIN_IOU,"frame_gap":FRAME_GAP}
-    
-    instance_data = []# dict()
-    for j, instance in enumerate(Instances):
-        lj = {
-            'id': int(j),
-            'label_name': instance.gt_label,
-            'points_num': int(instance.get_points().sum())
-            }
-        instance_data.append(lj)
-    json_data['instances'] = instance_data
-    json_data['associations'] = association_map
-
-    with open(outfile,'w') as f:
-        json.dump(json_data,f)
-        f.close()
-        print('result write to {}'.format(outfile))
 
 def process_scene_new(args):
     import imageio.v2 as imageio
@@ -451,27 +229,36 @@ def process_scene_new(args):
         print('result write to {}'.format(outfile))
 
 if __name__=='__main__':
+    ''' For each scan, generate a json file and save it to the result folder.
+        Each json file contains, 
+        - Global instances info (centroid, label, etc.)
+        - Instances been observed at each frame.
+        - Frame-wise prompts and detections.
+        - Frame-wise association between detections and global instances.
+        THe json file is used for calculating the label likelihood matrix. 
+    '''
+    
+    ####### SET DATA DIRECTORIES HERE ########
     dataroot = '/data2/ScanNet'
     split='train'
-    # PREDICT = 'prediction_no_augment'
-    PREDICT = 'prediction_forward'
-    result_folder = os.path.join(dataroot,'measurements','bayesian')
+    PREDICT = 'prediction_augment'
+    result_folder = os.path.join(dataroot,'measurements',PREDICT)
     if os.path.exists(result_folder)==False:
         os.makedirs(result_folder)
-    scans = render_result.read_scans(os.path.join(dataroot,'splits','train_micro.txt'))
+    ##########################################
+        
+    # find scans
+    scans = render_result.read_scans(os.path.join(dataroot,'splits',split+'.txt'))
     valid_scans =  [scan for scan in scans if os.path.exists(os.path.join(dataroot,split,scan,PREDICT))]
     print('{}/{} scans are valid'.format(len(valid_scans),len(scans)))
+    
+    # For debug
+    # process_scene_new((os.path.join(dataroot,split,valid_scans[0]), result_folder, PREDICT))
     # exit(0)
     
-    # scans = ['scene0407_01']
-    
-    # for scan in scans:
-    #     process_scene_new((os.path.join(dataroot,split,scan),result_folder,PREDICT))
-    #     break
-    # exit(0)
-    
+    # Run in mp
     import multiprocessing as mp
-    p = mp.Pool(processes=16)
+    p = mp.Pool(processes=64)
     p.map(process_scene_new, [(os.path.join(dataroot,split,scan), result_folder, PREDICT) for scan in valid_scans])
     p.close()
     p.join()

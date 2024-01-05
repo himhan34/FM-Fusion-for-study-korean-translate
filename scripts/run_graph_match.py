@@ -14,11 +14,10 @@ if __name__ == '__main__':
     
     # args
     config_file = '/home/lch/Code_ws/OpensetFusion/config/scannet.yaml'
-    dataroot = '/media/lch/SeagateExp/dataset_/ScanNet'
-    split= 'val'
-    output_folder = os.path.join(dataroot,'output_new')
+    dataroot = '/media/lch/SeagateExp/dataset_/ScanNetGraph'
+    output_folder = os.path.join(dataroot,'train')
     
-    scans = read_scans(os.path.join(dataroot, 'splits', 'val_clean.txt'))
+    scans = read_scans(os.path.join(dataroot, 'splits', 'train_mini.txt'))
     
     # run
     for scene_name in scans:

@@ -18,13 +18,17 @@ def load_matches(dir):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Generate GT association and visualize(optional) for ScanNet')
     parser.add_argument('--graphroot', type=str, default='/media/lch/SeagateExp/dataset_/ScanNetGraph')
-    parser.add_argument('--prediction', type=str, default='pred', help='Prediction folder under graph root')
+    parser.add_argument('--prediction', type=str, default='pgnn', help='Prediction folder under graph root')
     parser.add_argument('--split', type=str, default='val')
+    parser.add_argument('--samples', type=int, default=5)
     parser.add_argument('--Z_OFFSET', type=float, default=5,help='offset the target graph for better viz')
+    parser.add_argument('--viz',action='store_true')
     args = parser.parse_args()
     
     gt_folder= os.path.join(args.graphroot,'matches')
-    scans = read_scans(os.path.join(args.graphroot, 'splits', 'val_clean' + '.txt'))
+    scans = read_scans(os.path.join(args.graphroot, 'splits', 'val' + '.txt'))
+    sample_scans = np.random.choice(scans,args.samples)    # randomly sample 10 scans
+    
     print('Visualize prediction for {} pairs of scans'.format(len(scans)))
     # scans = ['scene0356_00']
     num_pos = 0
@@ -32,11 +36,11 @@ if __name__ == '__main__':
     num_gt = 0
     num_scans = 0
     
-    for scan in scans:
+    for scan in sample_scans:
         scan_dir = os.path.join(args.graphroot,args.split,scan)
-        pred_dir = os.path.join(args.graphroot,args.prediction,'{}.txt'.format(scan))
+        pred_dir = os.path.join(args.graphroot,'pred',args.prediction,'{}.txt'.format(scan))
         if os.path.exists(pred_dir):
-            src_graph, tar_graph = load_scene_pairs(scan_dir)
+            src_graph, tar_graph = load_scene_pairs(scan_dir,0.5)
             gt = load_matches(os.path.join(gt_folder,scan+'.csv'))
             print('gt: ',gt)
             # data = process_scene(scan_dir,os.path.join(output_folder,scan+'.csv'),False)
@@ -71,8 +75,10 @@ if __name__ == '__main__':
                     pair_line.paint_uniform_color([0,1,0])
                     num_pos +=1
                     tp_msg += '({}_{},{}_{})'.format(pair[0],inst_a.label,pair[1],inst_b.label)
+                elif inst_a.label=='floor' or inst_a.label=='carpet':
+                    num_pos +=1
+                    tp_msg += '({}_{},{}_{})'.format(pair[0],inst_a.label,pair[1],inst_b.label)
                 else:
-                    # msg += str(pair)+' '
                     num_neg +=1
                     fp_msg += '({}_{},{}_{})'.format(pair[0],inst_a.label,pair[1],inst_b.label)
                     pair_line.paint_uniform_color([1,0,0])

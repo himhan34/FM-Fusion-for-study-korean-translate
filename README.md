@@ -40,9 +40,8 @@ make
 
 Run the executable program as follow,
 ```bash
-./cpp/IntegrateInstanceMap --config ../config/fusion_portable.yaml --root ${FusionPortableRoot}/scans/bday_03 --frame_gap 10 --output ${FusionPortableRoot}/output
+./cpp/IntegrateInstanceMap --config ../config/fusion_portable.yaml --root ${FusionPortableRoot}/scans/bday_03 --prediction prediction_no_augment --frame_gap 10 --output ${FusionPortableRoot}/output
 ```
-
 
 The reconstructed instances should be saved int the output folder.
 ```bash
@@ -50,8 +49,14 @@ The reconstructed instances should be saved int the output folder.
     |---bday_01
         |---instance_map.ply (aggregated instances point cloud)
         |---instance_info.txt
+        |---instance_box.txt
         |---${idx}.ply (intanace-wise point cloud)
         |--- ...
+```
+## Visualize reconstructed instances
+
+```
+python dataset/scannetv2/generate_gt_association.py --dataroot /data2/ScanNet --graphroot /data2/ScanNetGraph --split val --split_file val_clean --min_matches 4
 ```
 
 ## Run Python version of instance mapping node 

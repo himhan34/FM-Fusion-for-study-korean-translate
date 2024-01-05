@@ -627,7 +627,7 @@ class ObjectMap:
                 points_indices = instance.dense_points
             else:
                 points_indices = instance.extract_aligned_points(global_dense_points, min_weight=min_weight)
-            label_id,conf = instance.estimate_label()
+            label_id,conf = instance.estimate_label() # nyu20
             
             # print('{} has {} points'.format(self.labels[label_id],points_indices.shape[0]))
             if points_indices.size>0:
@@ -690,10 +690,11 @@ class ObjectMap:
         
     
     def save_scannet_results(self, eval_dir, gt_points, semantic_eval_folder=None):
-        '''
+        ''' Align the instance points to the ground-truth point cloud and save the results.
+            Each instance_mask.txt is in (N,), 1 for true and 0 represents false
         Input,
             - eval_dir: str, the folder directory to save the results
-            - points: N*3, np.float32, the point cloud provided by ScanNet
+            - gt_points: N*3, np.float32, the ground-truth point cloud provided by ScanNet
         '''
         MIN_DIST = 0.08
         MIN_POINTS = 1
@@ -710,7 +711,7 @@ class ObjectMap:
         for idx, instance in self.instance_map.items():
             label_id,label_conf = instance.estimate_label()
             assert label_id<20, 'contain unexpected label id'.format(label_id)
-            instance_labels.append(label_id)
+            instance_labels.append(label_id) # nyu20
             instance_list.append(idx)
             instance_points.append(instance.points)
         
@@ -1035,7 +1036,7 @@ def find_overlap(z0,z1):
     
     return overlap, z0_area<z1_area
 
-def load_pred(predict_folder, frame_name, valid_openset_names=None):
+def load_pred(predict_folder, frame_name, max_box_ratio =0.9, valid_openset_names=None):
     '''
     Output: a list of detections
     '''
@@ -1054,7 +1055,6 @@ def load_pred(predict_folder, frame_name, valid_openset_names=None):
     
     detections:list(Detection) = []
     labels_msg =''
-    MAX_BOX_RATIO=0.9
     
     with open(label_file, 'r') as f:
         json_data = json.load(f)
@@ -1072,7 +1072,7 @@ def load_pred(predict_folder, frame_name, valid_openset_names=None):
                 labels = ele['labels'] # {label:conf}
 
                 box_area_normal = (bbox[2]-bbox[0])*(bbox[3]-bbox[1])/(img_width*img_height)
-                if box_area_normal > MAX_BOX_RATIO: continue
+                if box_area_normal > max_box_ratio: continue
                 # if (bbox[2]-bbox[0])/img_width>MAX_BOX_RATIO and (bbox[3]-bbox[1])/img_height>MAX_BOX_RATIO:
                 #     continue # remove bbox that are too large
                 if valid_openset_names is not None:
@@ -1108,7 +1108,7 @@ def load_pred(predict_folder, frame_name, valid_openset_names=None):
         # print('invalid :{}'.format(invalid_detections))
         # detections = [detections[k] for k in range(len(detections)) if k not in invalid_detections]
         
-        print('{}/{} detections are loaded in {}'.format(len(detections),len(masks)-1, frame_name))
+        # print('{}/{} detections are loaded in {}'.format(len(detections),len(masks)-1, frame_name))
         return tags, detections
 
 def non_max_suppression(ious, scores, threshold):
@@ -1167,9 +1167,10 @@ def filter_detection_depth(detections:list(),depth:np.ndarray):
             zk.mask = np.logical_and(zk.mask,valid_mask)
             if np.sum(zk.mask)<50:
                 remove_detection.append(k)
+                
+    if len(remove_detection)<1:return detections
     
-    for k in remove_detection:
+    for k in sorted(remove_detection,reverse=True):
         del detections[k]
-            
     return detections
 

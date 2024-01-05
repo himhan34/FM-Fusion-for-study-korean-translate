@@ -1,0 +1,43 @@
+😃 YOU: let's restart. I have a list of label names: "wall", "tile wall", "floor", "carpet", "cabinet", "closet", "file cabinet", "dresser", "bed", "chair", "armchair", "swivel chair", "couch", "table", "side table", "round table", "kitchen table", "door", "glass door", "window", "bookshelf", "shelf", "picture", "picture frame", "poster", "counter top", "kitchen counter", "computer desk", "office desk", "curtain", "fridge", "shower curtain", "toilet bowl", "sink", "bathroom sink", "bath", "tub", "bin". And I also have a list of semantic class names: "wall", "floor", "cabinet", "bed", "chair", "sofa", "table", "door", "window", "bookshelf", "picture", "counter", "desk", "curtain", "refrigerator", "shower curtain", "toilet", "sink", "bathtub", "otherfurniture". Classify each label name to the semantic name it should belong to. Each label name should be semantic similar with its classified semantic name.
+
+🤖 AI: Here are the label names classified to their respective semantic names based on semantic similarity:
+
+Wall: wall
+Tile wall: wall
+Floor: floor
+Carpet: floor
+Cabinet: cabinet
+Closet: cabinet
+File cabinet: cabinet
+Dresser: bed
+Bed: bed
+Chair: chair
+Armchair: chair
+Swivel chair: chair
+Couch: sofa
+Table: table
+Side table: table
+Round table: table
+Kitchen table: table
+Door: door
+Glass door: door
+Window: window
+Bookshelf: bookshelf
+Shelf: bookshelf
+Picture: picture
+Picture frame: picture
+Poster: picture
+Counter top: counter
+Kitchen counter: counter
+Computer desk: desk
+Office desk: desk
+Curtain: curtain
+Fridge: refrigerator
+Shower curtain: curtain
+Toilet bowl: toilet
+Sink: sink
+Bathroom sink: sink
+Bath: bathtub
+Tub: bathtub
+Bin: otherfurniture
+Note: The classification is based on the semantic similarity between the label names and the semantic names. There might be some label names that could be classified into multiple semantic names, but I have chosen the semantic name that has the highest semantic similarity.

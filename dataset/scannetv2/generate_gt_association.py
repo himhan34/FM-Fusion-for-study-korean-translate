@@ -3,6 +3,7 @@ import argparse
 import open3d as o3d
 import cv2 
 import numpy as np
+import torch
 from numpy import linalg as LA
 from scipy.spatial.transform import Rotation as R
 import csv
@@ -15,10 +16,10 @@ class Instance:
         self.label = label
         self.score = score
         self.cloud = cloud
+        # self.centroid = cloud.get_center()
+        self.cloud_dir = None
     def load_box(self,box):
         self.box = box
-    def record_cloud_dir(self,cloud_dir):
-        self.cloud_dir = cloud_dir # realative path to the scan folder
 
 def load_scene_graph(folder_dir,min_points=1000):
     ''' graph: {'nodes':{idx:Instance},'edges':{idx:idx}}
@@ -39,9 +40,8 @@ def load_scene_graph(folder_dir,min_points=1000):
             # print('load {}:{}, {}'.format(idx,label,score))
             
             cloud = o3d.io.read_point_cloud(os.path.join(folder_dir,'{}.ply'.format(parts[0])))
-            inst_toadd = Instance(idx,cloud,label,score)
-            inst_toadd.cloud_dir = '{}.ply'.format(parts[0])
-            nodes[idx] = inst_toadd
+            nodes[idx] = Instance(idx,cloud,label,score)
+            nodes[idx].cloud_dir = '{}.ply'.format(parts[0])
 
         f.close()
         print('Load {} instances '.format(len(nodes)))
@@ -123,6 +123,7 @@ def compute_cloud_overlap(cloud_a:o3d.geometry.PointCloud,cloud_b:o3d.geometry.P
     # compute point cloud overlap 
     Na = len(cloud_a.points)
     Nb = len(cloud_b.points)
+    correspondences = []
     cloud_a_occupied = np.zeros((Na,1))
     pcd_tree_b = o3d.geometry.KDTreeFlann(cloud_b)
     
@@ -130,17 +131,27 @@ def compute_cloud_overlap(cloud_a:o3d.geometry.PointCloud,cloud_b:o3d.geometry.P
         [k,idx,_] = pcd_tree_b.search_radius_vector_3d(cloud_a.points[i],search_radius)
         if k>1:
             cloud_a_occupied[i] = 1
-    iou = np.sum(cloud_a_occupied)/(Na+Nb-np.sum(cloud_a_occupied))
-    return iou
+            correspondences.append([i,idx[0]])
+    assert len(correspondences)==len(np.argwhere(cloud_a_occupied==1))
+    iou = len(correspondences)/(Na+Nb-len(correspondences))
+    return iou, correspondences
 
-def find_association(src_graph:dict,tar_graph:dict):
+def find_association(src_graph:dict,tar_graph:dict,min_iou=0.5):
+    ''' find gt association 
+    Return:
+        - matche_results: [(src_idx, tar_idx, iou)]
+        - correspondences: np.array, (Mp,4), [src_idx, tar_idx, u, v]
+    '''
+    import numpy.linalg as LA
     # find association
     Nsrc = len(src_graph)
     Ntar = len(tar_graph)
-    if Nsrc==0 or Ntar==0: return []
+    if Nsrc==0 or Ntar==0: return [],[]
     
     iou = np.zeros((Nsrc,Ntar))
-    MIN_IOU = 0.5
+    correspondences = [] # [src_idx, tar_idx, u, v]
+    n_match_pts = 0
+    # MIN_IOU = 0.5
     SEARCH_RADIUS = 0.2
     assignment = np.zeros((Nsrc,Ntar),dtype=np.int32)
 
@@ -150,9 +161,16 @@ def find_association(src_graph:dict,tar_graph:dict):
     # calculate iou
     for row_,src_idx in enumerate(src_graph_list):
         src_inst = src_graph[src_idx]
+        src_centroid = src_inst.cloud.get_center()
         for col_, tar_idx in enumerate(tar_graph_list):
             tar_inst = tar_graph[tar_idx]
-            iou[row_,col_] = compute_cloud_overlap(src_inst.cloud,tar_inst.cloud,search_radius=SEARCH_RADIUS)
+            dist = LA.norm(tar_inst.cloud.get_center() - src_centroid)
+            # if dist>3.0: continue
+            iou[row_,col_], uvs = compute_cloud_overlap(src_inst.cloud,tar_inst.cloud,search_radius=SEARCH_RADIUS)
+            correspondences.extend([[src_idx,tar_idx,uv[0],uv[1]] for uv in uvs])
+            n_match_pts += len(uvs)
+    correspondences = np.array(correspondences)
+    assert correspondences.shape[0] == n_match_pts
     
     # find match 
     row_maximum = np.zeros((Nsrc,Ntar),dtype=np.int32)
@@ -162,16 +180,17 @@ def find_association(src_graph:dict,tar_graph:dict):
     assignment = row_maximum*col_maximum # maximum match for each row and column
     
     # filter
-    valid_assignment = iou>MIN_IOU
+    valid_assignment = iou>min_iou
     assignment = assignment*valid_assignment
     
     #
     matches = np.argwhere(assignment==1)
-    matches = [(src_graph_list[match[0]],tar_graph_list[match[1]]) for match in matches]
+    # matches_iou = [iou[match[0],match[1]] for match in matches]
+    matche_results = [[src_graph_list[match[0]],tar_graph_list[match[1]],iou[match[0],match[1]]] for match in matches]
     # print(assignment)
-    print(matches)
+    # print(matches)
     
-    return matches
+    return matche_results, correspondences
 
 def get_geometries(graph:dict,translation=np.array([0,0,0]),include_edges=True):
     geometries = []
@@ -191,8 +210,8 @@ def get_geometries(graph:dict,translation=np.array([0,0,0]),include_edges=True):
             tar_idx = edge[1]
             src_inst = graph['nodes'][src_idx]
             tar_inst = graph['nodes'][tar_idx]
-            src_center = src_inst.box.get_center()
-            tar_center = tar_inst.box.get_center()
+            src_center = src_inst.cloud.get_center() #src_inst.box.get_center()
+            tar_center = tar_inst.cloud.get_center() #tar_inst.box.get_center()
             # print(src_center.transpose(), tar_center.transpose())
             line_set = o3d.geometry.LineSet(
                 points=o3d.utility.Vector3dVector(np.vstack((src_center,tar_center))),
@@ -215,11 +234,12 @@ def get_instances_color(graph:dict):
     count = 0
     print('{} nodes have {},{}'.format(N,num_rows,row_cells))
     
-    for _, instance in graph['nodes'].items():
+    for idx, instance in graph['nodes'].items():
         row = count//row_cells
         col = count%row_cells
         color_img[row*cell_height:row*cell_height+cell_height,col*cell_width:col*cell_width+cell_width,:] = 255 * np.asarray(instance.cloud.colors)[0,:]
-        cv2.putText(color_img,instance.label,(col*cell_width+10,row*cell_height+cell_height//2),cv2.FONT_HERSHEY_SIMPLEX,1.0,(0,0,0),2)
+        text = '{}_{}'.format(idx,instance.label)
+        cv2.putText(color_img,text,(col*cell_width+10,row*cell_height+cell_height//2),cv2.FONT_HERSHEY_SIMPLEX,1.0,(0,0,0),2)
         # print('{}-{},{}-{}'.format(count, instance.label,row,col))
         count += 1
         
@@ -237,8 +257,8 @@ def get_match_lines(src_graph:dict,tar_graph:dict,matches,translation=np.array([
         assert tar_idx in tar_graph, '{} not in tar graph'.format(tar_idx)
         src_inst = src_graph[src_idx]
         tar_inst = tar_graph[tar_idx]
-        src_center = src_inst.box.get_center()
-        tar_center = tar_inst.box.get_center()+translation
+        src_center = src_inst.cloud.get_center() #src_inst.box.get_center()
+        tar_center = tar_inst.cloud.get_center()
         # print(src_center.transpose(), tar_center.transpose())
         line_set = o3d.geometry.LineSet(
             points=o3d.utility.Vector3dVector(np.vstack((src_center,tar_center))),
@@ -272,10 +292,13 @@ def save_nodes_edges(graph:dict,output_dir:str):
             writer.writerow({'src_id':edge[0],'tar_id':edge[1]})
         csvfile.close()
 
-def process_scene(scan_dir,out_file_dir,save_feats=True, compute_matches=True):
+def process_scene(scan_dir,output_folder,min_iou,save_nodes=True, compute_matches=True):
     # scan_dir,out_file_dir = args
     if os.path.exists(os.path.join(scan_dir+'a','instance_box.txt'))==False or os.path.exists(os.path.join(scan_dir+'b','instance_box.txt'))==False:
         return None
+    # if os.path.exists(output_folder)==False:
+    os.makedirs(output_folder,exist_ok=True)
+    
     scan = os.path.basename(scan_dir)
     print('processing {}'.format(scan))
     
@@ -287,34 +310,37 @@ def process_scene(scan_dir,out_file_dir,save_feats=True, compute_matches=True):
     
     # find association
     if compute_matches:
-        matches = find_association(src_graph['nodes'],tar_graph['nodes']) # [(src_idx, tar_idx)]
+        matches, correspondences = find_association(src_graph['nodes'],tar_graph['nodes'],min_iou) # [(src_idx, tar_idx)]
     else:
-        matches = None
+        matches = []
+        correspondences = []
     
     # Save Graph: nodes.csv and edges.csv
-    if save_feats:
+    if save_nodes:
         save_nodes_edges(src_graph,scan_dir+'a')
         save_nodes_edges(tar_graph,scan_dir+'b')
     
     # Save GT: matches.csv
-    if out_file_dir is not None and len(matches)>0:
-        with open(out_file_dir,'w',newline='') as csvfile:
-            writer = csv.DictWriter(csvfile,fieldnames=['src_id','tar_id'])
-            writer.writeheader()
-            for match in matches:
-                if match[0] in src_graph['nodes'] and match[1] in tar_graph['nodes']:
-                    writer.writerow({'src_id':match[0],'tar_id':match[1]})
-            csvfile.close()
+    if len(matches)>0:
+        # match_file_dir = os.path.join(output_folder,'instances.pth')
+        # with open(match_file_dir,'w',newline='') as csvfile:
+        #     writer = csv.DictWriter(csvfile,fieldnames=['src_id','tar_id','iou'])
+        #     writer.writeheader()
+        #     for match in matches:
+        #         if match[0] in src_graph['nodes'] and match[1] in tar_graph['nodes']:
+        #             writer.writerow({'src_id':match[0],'tar_id':match[1],'iou':'{:.3f}'.format(match[2])})
+        #     csvfile.close()
+        matches_t = torch.tensor(matches)
+        correspondences_t = torch.tensor(correspondences)
+        torch.save((matches_t,correspondences_t),os.path.join(output_folder,'matches.pth'))
 
-    return {'scan':scan,'src':src_graph,'tar':tar_graph,'matches':matches}
-
-def load_scene_pairs(scan_dir):
-    out = process_scene(scan_dir,None,False,False)
-    return (out['src'],out['tar'])
+    return {'scan':scan,'src':src_graph,'tar':tar_graph,
+            'matches':matches, 'correspondences':correspondences}
 
 def process_scene_thread(args):
-    scan_dir,out_file_dir = args
-    ret = process_scene(scan_dir,out_file_dir)
+    scan_dir,output_folder,min_iou = args
+    print('mp process {}'.format(scan_dir))
+    ret = process_scene(scan_dir,output_folder,min_iou)
     if ret is None: return None
     else:
         return (ret['scan'],ret['matches'])
@@ -328,6 +354,7 @@ if __name__ == '__main__':
     parser.add_argument('--split_file', type=str, default='val_clean')
     parser.add_argument('--Z_OFFSET', type=float, default=5,help='offset the target graph for better viz')
     parser.add_argument('--min_matches', type=int, default=4,help='minimum number of matches to be considered as valid')
+    parser.add_argument('--min_iou', type=float, default=0.5,help='minimum iou to be considered as valid')
     parser.add_argument('--debug_mode', action='store_true',help='visualize each pair of graph')
     parser.add_argument('--viz_edges',action='store_true',help='visualize edges')
     parser.add_argument('--viz_match', action='store_true',help='visualize gt matches')
@@ -335,13 +362,13 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     output_folder= os.path.join(args.graphroot,'matches')
-    scans = read_scans(os.path.join(args.graphroot, 'splits', args.split_file + '.txt'))
+    scans = read_scans(os.path.join(args.dataroot, 'splits', args.split_file + '.txt'))
     print('Generate GT and graph for {} pairs of scans'.format(len(scans)))
     
     if args.debug_mode:
         for scan in scans:
             scan_dir = os.path.join(args.graphroot,args.split,scan)
-            out = process_scene(scan_dir,os.path.join(output_folder,scan+'.csv'))
+            out = process_scene(scan_dir,None,args.min_iou,False,True)
             if out is None or out['src'] is None: continue
             
             # visualize
@@ -360,17 +387,17 @@ if __name__ == '__main__':
                 # cv2.waitKey(0)
                 
             o3d.visualization.draw_geometries(viz_geometries,scan)
-            # break    
+            break    
         exit(0)
 
     import multiprocessing as mp
     p = mp.Pool(processes=64)
-    outs = p.map(process_scene_thread,[(os.path.join(args.graphroot,args.split,scan),os.path.join(output_folder,scan+'.csv')) for scan in scans])    
+    outs = p.map(process_scene_thread,[(os.path.join(args.graphroot,args.split,scan),os.path.join(output_folder,scan),args.min_iou) for scan in scans])    
     p.close()
     p.join()
-    print('finished')
+    print('finished {} scans'.format(len(scans)))
     
-    exit(0)
+    # exit(0)
     # save valid scans
     with open(os.path.join(args.graphroot, 'splits', args.split + '.txt'),'w') as f:
         for scan_out in outs:

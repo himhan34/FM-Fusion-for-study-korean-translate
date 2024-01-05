@@ -3,8 +3,11 @@
 python/__pycache__/
 measurement_model/prompt
 build
+eval
 .history
 
 # Ignore files 
 *.pyc
+*.zip
+*.npy
 

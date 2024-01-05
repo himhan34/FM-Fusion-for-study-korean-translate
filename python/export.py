@@ -296,8 +296,9 @@ def general_likelihood_matrix(probability, output_folder,output_name='ram_likeli
     im, cbar = heatmap(likelihood, openset_names, nyu20names, ax=ax,
                        cmap="YlGn", cbarlabel="p(q|l)")
     # ax.set(title='Open-set Labels', ylabel='Close-set Labels'.format(len(openset_names)))
-    ax.set_title('Open-set Labels',fontsize=10)
-    ax.set_ylabel('Close-set Labels ({})'.format(len(openset_names)),fontsize=10)
+    ax.set_title('Likelihood Matrix',fontsize=10)
+    ax.set_xlabel('Close-set Labels ({})'.format(len(nyu20names)),fontsize=10)
+    ax.set_ylabel('Open-set Labels ({})'.format(len(openset_names)),fontsize=10)
     plt.xticks(fontsize=8,rotation=90,va='bottom')
     plt.yticks(fontsize=8)
     

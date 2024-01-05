@@ -3,7 +3,7 @@ import csv,json
 import numpy as np
 import cv2
 
-sys.path.append('/home/cliuci/code_ws/OpensetFusion/scripts')
+sys.path.append('/home/cliuci/code_ws/OpensetFusion/python')
 import fuse_detection
 
 def read_mapper_file(dir):
@@ -33,9 +33,9 @@ def read_hard_association(dir):
 
 def generate_gsam_sequence(scene_dir:str,output_scene_folder:str,association_maper, class_to_color):
     IMAGE_SHAPE = (480, 640) # (height, width)
-    FRAME_GAP = 5
+    FRAME_GAP = 10
     DATASET = 'scenenn'
-    pred_folder = os.path.join(scene_dir, 'prediction_vaug5')
+    pred_folder = os.path.join(scene_dir, 'prediction_no_augment')
     output_folder = os.path.join(output_scene_folder, 'pred_gsam_color')
     if os.path.exists(output_folder)==False:
         os.makedirs(output_folder)
@@ -96,8 +96,8 @@ def generate_maskrcnn_seqeunce(scene_dir:str,output_scene_folder:str, label_to_c
     IMAGE_SHAPE = (480, 640) # (height, width)
     FRAME_GAP = 10
     
-    pred_folder = os.path.join(scene_dir, 'pred_maskrcnn')
-    output_folder = os.path.join(output_scene_folder, 'pred_maskrcnn_color')
+    pred_folder = os.path.join(scene_dir, 'pred_maskrcnn_refined')
+    output_folder = os.path.join(output_scene_folder, 'pred_maskrcnn_color_rf')
     if os.path.exists(output_folder)==False:
         os.makedirs(output_folder)
         
@@ -115,7 +115,7 @@ def generate_maskrcnn_seqeunce(scene_dir:str,output_scene_folder:str, label_to_c
         
         # semantic_image[:,:,3] = 255 # alpha channel
         print('write detection result {}:{}'.format(os.path.basename(scene_dir),frame_name))
-        _, detections = fuse_detection.load_pred(pred_folder, frame_name, valid_labels)
+        _, detections = fuse_detection.load_pred(pred_folder, frame_name, 0.9, valid_labels)
 
         for zk in detections:
             semantic_class = list(zk.labels.keys())[0]
@@ -131,10 +131,10 @@ def generate_maskrcnn_seqeunce(scene_dir:str,output_scene_folder:str, label_to_c
         # break
     
 if __name__=='__main__':
-    data_root = '/data2/scenenn'
-    # '/data2/ScanNet'
+    # data_root = '/data2/scenenn'
+    data_root = '/data2/ScanNet'
     split = 'val'
-    split_file = 'val_tmp'
+    split_file = 'val'
 
     # Load label to color mapper    
     association_file = 'measurement_model/categories.json'
@@ -154,6 +154,6 @@ if __name__=='__main__':
         out_scene_folder = os.path.join(output_folder,scan)
         if os.path.exists(out_scene_folder)==False:
             os.makedirs(out_scene_folder)
-        generate_gsam_sequence(os.path.join(data_root,split,scan),out_scene_folder,openset_to_nyu20,gsam_color_mapper)
-        # generate_maskrcnn_seqeunce(os.path.join(data_root,split,scan),out_scene_folder,maskrcnn_mapper)
+        # generate_gsam_sequence(os.path.join(data_root,split,scan),out_scene_folder,openset_to_nyu20,gsam_color_mapper)
+        generate_maskrcnn_seqeunce(os.path.join(data_root,split,scan),out_scene_folder,maskrcnn_mapper)
         # break

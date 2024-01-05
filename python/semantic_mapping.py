@@ -336,7 +336,7 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
         RGB_FOLDER = 'color'
         RGB_POSFIX = '.jpg'
         DATASET = 'scannet'
-        FRAME_GAP = 100
+        FRAME_GAP = 10
         DEPTH_CLIP_MAX= 0.9
         VX_RESOLUTION = 256
         MIN_VIEW_POINTS = 800 # instance-wise
@@ -355,7 +355,7 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
         RGB_FOLDER = 'image'
         RGB_POSFIX = '.png'
         DATASET = 'scenenn'
-        FRAME_GAP = 5
+        FRAME_GAP = 10
         DEPTH_CLIP_MAX = 0.9
         VX_RESOLUTION = 256
         MIN_VIEW_POINTS = 800 # instance-wise
@@ -416,7 +416,7 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
     # frame_sequence = glob.glob(os.path.join(scene_dir,pred_folder,'*_label.json'))  
     frame_sequence = glob.glob(os.path.join(scene_dir,RGB_FOLDER,'*{}'.format(RGB_POSFIX)))
     print('---- {}/{} find {} rgb frames'.format(DATASET,scene_name,len(frame_sequence)))
-    
+
     # Create instance map manager
     instance_map = InstanceMap()
     instance_map.load_semantic_names(label_predictor.closet_names)
@@ -459,7 +459,7 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
         elif DATASET=='scenenn':
             frame_stamp = float(frame_name[5:])
             depth_dir = os.path.join(scene_dir,'depth',frame_name.replace('image','depth')+'.png')
-            pose_dir = os.path.join(scene_dir,'pose',frame_name.replace('image','frame-')+'.txt')
+            pose_dir = os.path.join(scene_dir,'pose_raw',frame_name.replace('image','frame-')+'.txt')
         elif DATASET=='fusionportable':
             frame_stamp = float(frame_name)
             depth_dir = os.path.join(scene_dir,'depth',frame_name+'.png')
@@ -490,8 +490,8 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
         # Is it prediction frame
         if (frame_stamp - prev_frame_stamp) < FRAME_GAP:
             continue
-        tags, detections = fuse_detection.load_pred(pred_folder,frame_name,label_predictor.openset_names)
-        if tags is None or detections is None: continue
+        tags, detections = fuse_detection.load_pred(pred_folder,frame_name,0.9,label_predictor.openset_names)
+        if detections is None: continue
         print('{}: prediction frame'.format(frame_name))
         rgb_np = cv2.imread(rgbdir,cv2.IMREAD_UNCHANGED)
         depth_np = cv2.imread(depth_dir,cv2.IMREAD_UNCHANGED)
@@ -618,7 +618,8 @@ def integrate_semantic_map(scene_dir:str, dataroot:str, out_folder:str, pred_fol
     instance_map.save_debug_results(debug_folder,vx_resolution=VX_RESOLUTION,time_record=[frame_time_array,object_time_array])
     
     # Save visualization
-    save_visualization(instance_map, scene_name, viz_folder)
+    if instance_map.get_num_instances()>1:
+        save_visualization(instance_map, scene_name, viz_folder)
     
     if visualize:
         o3d_visulizer.destroy_window()
