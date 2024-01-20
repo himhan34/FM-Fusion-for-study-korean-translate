@@ -151,8 +151,7 @@ def find_association(src_graph:dict,tar_graph:dict,min_iou=0.5):
     iou = np.zeros((Nsrc,Ntar))
     correspondences = [] # [src_idx, tar_idx, u, v]
     n_match_pts = 0
-    # MIN_IOU = 0.5
-    SEARCH_RADIUS = 0.2
+    SEARCH_RADIUS = 0.05
     assignment = np.zeros((Nsrc,Ntar),dtype=np.int32)
 
     src_graph_list = [src_idx for src_idx,_ in src_graph.items()]
@@ -268,6 +267,25 @@ def get_match_lines(src_graph:dict,tar_graph:dict,matches,translation=np.array([
         
     return lines
 
+def get_correspondences_lines(src_graph:dict,tar_graph:dict,matches,correspondences,translation=np.array([0,0,0])):
+    # lines = []
+    sample_id = np.random.choice(len(matches))
+    src_idx = matches[sample_id][0]
+    tar_idx = matches[sample_id][1]
+    mask = np.logical_and(correspondences[:,0]==src_idx,correspondences[:,1]==tar_idx)
+    point_correspondences = correspondences[mask,2:].astype(np.int32) # (Mp,2)
+    Mp = point_correspondences.shape[0]
+    print('draw src:{}, tar:{}, correspondences:{}/{}'.format(
+        src_idx,tar_idx,point_correspondences.shape[0],correspondences.shape[0]))
+    src_pts = np.asarray(src_graph[src_idx].cloud.points)[point_correspondences[:,0]]
+    tar_pts = np.asarray(tar_graph[tar_idx].cloud.points)[point_correspondences[:,1]]
+    line_set = o3d.geometry.LineSet(
+        points=o3d.utility.Vector3dVector(np.vstack((src_pts,tar_pts))),
+        lines=o3d.utility.Vector2iVector(np.arange(Mp*2).reshape(2,Mp).transpose(1,0)))
+    line_set.paint_uniform_color((0,0,1))
+    
+    return line_set
+
 def save_nodes_edges(graph:dict,output_dir:str):
     
     with open(os.path.join(output_dir,'nodes.csv'),'w',newline='') as csvfile:
@@ -359,6 +377,8 @@ if __name__ == '__main__':
     parser.add_argument('--viz_edges',action='store_true',help='visualize edges')
     parser.add_argument('--viz_match', action='store_true',help='visualize gt matches')
     parser.add_argument('--viz_colorbar',action='store_true',help='visualize colorbar')
+    parser.add_argument('--samples', type=int, default=5)
+
     args = parser.parse_args()
     
     output_folder= os.path.join(args.graphroot,'matches')
@@ -366,9 +386,12 @@ if __name__ == '__main__':
     print('Generate GT and graph for {} pairs of scans'.format(len(scans)))
     
     if args.debug_mode:
-        for scan in scans:
+        sample_scans = np.random.choice(scans,args.samples)    # randomly sample 10 scans
+        for scan in sample_scans:
             scan_dir = os.path.join(args.graphroot,args.split,scan)
-            out = process_scene(scan_dir,None,args.min_iou,False,True)
+            scan_outupt_folder = os.path.join(args.graphroot,'matches',scan)
+            os.makedirs(scan_outupt_folder,exist_ok=True)
+            out = process_scene(scan_dir,scan_outupt_folder,args.min_iou,False,True)
             if out is None or out['src'] is None: continue
             
             # visualize
@@ -378,6 +401,9 @@ if __name__ == '__main__':
             if args.viz_match:
                 viz_geometries.extend(
                     get_match_lines(out['src']['nodes'],out['tar']['nodes'],out['matches']))
+                print('matches: ',out['matches'])
+                point_lines = get_correspondences_lines(out['src']['nodes'],out['tar']['nodes'],out['matches'],out['correspondences'])
+                viz_geometries.append(point_lines)
             if args.viz_colorbar: 
                 color_img_a = get_instances_color(out['src'])
                 color_img_b = get_instances_color(out['tar'])
@@ -387,7 +413,7 @@ if __name__ == '__main__':
                 # cv2.waitKey(0)
                 
             o3d.visualization.draw_geometries(viz_geometries,scan)
-            break    
+            # break    
         exit(0)
 
     import multiprocessing as mp
