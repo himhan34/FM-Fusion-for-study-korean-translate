@@ -166,10 +166,14 @@ int main(int argc, char *argv[])
             utility::GetProgramOptionAsString(argc, argv, "--root");
     std::string association_name = 
             utility::GetProgramOptionAsString(argc, argv, "--association");
+    std::string trajectory_name = 
+            utility::GetProgramOptionAsString(argc, argv, "--trajectory","trajectory.log");
     std::string prediction_folder = 
             utility::GetProgramOptionAsString(argc, argv, "--prediction");
     std::string output_folder = 
             utility::GetProgramOptionAsString(argc, argv, "--output","./");
+    std::string output_subseq = 
+            utility::GetProgramOptionAsString(argc, argv, "--subseq","");
     int begin_frames = 
             utility::GetProgramOptionAsInt(argc, argv, "--begin_frames", 0);
     int max_frames =
@@ -180,6 +184,8 @@ int main(int argc, char *argv[])
             utility::ProgramOptionExists(argc, argv, "--visualization");
     int frame_gap = 
             utility::GetProgramOptionAsInt(argc, argv, "--frame_gap", 1);
+    int save_gap = 
+            utility::GetProgramOptionAsInt(argc, argv, "--save_gap", 50000);
 
     utility::SetVerbosityLevel((utility::VerbosityLevel)verbose);
     utility::LogInfo("Read configuration from {:s}",config_file);
@@ -197,13 +203,40 @@ int main(int argc, char *argv[])
         utility::filesystem::ListFilesInDirectory(root_dir+"/color", rgb_files);
         utility::filesystem::ListFilesInDirectory(root_dir+"/depth", depth_files);
         construct_sorted_frame_table(root_dir,rgb_files,depth_files,rgb_table,pose_table);
-        utility::LogInfo("find {:d} rgb-d frame with pose",rgb_table.size());
+        // utility::LogInfo("find {:d} rgb-d frame with pose",rgb_table.size());
         if(rgb_table.size()>4000) return 0;
     }
     else{//todo
-        // auto camera_trajectory =
-        //         io::CreatePinholeCameraTrajectoryFromFile(trajectory_dir);
+        int index =0;
+        char buffer[DEFAULT_IO_BUFFER_SIZE];
+        std::string match_filename = open3d::utility::filesystem::JoinPath({root_dir,association_name});
+        std::string trajectory_dir = open3d::utility::filesystem::JoinPath({root_dir,trajectory_name});
+
+        auto camera_trajectory =
+                io::CreatePinholeCameraTrajectoryFromFile(trajectory_dir);
+        FILE *file = utility::filesystem::FOpen(match_filename, "r");
+        if (file == NULL) {
+            utility::LogWarning("Unable to open file {}", match_filename);
+            fclose(file);
+            return 0;
+        }
+        while (fgets(buffer, DEFAULT_IO_BUFFER_SIZE, file) && index<max_frames) {
+            std::vector<std::string> st = utility::SplitString(buffer, "\t\r\n ");
+            if (st.size() >= 2) {
+                std::string depth_file = open3d::utility::filesystem::JoinPath({root_dir, st[0]});
+                std::string color_file = open3d::utility::filesystem::JoinPath({root_dir, st[1]});
+                if (utility::filesystem::FileExists(depth_file) &&
+                    utility::filesystem::FileExists(color_file)) {
+                    RGBDFrameDirs frame_dirs = std::make_pair(color_file,depth_file);
+                    pose_table.emplace_back(camera_trajectory->parameters_[index].extrinsic_.inverse().cast<double>());
+                    rgb_table.emplace_back(frame_dirs);
+                }
+                index++;
+            }
+        }
+
     }
+    open3d::utility::LogWarning("Read {:d} RGB-D frames with poses",rgb_table.size());
 
 
     utility::FPSTimer timer("Process RGBD stream", (int)rgb_table.size());
@@ -215,8 +248,8 @@ int main(int argc, char *argv[])
     
     //
     auto sg_config = fmfusion::utility::create_scene_graph_config(config_file, true);
-    if(sg_config->tmp_dir.empty())
-        sg_config->tmp_dir = output_folder;
+    // if(sg_config->tmp_dir.empty())
+    // sg_config->tmp_dir = output_folder;
     if(sg_config==nullptr) {
         utility::LogWarning("Failed to create scene graph config.");
         return 0;
@@ -235,63 +268,64 @@ int main(int argc, char *argv[])
     case fmfusion::Config::DATASET_TYPE::REALSENSE:
         utility::LogInfo("Dataset: Realsense");
         break;
+    case fmfusion::Config::DATASET_TYPE::MATTERPORT:
+        utility::LogInfo("Dataset: matterport");
+        break;
     }
 
-    //
-    std::array<std::string,2> sub_sequences = {"a","b"};
-    int sub_sequence_length = rgb_table.size()/2;
-    int subseq_begin = 0;
-    int subseq_end = sub_sequence_length;
+    fmfusion::SceneGraph scene_graph(*sg_config);
 
-    for(std::string subseq:sub_sequences){
-        // Start integration
-        fmfusion::SceneGraph scene_graph(*sg_config);
-        int prev_frame_id = -100;
-        for(int k=subseq_begin;k<subseq_end;k++){
-            RGBDFrameDirs frame_dirs = rgb_table[k];
-            std::string frame_name = frame_dirs.first.substr(frame_dirs.first.find_last_of("/")+1); // eg. frame-000000.png
-            frame_name = frame_name.substr(0,frame_name.find_last_of("."));
-            int frame_id;
-            if(sg_config->dataset==fmfusion::Config::DATASET_TYPE::REALSENSE || sg_config->dataset==fmfusion::Config::DATASET_TYPE::SCANNET)
-                frame_id = stoi(frame_name.substr(frame_name.find_last_of("-")+1));
-            else 
-                frame_id = stoi(frame_name);
-            
-            if(frame_id>max_frames) break;
-            if((frame_id-prev_frame_id)<frame_gap) continue;
-            
-            utility::LogInfo("Processing frame {:s} ...", frame_name);
+    int prev_frame_id = -100;
+    for(int k=0;k<rgb_table.size();k++){
+        RGBDFrameDirs frame_dirs = rgb_table[k];
+        std::string frame_name = frame_dirs.first.substr(frame_dirs.first.find_last_of("/")+1); // eg. frame-000000.png
+        frame_name = frame_name.substr(0,frame_name.find_last_of("."));
+        int frame_id;
+        if(sg_config->dataset==fmfusion::Config::DATASET_TYPE::REALSENSE || sg_config->dataset==fmfusion::Config::DATASET_TYPE::SCANNET)
+            frame_id = stoi(frame_name.substr(frame_name.find_last_of("-")+1));
+        else 
+            frame_id = stoi(frame_name);
 
-            io::ReadImage(frame_dirs.second, depth);
-            io::ReadImage(frame_dirs.first, color);
-
-            auto rgbd = geometry::RGBDImage::CreateFromColorAndDepth(color, depth, sg_config->depth_scale, sg_config->depth_max, false);
-            
-            std::vector<fmfusion::DetectionPtr> detections;
-            bool loaded = fmfusion::utility::LoadPredictions(root_dir+'/'+prediction_folder, frame_name, *sg_config, detections);
-            if(!loaded) continue; 
-            
-            scene_graph.integrate(frame_id,rgbd, pose_table[k], detections);
-            prev_frame_id = frame_id;
+        if(frame_id>max_frames) break;
+        if((frame_id-prev_frame_id)<frame_gap) continue;
         
+        utility::LogInfo("Processing frame {:s} ...", frame_name);
+
+        io::ReadImage(frame_dirs.second, depth);
+        io::ReadImage(frame_dirs.first, color);
+
+        auto rgbd = geometry::RGBDImage::CreateFromColorAndDepth(color, depth, sg_config->depth_scale, sg_config->depth_max, false);
+        
+        std::vector<fmfusion::DetectionPtr> detections;
+        bool loaded = fmfusion::utility::LoadPredictions(root_dir+'/'+prediction_folder, frame_name, *sg_config, detections);
+        if(!loaded) continue; 
+        
+        scene_graph.integrate(frame_id,rgbd, pose_table[k], detections);
+        prev_frame_id = frame_id;
+
+        if(save_gap>0 && frame_id>0 && frame_id%save_gap==0){
+            scene_graph.extract_point_cloud();
+            scene_graph.merge_overlap_instances();
+            scene_graph.merge_overlap_structural_instances();
+            scene_graph.extract_bounding_boxes();
+            scene_graph.Save(output_folder+"/"+sequence_name+std::string("_")+std::to_string(frame_id));
+            utility::LogWarning("Save sequence at frame {:d}",frame_id);
         }
-        utility::LogWarning("Finished sequence");
-
-        // Post-process
-        scene_graph.extract_point_cloud();
-        scene_graph.merge_overlap_instances();
-        scene_graph.extract_bounding_boxes();
-        scene_graph.merge_overlap_structural_instances();
-        
-        // Visualize
-        // auto geometries = scene_graph.get_geometries(true,true);
-        // open3d::visualization::DrawGeometries(geometries, sequence_name+subseq, 1920, 1080);
-
-        // Save
-        scene_graph.Save(output_folder+"/"+sequence_name+subseq);
-        subseq_begin += sub_sequence_length;
-        subseq_end   += sub_sequence_length;
 
     }
+    utility::LogWarning("Finished sequence");
+
+    // Post-process
+    scene_graph.extract_point_cloud();
+    scene_graph.merge_overlap_instances();
+    scene_graph.merge_overlap_structural_instances();
+    scene_graph.extract_bounding_boxes();
+
+    // Visualize
+    // auto geometries = scene_graph.get_geometries(true,true);
+    // open3d::visualization::DrawGeometries(geometries, sequence_name+subseq, 1920, 1080);
+
+    // Save
+    scene_graph.Save(output_folder+"/"+sequence_name+output_subseq);
     return 0;
 }

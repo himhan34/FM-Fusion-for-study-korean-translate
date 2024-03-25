@@ -217,11 +217,12 @@ int main(int argc, char *argv[]) {
             utility::GetProgramOptionAsInt(argc, argv, "--every_k_frames", 0);
     double length =
             utility::GetProgramOptionAsDouble(argc, argv, "--length", 4.0);
+    double max_depth = utility::GetProgramOptionAsDouble(argc, argv, "--max_depth", 4.0);
     int resolution =
             utility::GetProgramOptionAsInt(argc, argv, "--resolution", 512);
     double sdf_trunc_percentage = utility::GetProgramOptionAsDouble(
             argc, argv, "--sdf_trunc_percentage", 0.01);
-    int verbose = utility::GetProgramOptionAsInt(argc, argv, "--verbose", 5);
+    int verbose = utility::GetProgramOptionAsInt(argc, argv, "--verbose", 2);
     bool visualize_flag = utility::ProgramOptionExists(argc, argv, "--visualization");
 
     utility::SetVerbosityLevel((utility::VerbosityLevel)verbose);
@@ -255,7 +256,6 @@ int main(int argc, char *argv[]) {
     // Read the intrinsic file
     if(intrinsic_filename!=""){
         using namespace std;
-        // std::string intrinsic_dir = root_dir+"/"+ intrinsic_filename;//"/intrinsic/intrinsic_depth.txt";
         read_scannet_intrinsic(root_dir+"/"+ intrinsic_filename,intrinsic_);
     }
     else
@@ -276,18 +276,22 @@ int main(int argc, char *argv[]) {
 
             io::ReadImage(dir_name + st[0], depth);
             io::ReadImage(dir_name + st[1], color);
+            // utility::LogInfo("Read depth {:d}x{:d}, color {:d}x{:d}", depth.width_, depth.height_, color.width_, color.height_);
 
             auto rgbd = geometry::RGBDImage::CreateFromColorAndDepth(
-                    color, depth, depth_scale, 4.0, false);
+                    color, depth, depth_scale, max_depth, false);
             if (index == 0 ||
                 (every_k_frames > 0 && index % every_k_frames == 0)) {
                 volume.Reset();
             }
 
+            // auto depth_cloud = geometry::PointCloud::CreateFromDepthImage(
+            //     depth,intrinsic_,camera_trajectory->parameters_[index].extrinsic_,depth_scale,4.0);   
+            // io::WritePointCloud(root_dir+"/"+frame_name+".ply",*depth_cloud);
+
             volume.Integrate(*rgbd,
                             intrinsic_,
                              camera_trajectory->parameters_[index].extrinsic_);
-            
 
             if (visualize_flag && index%10==0){
                 cv::Mat depth_vis, color_vis;
@@ -310,8 +314,6 @@ int main(int argc, char *argv[]) {
         
             if (index%10==0){ // query observed points
                 auto observed_cloud = std::make_shared<geometry::PointCloud>();
-                auto depth_cloud = geometry::PointCloud::CreateFromDepthImage(
-                    depth,intrinsic_,camera_trajectory->parameters_[index].extrinsic_,depth_scale,4.0); 
                 // if (volume.query_observed_points(depth_cloud, observed_cloud)){
                 //     utility::Timer timer;
                 //     timer.Start();

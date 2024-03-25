@@ -1,0 +1,39 @@
+%YAML:1.0
+
+dataset: "scannet"  # scannet, fusion_portable, realsense
+
+# camera parameters 
+image_width: 640
+image_height: 512
+camera_fx: 535.825
+camera_fy: 536.13
+camera_cx: 315.4215
+camera_cy: 252.159
+depth_scale: 4000.0
+depth_max: 8.0
+
+# volumetric 
+voxel_length: 0.02
+sdf_trunc: 0.04
+
+# associations
+min_det_masks: 100 # pixel-wise
+max_box_area_ratio: 0.9 # box_area/image_area
+min_instance_points: 50 # active instances
+query_depth_vx_size: -1.0
+dilate_kernal: 5 
+min_iou: 0.2
+search_radius: 10.0
+
+# shape
+shape_min_points: 200
+min_voxel_weight: 0.0 # weight/observation_count
+
+# merge over-segmentation
+merge_inflation: 4.0
+merge_iou: 0.2
+cleanup_period: 50
+
+# output
+save_da_images: 1 # 1 for save
+tmp_dir: "/data2/matterport3d/tmp"

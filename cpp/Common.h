@@ -14,7 +14,8 @@ struct Config
     enum DATASET_TYPE{
         REALSENSE,
         FUSION_PORTABLE,
-        SCANNET
+        SCANNET,
+        MATTERPORT
     }dataset;
     
     // camera
@@ -25,11 +26,13 @@ struct Config
     // volumetric
     double voxel_length;
     double sdf_trunc;
-    int min_instance_points;    
+    int min_active_points;    
 
     // associations
     int min_det_masks;
     double max_box_area_ratio;
+    double query_depth_vx_size; // <0 if skipped
+    double search_radius;
     int dilation_size;
     double min_iou;
 
@@ -44,6 +47,7 @@ struct Config
     double merge_inflation;
 
     // output
+    int cleanup_period=20; // in frames
     bool save_da_images;
     std::string tmp_dir; // For debug
 };

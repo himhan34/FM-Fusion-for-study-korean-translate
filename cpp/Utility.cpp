@@ -39,6 +39,10 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
             config->dataset = fmfusion::Config::DATASET_TYPE::REALSENSE;
         else if(dataset_name.find("scannet")!=string::npos)
             config->dataset = fmfusion::Config::DATASET_TYPE::SCANNET;
+        else if(dataset_name.find("matterport")!=string::npos)
+            config->dataset = fmfusion::Config::DATASET_TYPE::MATTERPORT;
+        else
+            open3d::utility::LogWarning("Unknown dataset type: {}", dataset_name);
         
         int img_width = fs["image_width"];
         int img_height = fs["image_height"];
@@ -53,26 +57,29 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
 
         config->voxel_length = fs["voxel_length"];
         config->sdf_trunc = fs["sdf_trunc"];
-        config->min_instance_points = fs["min_instance_points"];
+        config->min_active_points = fs["min_active_points"];
 
         config->min_det_masks = fs["min_det_masks"];
         config->max_box_area_ratio = fs["max_box_area_ratio"];
-        // config->min_instance_masks = fs["min_instance_masks"];
+        config->query_depth_vx_size = fs["query_depth_vx_size"];
         config->dilation_size = fs["dilate_kernal"];
         config->min_iou = fs["min_iou"];
+        config->search_radius = fs["search_radius"];
 
         // config->cluster_eps = fs["cluster_eps"];
         // config->cluster_min_points = fs["cluster_min_points"];
         config->min_voxel_weight = fs["min_voxel_weight"];
+        config->shape_min_points = fs["shape_min_points"];
 
         config->merge_iou = fs["merge_iou"];
         config->merge_inflation = fs["merge_inflation"];
+        config->cleanup_period = fs["cleanup_period"];
 
         int save_da_images = fs["save_da_images"];
         if (save_da_images>0) config->save_da_images = true;
         else config->save_da_images = false;
         
-        // fs["tmp_dir"]>>config->tmp_dir;
+        fs["tmp_dir"]>>config->tmp_dir;
 
         // Close and print
         fs.release();
@@ -108,24 +115,27 @@ std::string config_to_message(const fmfusion::Config &config)
     message << "camera_fy: " + std::to_string(config.intrinsic.intrinsic_matrix_(1,1)) + "\n";
     message << "camera_cx: " + std::to_string(config.intrinsic.intrinsic_matrix_(0,2)) + "\n";
     message << "camera_cy: " + std::to_string(config.intrinsic.intrinsic_matrix_(1,2)) + "\n";
+    message << "depth_max:" << std::to_string(config.depth_max) + "\n";
 
     message << "voxel_length: " << config.voxel_length << "\n";
     message << "sdf_trunc: " << std::to_string(config.sdf_trunc) + "\n";
-    message << "min_instance_points: " + std::to_string(config.min_instance_points) + "\n";
+    message << "min_active_points: " + std::to_string(config.min_active_points) + "\n";
 
     message << "min_det_masks: " + std::to_string(config.min_det_masks) + "\n";
     message << "max_box_area_ratio: "<< std::fixed<<std::setprecision(2)<<config.max_box_area_ratio << "\n";
+    message << "query_depth_vx_size: " + std::to_string(config.query_depth_vx_size) + "\n";
     message << "dilate_kernal: " + std::to_string(config.dilation_size) + "\n";
     message << "min_iou: "<< std::fixed<<std::setprecision(2)<<config.min_iou << "\n";
+    message << "search_radius: " + std::to_string(config.search_radius) + "\n";
 
     message << "min_voxel_weight: " << std::fixed<<std::setprecision(2)<<config.min_voxel_weight << "\n";
 
+    message << "cleanup_period: " + std::to_string(config.cleanup_period) + "\n";
     message << "save_da_images: " + std::to_string(config.save_da_images) + "\n";
-    // message << "tmp_dir: " + config.tmp_dir + "\n";
+    message << "tmp_dir: " + config.tmp_dir + "\n";
 
     return message.str();
 }
-
 
 
 bool LoadPredictions(const std::string &folder_path, const std::string &frame_name, const Config &config,
@@ -139,9 +149,12 @@ bool LoadPredictions(const std::string &folder_path, const std::string &frame_na
 
     if(open3d::io::ReadIJsonConvertible(json_file_dir, *detection_fs)){
         bool read_mask = detection_fs->updateInstanceMap(instance_file_dir);
-        detections = detection_fs->detections;
-        cout<<"Load "<<detections.size()<<" detections correct"<<endl;
-        return true;
+        if(read_mask){            
+            detections = detection_fs->detections;
+            cout<<"Load "<<detections.size()<<" detections correct"<<endl;
+            return true;
+        }
+        else return false;
     }
     else return false;
 

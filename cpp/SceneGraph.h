@@ -22,14 +22,16 @@ public:
         const std::shared_ptr<open3d::geometry::RGBDImage> &rgbd_image, const Eigen::Matrix4d &pose,
         std::vector<DetectionPtr> &detections);
 
-    void merge_overlap_instances(std::vector<InstanceId> active_instances=std::vector<InstanceId>());
+    void merge_overlap_instances(std::vector<InstanceId> instance_list=std::vector<InstanceId>());
 
     void merge_overlap_structural_instances();
 
-    void extract_point_cloud();
+    void extract_point_cloud(const std::vector<InstanceId> instance_list=std::vector<InstanceId>());
 
     /// \brief  Extract and update bounding box for each instance.
     void extract_bounding_boxes();
+
+    void remove_invalid_instances();
 
     /// \brief  Get geometries for each instance.
     std::vector<std::shared_ptr<const open3d::geometry::Geometry>> get_geometries(bool point_cloud=true, bool bbox=false);
@@ -52,10 +54,10 @@ protected:
     /// If detection k is associated, match[k] = matched_instance_id
     Eigen::VectorXi data_association(const std::vector<DetectionPtr> &detections, const std::vector<InstanceId> &active_instances);
 
-    bool create_new_instance(const DetectionPtr &detection,const unsigned int &frame_id,
+    int create_new_instance(const DetectionPtr &detection,const unsigned int &frame_id,
         const std::shared_ptr<open3d::geometry::RGBDImage> &rgbd_image, const Eigen::Matrix4d &pose);
 
-    std::vector<InstanceId> search_active_instances(const O3d_Cloud_Ptr &depth_cloud, const Eigen::Matrix4d &pose);
+    std::vector<InstanceId> search_active_instances(const O3d_Cloud_Ptr &depth_cloud, const Eigen::Matrix4d &pose, const double search_radius=5.0);
 
     void update_active_instances(const std::vector<InstanceId> &active_instances);
 
@@ -77,6 +79,8 @@ private:
     InstanceConfig instance_config;
     std::unordered_map<InstanceId,InstancePtr> instance_map;
     std::unordered_map<std::string, std::vector<InstanceId>> label_instance_map;
+    InstanceId latest_created_instance_id;
+    int last_cleanup_frame_id;
 
 };
 

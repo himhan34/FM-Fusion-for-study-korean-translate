@@ -119,6 +119,11 @@ bool DetectionFile::updateInstanceMap(const std::string &instance_file)
     cv::Point min_loc, max_loc;
     cv::minMaxLoc(detection_map, &min, &max, &min_loc, &max_loc);
 
+    // todo: run sam with larger number of boxes
+    if(max!=K){
+        o3d_utility::LogWarning("instance map has different number of instances");
+        return false;
+    }
     assert (max == K), "instance map has different number of instances";
     std::vector<int> to_remove_detections;
 
