@@ -18,6 +18,7 @@ add_library(libfmfusion SHARED
     Instance.cpp
     SceneGraph.cpp
     Utility.cpp
+    cluster/PoseGraph.cpp
 )
 target_link_libraries(libfmfusion PRIVATE Open3D::Open3D ${OpenCV_LIBS} jsoncpp_lib)
 
@@ -32,3 +33,7 @@ target_link_libraries(IntegrateInstanceMap PRIVATE Open3D::Open3D ${OpenCV_LIBS}
 add_executable(GraphMatchNode)
 target_sources(GraphMatchNode PRIVATE GraphMatch.cpp)
 target_link_libraries(GraphMatchNode PRIVATE Open3D::Open3D ${OpenCV_LIBS} libfmfusion)
+
+add_executable(MapMerger)
+target_sources(MapMerger PRIVATE MapMerger.cpp)
+target_link_libraries(MapMerger PRIVATE Open3D::Open3D ${OpenCV_LIBS} libfmfusion)

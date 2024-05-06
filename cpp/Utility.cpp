@@ -41,6 +41,8 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
             config->dataset = fmfusion::Config::DATASET_TYPE::SCANNET;
         else if(dataset_name.find("matterport")!=string::npos)
             config->dataset = fmfusion::Config::DATASET_TYPE::MATTERPORT;
+        else if (dataset_name.find("rio")!=string::npos)
+            config->dataset = fmfusion::Config::DATASET_TYPE::RIO;
         else
             open3d::utility::LogWarning("Unknown dataset type: {}", dataset_name);
         

@@ -2,6 +2,35 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "MapMerger",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceRoot}/build/cpp/MapMerger",
+            "args": [
+                "--config","${workspaceRoot}/config/realsense.yaml",
+                "--map_folder",
+                "/data2/sgslam/val_swap",
+                "--scene_name","gfloor"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${fileDirname}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
             "name": "GenerateGT",
             "type": "python",
             "request": "launch",
@@ -59,21 +88,22 @@
             "args": [
                 "--verbose","2",
                 "--config",
-                // "${workspaceFolder}/config/realsense.yaml",
-                "${workspaceFolder}/config/scannet.yaml",
+                "${workspaceFolder}/config/realsense.yaml",
                 "--root",
                 // "/data2/matterport3d/v1/scans/EU6Fwq7SyZv",
-                "/data2/ScanNet/val/scene0064_00",
+                "/data2/sgslam/scans/uc0110_00c",
+                // "/data2/3rscan_raw/10b17957-3938-2467-88a5-9e9254930dad",
                 "--prediction",
                 "prediction_no_augment",
-                "--association","data_association_c.txt",
-                "--trajectory","trajectory_c.log",
-                // "--max_frames","300",
+                // "--association","data_association.txt",
+                // "--trajectory","trajectory.log",
+                // "--max_frames","500",
                 // "--save_gap","50000",
-                "--frame_gap","5",
-                "--subseq","c",
+                "--frame_gap","2",
+                // "--subseq","c",
                 "--output",
-                "/data2/ScanNet/output_new"
+                "/data2/sgslam/val_swap"
+                // "--global_tsdf"
                 // "/data2/matterport3d/val",
                 // "/data2/ScanNetGraph/train"
             ],
@@ -102,13 +132,15 @@
             "program": "${workspaceFolder}/build/cpp/IntegrateRGBD",
             "args": [
                 "--root",
-                // "/data2/sgslam/scans/uc0101_02",
+                // "/data2/r3live/scans/hkust_campus_01_r3live",
+                "/data2/sgslam/scans/uc0101_00a",
                 // "/data2/ScanNet/val/scene0011_01",
-                "/data2/matterport3d/v1/scans/8194nk5LbLH",
-                "--max_frames","360",
+                // "/data2/matterport3d/v1/scans/8194nk5LbLH",
+                // "/data2/3rscan_raw/c12890d8-d3df-2d0d-87cc-da303a47b893",
+                "--max_frames","3600",
                 "--intrinsic","intrinsic",
-                "--depth_scale","4000",
-                "--max_depth","6.0",
+                "--depth_scale","1000",
+                "--max_depth","3.0",
                 "--resolution","256",
                 // "--save_pointcloud",
                 "--save_mesh",

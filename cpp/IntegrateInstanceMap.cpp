@@ -165,7 +165,7 @@ int main(int argc, char *argv[])
     std::string root_dir =
             utility::GetProgramOptionAsString(argc, argv, "--root");
     std::string association_name = 
-            utility::GetProgramOptionAsString(argc, argv, "--association");
+            utility::GetProgramOptionAsString(argc, argv, "--association","data_association.txt");
     std::string trajectory_name = 
             utility::GetProgramOptionAsString(argc, argv, "--trajectory","trajectory.log");
     std::string prediction_folder = 
@@ -182,6 +182,8 @@ int main(int argc, char *argv[])
             utility::GetProgramOptionAsInt(argc, argv, "--verbose", 5);
     bool visualize_flag = 
             utility::ProgramOptionExists(argc, argv, "--visualization");
+    bool global_tsdf = 
+            utility::ProgramOptionExists(argc,argv,"--global_tsdf");
     int frame_gap = 
             utility::GetProgramOptionAsInt(argc, argv, "--frame_gap", 1);
     int save_gap = 
@@ -271,10 +273,16 @@ int main(int argc, char *argv[])
     case fmfusion::Config::DATASET_TYPE::MATTERPORT:
         utility::LogInfo("Dataset: matterport");
         break;
+    case fmfusion::Config::DATASET_TYPE::RIO:
+        utility::LogInfo("Dataset: RIO");
+        break;
     }
 
     fmfusion::SceneGraph scene_graph(*sg_config);
 
+    pipelines::integration::InstanceTSDFVolume global_volume(sg_config->voxel_length,
+        sg_config->sdf_trunc, open3d::pipelines::integration::TSDFVolumeColorType::RGB8);
+    
     int prev_frame_id = -100;
     for(int k=0;k<rgb_table.size();k++){
         RGBDFrameDirs frame_dirs = rgb_table[k];
@@ -283,12 +291,19 @@ int main(int argc, char *argv[])
         int frame_id;
         if(sg_config->dataset==fmfusion::Config::DATASET_TYPE::REALSENSE || sg_config->dataset==fmfusion::Config::DATASET_TYPE::SCANNET)
             frame_id = stoi(frame_name.substr(frame_name.find_last_of("-")+1));
+        else if(sg_config->dataset==fmfusion::Config::DATASET_TYPE::RIO){
+            // std::cout<<"cc\n";
+            frame_name = frame_name.substr(0,12);
+            frame_id = stoi(frame_name.substr(6,12));
+            // std::cout<<"ww\n";
+
+        }
         else 
             frame_id = stoi(frame_name);
 
         if(frame_id>max_frames) break;
         if((frame_id-prev_frame_id)<frame_gap) continue;
-        
+
         utility::LogInfo("Processing frame {:s} ...", frame_name);
 
         io::ReadImage(frame_dirs.second, depth);
@@ -301,6 +316,9 @@ int main(int argc, char *argv[])
         if(!loaded) continue; 
         
         scene_graph.integrate(frame_id,rgbd, pose_table[k], detections);
+        if(global_tsdf)
+            global_volume.Integrate(*rgbd, sg_config->intrinsic, pose_table[k].inverse().cast<double>());
+
         prev_frame_id = frame_id;
 
         if(save_gap>0 && frame_id>0 && frame_id%save_gap==0){
@@ -327,5 +345,12 @@ int main(int argc, char *argv[])
 
     // Save
     scene_graph.Save(output_folder+"/"+sequence_name+output_subseq);
+    if(global_tsdf){
+        auto global_pcd=global_volume.ExtractPointCloud();
+        io::WritePointCloud(output_folder+"/"+sequence_name+output_subseq+"/pcd_o3d.ply",*global_pcd);
+        utility::LogWarning("Save global TSDF volume");
+    }
+
+
     return 0;
 }

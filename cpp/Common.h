@@ -3,7 +3,7 @@
 
 #include "open3d/Open3D.h"
 #include "opencv2/opencv.hpp"
-
+#include "cluster/PoseGraph.h"
 
 namespace fmfusion
 {
@@ -15,7 +15,8 @@ struct Config
         REALSENSE,
         FUSION_PORTABLE,
         SCANNET,
-        MATTERPORT
+        MATTERPORT,
+        RIO
     }dataset;
     
     // camera

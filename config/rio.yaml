@@ -1,21 +1,21 @@
 %YAML:1.0
 
-dataset: "scannet"  # scannet, fusion_portable, realsense
+dataset: "rio"  # scannet, fusion_portable, realsense
 
 # camera parameters 
-image_width: 640
-image_height: 480
-camera_fx: 557.59
-camera_fy: 578.73
-camera_cx: 318.91
-camera_cy: 242.68
+image_width: 960
+image_height: 540
+camera_fx: 756.832
+camera_fy: 756.026
+camera_cx: 492.889
+camera_cy: 270.419
 depth_scale: 1000.0
-depth_max: 4.0
+depth_max: 5.0
 
 # volumetric 
 voxel_length: 0.02
 sdf_trunc: 0.04
-min_active_points: 200 # active instances
+min_active_points: 100 # active instances
 shape_min_points: 500 # export and bbox extract
 
 # associations
@@ -36,4 +36,4 @@ cleanup_period: 6600
 
 # output
 save_da_images: 0 # 1 for save
-tmp_dir: "/media/lch/SeagateExp/dataset_/ScanNet/output_new"
+tmp_dir: "/data2/3rscan_raw/viz"

@@ -19,7 +19,6 @@ sdf_trunc: 0.04
 # associations
 min_det_masks: 100 # pixel-wise
 max_box_area_ratio: 0.9 # box_area/image_area
-min_instance_points: 50 # active instances
 query_depth_vx_size: -1.0
 dilate_kernal: 5 
 min_iou: 0.2

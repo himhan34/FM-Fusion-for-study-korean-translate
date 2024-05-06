@@ -5,25 +5,35 @@ dataset: "realsense"  # scannet, fusion_portable, realsense
 # camera parameters 
 image_width: 640
 image_height: 480
-camera_fx: 525.0
-camera_fy: 525.0
-camera_cx: 319.5
-camera_cy: 239.5
+camera_fx: 619.18
+camera_fy: 618.17
+camera_cx: 336.51
+camera_cy: 246.95
 depth_scale: 1000.0
 depth_max: 4.0
 
 # volumetric 
 voxel_length: 0.02
 sdf_trunc: 0.04
-min_instance_points: 100 # for initial new instance
+min_active_points: 100 # active instances
+shape_min_points: 500 # export and bbox extract
 
 # associations
-min_det_masks: 30 # pixel-wise
+min_det_masks: 100 # pixel-wise
 max_box_area_ratio: 0.9 # box_area/image_area
-min_instance_masks: 20 # pixel-wise
+query_depth_vx_size: -1.0
 dilate_kernal: 3 
 min_iou: 0.3
+search_radius: 10.0
+
+# shape
+min_voxel_weight: 0.1 # weight/observation_count
+
+# merge over-segmentation
+merge_inflation: 3.5
+merge_iou: 0.4
+cleanup_period: 6600
 
 # output
-save_da_images: 1
+save_da_images: 0
 tmp_dir: "/media/lch/SeagateExp/bag/sgslam/output"

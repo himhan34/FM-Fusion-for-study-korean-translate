@@ -268,7 +268,7 @@ double SceneGraph::Compute3DIoU (const O3d_Cloud_Ptr &cloud_a, const O3d_Cloud_P
 {
     auto vxgrid_a = open3d::geometry::VoxelGrid::CreateFromPointCloud(*cloud_a, inflation * config_.voxel_length);
     std::vector<bool> overlap = vxgrid_a->CheckIfIncluded(cloud_b->points_);
-    double iou = double(std::count(overlap.begin(), overlap.end(), true)) / double(overlap.size());
+    double iou = double(std::count(overlap.begin(), overlap.end(), true)) / double(overlap.size()+0.000001);
     return iou;
 }
 
@@ -293,15 +293,25 @@ void SceneGraph::merge_overlap_instances(std::vector<InstanceId> instance_list)
     std::unordered_set<InstanceId> remove_instances;
     for(int i=0;i<target_instances.size();i++){
         auto instance_i = instance_map[target_instances[i]];
+        if (!instance_i->point_cloud)
+            o3d_utility::LogWarning("Instance {:d} has no point cloud",instance_i->id_);
         std::string label_i = instance_i->get_predicted_class().first;
         // std::cout<<instance_i->id_<<":"<<label_i<<";  "<<instance_i->point_cloud->points_.size()<<"\n";
+        if (instance_i->point_cloud->points_.size()<30) continue;
+
         for(int j=i+1;j<target_instances.size();j++){
             if(remove_instances.find(target_instances[j])!=remove_instances.end()) 
                 continue;
             
             auto instance_j = instance_map[target_instances[j]];
-            double dist = (instance_i->centroid-instance_j->centroid).norm();
+            if (!instance_j->point_cloud)
+                o3d_utility::LogWarning("Instance {:d} has no point cloud",instance_j->id_);
+            // std::cout<<instance_j->id_<<":"<<instance_j->get_predicted_class().first<<";  "
+            //     <<instance_j->point_cloud->points_.size()<<"\n";
+            if (instance_j->point_cloud->points_.size()<30) continue;
 
+            double dist = (instance_i->centroid-instance_j->centroid).norm();
+            
             if(!IsSemanticSimilar(instance_i->get_measured_labels(),instance_j->get_measured_labels())||
                 dist>SEARCH_DISTANCE) continue;
 
@@ -315,7 +325,7 @@ void SceneGraph::merge_overlap_instances(std::vector<InstanceId> instance_list)
                 large_instance = instance_j;
                 small_instance = instance_i;
             }
-            
+
             double iou = Compute3DIoU(large_instance->point_cloud,small_instance->point_cloud,config_.merge_inflation);
             
             // Merge
@@ -328,7 +338,7 @@ void SceneGraph::merge_overlap_instances(std::vector<InstanceId> instance_list)
             }   
         }
     }
-
+    
     // Remove merged instances
     for(auto &instance_id:remove_instances){
         instance_map.erase(instance_id);
@@ -343,8 +353,10 @@ void SceneGraph::merge_overlap_instances(std::vector<InstanceId> instance_list)
 void SceneGraph::merge_overlap_structural_instances()
 {
     std::vector<InstanceId> target_instances;
+    std::string structural_categories = "floor,ceiling";
     for(auto &instance_j:instance_map){
         if(instance_j.second->get_predicted_class().first=="floor")
+        // if(structural_categories.find(instance_j.second->get_predicted_class().first)!=std::string::npos)
             target_instances.emplace_back(instance_j.first);
     }
 
@@ -372,7 +384,7 @@ void SceneGraph::merge_overlap_structural_instances()
             double iou = Compute2DIoU(*large_instance->min_box, *small_instance->min_box);
             
             // Merge
-            if(iou>0.05){
+            if(iou>0.03){
                 large_instance->merge_with(
                     small_instance->point_cloud,small_instance->get_measured_labels(),small_instance->get_observation_count());
                 remove_instances.insert(small_instance->id_);
@@ -572,7 +584,7 @@ bool SceneGraph::load(const std::string &path)
         instance_toadd->point_cloud = open3d::io::CreatePointCloudFromFile(path+"/"+instance_id_str+".ply");
         instance_toadd->centroid = instance_toadd->point_cloud->GetCenter();
         instance_toadd->color_ = InstanceColorBar[instance_id%InstanceColorBar.size()];
-        instance_map.emplace(instance_id,instance_toadd);
+                instance_map.emplace(instance_id,instance_toadd);
 
         // cout<<instance_id_str<<","<<label_measurments_str
         //     <<","<<cloud->points_.size()

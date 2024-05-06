@@ -66,8 +66,24 @@ def process_scenenn(root_dir, scan_name):
         f_da.write('depth/depth'+index.zfill(5)+'.png image/image'+index.zfill(5)+'.png\n')
     f_da.close()
     print('Done')
+    
+def read_frames(root_dir, scan_name):
+    print('-------- Reading frames ScanNet {} --------- '.format(scan_name))
+    scan_root = os.path.join(root_dir,scan_name)
+    pose_folder = os.path.join(scan_root,'pose')
+    
+    print(pose_folder)
+    pose_list = glob.glob(os.path.join(pose_folder,'*.txt'))
+    frame_list = [pose_file.split('/')[-1][:-4] for pose_file in pose_list]
+    frame_list = sorted(frame_list)
+    print(frame_list[-10:])
+    
+    max_frame_id = int(frame_list[-1].split('-')[-1])
+    
+    return max_frame_id
+    
 
-def process_scannet(root_dir,scan_name,posfix,start_ratio,end_ratio):
+def process_scannet(root_dir,scan_name,posfix,start_frame,end_frame):
     print('-------- Processing ScanNet {} --------- '.format(scan_name))
     scan_root = os.path.join(root_dir,scan_name)
     rgb_folder = os.path.join(scan_root,'color')
@@ -80,17 +96,21 @@ def process_scannet(root_dir,scan_name,posfix,start_ratio,end_ratio):
     frame_list = sorted(frame_list)
     
     N = len(frame_list)
-    start_frame = int(N*start_ratio)
-    end_frame = int(N*end_ratio)
-    frame_list = frame_list[start_frame:end_frame]
+    # start_frame = int(N*start_ratio)
+    # end_frame = int(N*end_ratio)
+    # frame_list = frame_list[start_frame:end_frame]
     print('trim frame {} to {}'.format(start_frame,end_frame))
 
     counter = 0
     association_f = open(os.path.join(scan_root,'data_association_{}.txt'.format(posfix)),'w')
     trajectory_f = open(os.path.join(scan_root,'trajectory_{}.log'.format(posfix)),'w')
     from scipy.spatial.transform import Rotation as R
+    latest_frame = None
     
     for frame in frame_list:
+        frame_id = int(frame.split('-')[-1])
+        if frame_id<start_frame: continue
+        if frame_id>end_frame: break
         rgbdir = os.path.join(rgb_folder,frame+'.jpg')
         depthdir = os.path.join(depth_folder,frame+'.png')
         posedir = os.path.join(pose_folder,frame+'.txt')
@@ -102,14 +122,15 @@ def process_scannet(root_dir,scan_name,posfix,start_ratio,end_ratio):
         if T_wc[3,3]!=1.0: continue
         association_f.write('depth/'+frame+'.png' +' '
                             +'color/'+frame+'.jpg'+'\n')
-        
+        latest_frame = frame
+        # print(frame)
         trajectory_f.write('{} {} {}\n'.format(counter,counter,counter+1))
         for row in T_wc:
             trajectory_f.write(' '.join([str(x) for x in row])+'\n')
         counter += 1
         
     association_f.close()
-    print('Processed {}/{} frames'.format(counter,len(frame_list)))
+    print('Processed {}/{} frames. End frame {}'.format(counter,len(frame_list),latest_frame))
     return end_frame-start_frame
 
 # Step 1
@@ -135,63 +156,66 @@ def render_scan(root_dir,scan_name):
         subprocess.wait()
 
 # Step 3
-def process_rio_scan(root_dir,scan_name):
-    sequence_dir = os.path.join(root_dir,scan_name,'sequence')
-    MAX_FRAMES = 99999999
-    prefix = 'frame-'
-    color_suffix='.color.jpg'
-    depth_suffix='.rendered.depth.png'
-    pose_suffix='.pose.txt'
-    if(os.path.exists(sequence_dir+'/_info.txt')==False):return False
-    print('processing '+scan_name+' ...')
-    
-    association_dir = os.path.join(root_dir,scan_name,'data_association.txt')
-    f_association = open(association_dir,'w')
-    f_trajectory = open(os.path.join(root_dir,scan_name,'trajectory.log'),'w')
 
-    count =0
-    for i in range(MAX_FRAMES):
-        framename = prefix+str(i).zfill(6)
-        color_frame = os.path.join(sequence_dir,framename+color_suffix)
-        depth_frame = os.path.join(sequence_dir,framename+depth_suffix)
-        pose_frame = os.path.join(sequence_dir,framename+pose_suffix)
-        if(os.path.exists(color_frame)==False or os.path.exists(pose_frame)==False or os.path.exists(depth_frame)==False): break
-
-        f_association.write('sequence/'+framename+depth_suffix+' sequence/'+ framename+color_suffix+'\n')
-        count= i
-        # print(color_frame)
-        # print(depth_frame)
-        # print(pose_frame)
-        f_trajectory.write(str(i)+' '+str(i)+' '+str(i+1)+'\n')
-        with open(pose_frame) as f:
-            for line in f.readlines():
-                f_trajectory.write(line)
+def clear_scannet_folders(dataroot, scans, filetypes=['']):
+    import shutil
     
-    f_association.close()
-    f_trajectory.close()
-    print('{} frames are valid and saved'.format(count+1))
-    return True
+    for scan in scans:
+        scan_folder = os.path.join(dataroot,scan)
+        for filetype in filetypes:
+            folder = os.path.join(dataroot,scan,filetype)
+            if os.path.exists(folder):
+                print('Clearing {}'.format(folder))
+                shutil.rmtree(folder)
+        # break
 
 
 if __name__ == '__main__':
-
     root_dir = '/data2/ScanNet'
-    split = 'val'
+    split = 'test'
+    split_file = split+'.txt'
     
-    clip_dict = {'c':{'start':0.1,'end':0.6},
+    clip_dict = {
+                # 'a':{'start':0.0,'end':0.5},
+                # 'b':{'start':0.5,'end':1.0},
+                'c':{'start':0.1,'end':0.6},
                 'd':{'start':0.4,'end':0.9}}
+    SMALL_SEQUENCE = 1000
+    GENERATE_FRAME_DICT = True
+    GENERATE_SUBSCAN_LIST = True
     
-    scans = read_scans(os.path.join(root_dir,'splits',split+'.txt'))
+    scans = read_scans(os.path.join(root_dir,'splits',split_file))
     frame_numbers = []
-    # scans = ['scene0064_00']
+    sequence_frame_dict = {}
+    clear_scannet_folders(os.path.join(root_dir,split),scans,
+                          ['label', 'instance'])
 
-    for scan_name in scans:   
-        for POSFIX in clip_dict:
-            START_RATIO = clip_dict[POSFIX]['start']
-            END_RATIO = clip_dict[POSFIX]['end']
-            num_frames = process_scannet(os.path.join(root_dir,'val'),scan_name,POSFIX,START_RATIO,END_RATIO)
-            frame_numbers.append(num_frames)
+    exit(0)
+    for scan_name in scans:  
+        # if GENERATE_FRAME_DICT:
+        max_frame_id = read_frames(os.path.join(root_dir,split),scan_name)
+        for k,v in clip_dict.items():
+            start_frame = max_frame_id * v['start']
+            end_frame = max_frame_id * v['end']
+            if max_frame_id<SMALL_SEQUENCE:
+                start_frame = max((start_frame-0.1*max_frame_id),0)
+                end_frame   = min((end_frame+0.1*max_frame_id),max_frame_id)
+            sequence_frame_dict[scan_name+k] = [int(start_frame),int(end_frame)]
+    
+    for scan_name in scans:
+        # if GENERATE_SUBSCAN_LIST:
+            # for POSFIX in clip_dict:
+            # for subscene_name, frame_range in sequence_frame_dict.items():
+                # POSFIX = subscene_name[-1]
+        frame_range_c = sequence_frame_dict[scan_name+'c']
+        frame_range_d = sequence_frame_dict[scan_name+'d']
+        process_scannet(os.path.join(root_dir,split),scan_name,'c',frame_range_c[0],frame_range_c[1])
+        process_scannet(os.path.join(root_dir,split),scan_name,'d',frame_range_d[0],frame_range_d[1])
         
         # break
-
-    print('min frames: {}, max frames: {}'.format(min(frame_numbers),max(frame_numbers)))
+    print(sequence_frame_dict)
+    
+    import json
+    with open(os.path.join(root_dir,'sub_sequences_dict.json'),'w') as f:
+        json.dump(sequence_frame_dict,f)    
+    # print('min frames: {}, max frames: {}'.format(min(frame_numbers),max(frame_numbers)))
