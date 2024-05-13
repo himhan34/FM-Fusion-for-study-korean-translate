@@ -31,6 +31,39 @@
             ]
         },
         {
+            "name": "TestLoop",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceRoot}/build/cpp/TestLoop",
+            "args": [
+                "--config","${workspaceRoot}/config/realsense.yaml",
+                "--pth_dir","/home/cliuci/code_ws/SceneGraphNet/onnx/weights/sgnet.pt",
+                "--ref_scene",
+                "/data2/sgslam/val_swap/uc0107_00a",
+                "--src_scene",
+                "/data2/sgslam/val_swap/uc0107_00b",
+
+                // "--scene_name","gfloor"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${fileDirname}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
             "name": "GenerateGT",
             "type": "python",
             "request": "launch",
@@ -97,13 +130,13 @@
                 "prediction_no_augment",
                 // "--association","data_association.txt",
                 // "--trajectory","trajectory.log",
-                // "--max_frames","500",
+                // "--max_frames","50",
                 // "--save_gap","50000",
                 "--frame_gap","2",
                 // "--subseq","c",
                 "--output",
-                "/data2/sgslam/val_swap"
-                // "--global_tsdf"
+                "/data2/sgslam/val_swap",
+                "--global_tsdf"
                 // "/data2/matterport3d/val",
                 // "/data2/ScanNetGraph/train"
             ],

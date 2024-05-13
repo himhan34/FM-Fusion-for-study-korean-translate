@@ -346,8 +346,8 @@ int main(int argc, char *argv[])
     // Save
     scene_graph.Save(output_folder+"/"+sequence_name+output_subseq);
     if(global_tsdf){
-        auto global_pcd=global_volume.ExtractPointCloud();
-        io::WritePointCloud(output_folder+"/"+sequence_name+output_subseq+"/pcd_o3d.ply",*global_pcd);
+        auto global_mesh=global_volume.ExtractTriangleMesh();
+        io::WriteTriangleMesh(output_folder+"/"+sequence_name+output_subseq+"/mesh_o3d.ply",*global_mesh);
         utility::LogWarning("Save global TSDF volume");
     }
 

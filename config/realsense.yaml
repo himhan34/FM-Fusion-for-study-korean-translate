@@ -34,6 +34,11 @@ merge_inflation: 3.5
 merge_iou: 0.4
 cleanup_period: 6600
 
+#
+Loop:
+  min_nodes: 5
+  min_edges: 10
+
 # output
 save_da_images: 0
 tmp_dir: "/media/lch/SeagateExp/bag/sgslam/output"
