@@ -26,6 +26,8 @@ public:
 
     void merge_overlap_structural_instances();
 
+    int merge_other_instances(std::vector<InstancePtr> &instances);
+
     void extract_point_cloud(const std::vector<InstanceId> instance_list=std::vector<InstanceId>());
 
     /// \brief  Extract and update bounding box for each instance.
@@ -51,6 +53,8 @@ public:
     bool load(const std::string &path);
 
     const Config &get_config() { return config_; }
+
+    std::vector<InstancePtr> export_instances();
 
 protected:
     /// \brief  match vector in [K,1], K is the number of detections;

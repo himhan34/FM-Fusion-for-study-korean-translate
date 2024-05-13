@@ -315,7 +315,8 @@ def process_scene(scan_dir,output_folder,min_iou,save_nodes=True, compute_matche
     if os.path.exists(os.path.join(scan_dir+'a','instance_box.txt'))==False or os.path.exists(os.path.join(scan_dir+'b','instance_box.txt'))==False:
         return None
     # if os.path.exists(output_folder)==False:
-    os.makedirs(output_folder,exist_ok=True)
+    if output_folder is not None:
+        os.makedirs(output_folder,exist_ok=True)
     
     scan = os.path.basename(scan_dir)
     print('processing {}'.format(scan))
@@ -339,7 +340,7 @@ def process_scene(scan_dir,output_folder,min_iou,save_nodes=True, compute_matche
         save_nodes_edges(tar_graph,scan_dir+'b')
     
     # Save GT: matches.csv
-    if len(matches)>0:
+    if len(matches)>0 and output_folder is not None:
         # match_file_dir = os.path.join(output_folder,'instances.pth')
         # with open(match_file_dir,'w',newline='') as csvfile:
         #     writer = csv.DictWriter(csvfile,fieldnames=['src_id','tar_id','iou'])
@@ -387,6 +388,7 @@ if __name__ == '__main__':
     
     if args.debug_mode:
         sample_scans = np.random.choice(scans,args.samples)    # randomly sample 10 scans
+        sample_scans = ['scene0552_01']
         for scan in sample_scans:
             scan_dir = os.path.join(args.graphroot,args.split,scan)
             scan_outupt_folder = os.path.join(args.graphroot,'matches',scan)
@@ -403,7 +405,7 @@ if __name__ == '__main__':
                     get_match_lines(out['src']['nodes'],out['tar']['nodes'],out['matches']))
                 print('matches: ',out['matches'])
                 point_lines = get_correspondences_lines(out['src']['nodes'],out['tar']['nodes'],out['matches'],out['correspondences'])
-                viz_geometries.append(point_lines)
+                # viz_geometries.append(point_lines)
             if args.viz_colorbar: 
                 color_img_a = get_instances_color(out['src'])
                 color_img_b = get_instances_color(out['tar'])

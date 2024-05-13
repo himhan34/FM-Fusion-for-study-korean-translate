@@ -121,7 +121,8 @@ std::string config_to_message(const fmfusion::Config &config)
 
     message << "voxel_length: " << config.voxel_length << "\n";
     message << "sdf_trunc: " << std::to_string(config.sdf_trunc) + "\n";
-    message << "min_active_points: " + std::to_string(config.min_active_points) + "\n";
+    message << "min_active_points: " << std::to_string(config.min_active_points) + "\n";
+    message << "shape min points: " << std::to_string(config.shape_min_points) + "\n";
 
     message << "min_det_masks: " + std::to_string(config.min_det_masks) + "\n";
     message << "max_box_area_ratio: "<< std::fixed<<std::setprecision(2)<<config.max_box_area_ratio << "\n";

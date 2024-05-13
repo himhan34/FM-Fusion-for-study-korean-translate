@@ -19,7 +19,7 @@ int main(int argc, char *argv[])
 
     std::string config_file = utility::GetProgramOptionAsString(argc, argv, "--config");
     std::string map_folder = utility::GetProgramOptionAsString(argc, argv, "--map_folder");
-    std::string src_sequence = utility::GetProgramOptionAsString(argc, argv, "--scene_name");
+    std::string scene_name = utility::GetProgramOptionAsString(argc, argv, "--scene_name");
     bool visualization = utility::ProgramOptionExists(argc, argv, "--visualization");
 
 
@@ -33,8 +33,8 @@ int main(int argc, char *argv[])
 
     // Pose Graph
     auto pose_graph_io = std::make_shared<fmfusion::PoseGraphFile>();
-    if(open3d::io::ReadIJsonConvertible(map_folder+"/"+src_sequence+"/pose_map.json", *pose_graph_io)){
-        fmfusion::o3d_utility::LogInfo("Read pose graph from {}.",src_sequence);
+    if(open3d::io::ReadIJsonConvertible(map_folder+"/"+scene_name+"/pose_map.json", *pose_graph_io)){
+        fmfusion::o3d_utility::LogInfo("Read pose graph from {}.",scene_name);
     }
     auto pose_map = pose_graph_io->poses_;
 
@@ -43,24 +43,28 @@ int main(int argc, char *argv[])
     for (auto it=pose_map.begin();it!=pose_map.end();it++){
         fmfusion::o3d_utility::LogInfo("Scene: {}",it->first);
         std::string scene_folder = map_folder+"/"+it->first;
+        auto local_sg = std::make_shared<fmfusion::SceneGraph>(fmfusion::SceneGraph(*sg_config));
 
-        global_scene_graph->load(scene_folder);
-        if count>0:
-            global_scene_graph->merge_overlap_instances();
+        local_sg->load(scene_folder);
+        local_sg->Transform(it->second);
+        auto local_instances = local_sg->export_instances();
+        global_scene_graph->merge_other_instances(local_instances);
+
+        if(count>0) global_scene_graph->merge_overlap_instances();
 
         count ++;
-        break;
-
+        // break;
     }
     global_scene_graph->extract_bounding_boxes();
 
     //
     if (visualization){
-        auto geometries = scene_graph.get_geometries(true,true);
-        open3d::visualization::DrawGeometries(geometries, sequence_name+subseq, 1920, 1080);
+        auto geometries = global_scene_graph->get_geometries(true,true);
+        open3d::visualization::DrawGeometries(geometries, scene_name, 1920, 1080);
     }
     
-
+    // Export 
+    global_scene_graph->Save(map_folder+"/"+scene_name);
 
     return 0;
 

@@ -584,7 +584,7 @@ bool SceneGraph::load(const std::string &path)
         instance_toadd->point_cloud = open3d::io::CreatePointCloudFromFile(path+"/"+instance_id_str+".ply");
         instance_toadd->centroid = instance_toadd->point_cloud->GetCenter();
         instance_toadd->color_ = InstanceColorBar[instance_id%InstanceColorBar.size()];
-                instance_map.emplace(instance_id,instance_toadd);
+        instance_map.emplace(instance_id,instance_toadd);
 
         // cout<<instance_id_str<<","<<label_measurments_str
         //     <<","<<cloud->points_.size()
@@ -598,4 +598,27 @@ bool SceneGraph::load(const std::string &path)
 
 }
 
+std::vector<InstancePtr> SceneGraph::export_instances()
+{
+    std::vector<InstancePtr> instances;
+    for(auto &instance:instance_map){
+        instances.emplace_back(instance.second);
+    }
+    return instances;
 }
+
+int SceneGraph::merge_other_instances(std::vector<InstancePtr> &instances)
+{
+    int count = 0;
+    for(auto &instance:instances){
+        if(instance->point_cloud->points_.size()<config_.shape_min_points) continue;
+        instance->id_ = latest_created_instance_id+1;
+        instance_map.emplace(instance->id_,instance);
+        latest_created_instance_id = instance->id_;
+        count ++;
+    }
+    o3d_utility::LogInfo("Merge {:d} instances",count);
+    return count;
+}
+
+} // namespace fmfusion
