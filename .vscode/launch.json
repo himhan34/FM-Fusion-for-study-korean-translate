@@ -9,7 +9,9 @@
             "args": [
                 "--config","${workspaceRoot}/config/realsense.yaml",
                 "--map_folder",
-                "/data2/sgslam/val_swap",
+                // "/data2/sgslam/val_swap",
+                "/media/lch/SeagateExp/bag/sgslam/val_swap",
+                "--visualization",
                 "--scene_name","gfloor"
             ],
             "stopAtEntry": false,
@@ -38,6 +40,7 @@
             "args": [
                 "--config","${workspaceRoot}/config/realsense.yaml",
                 "--pth_dir","/home/cliuci/code_ws/SceneGraphNet/onnx/weights/sgnet.pt",
+                "--bert_dir","/home/cliuci/code_ws/SceneGraphNet/onnx/weights/bert_script.pt",
                 "--ref_scene",
                 "/data2/sgslam/val_swap/uc0107_00a",
                 "--src_scene",
@@ -130,12 +133,12 @@
                 "prediction_no_augment",
                 // "--association","data_association.txt",
                 // "--trajectory","trajectory.log",
-                // "--max_frames","50",
+                "--max_frames","100",
                 // "--save_gap","50000",
                 "--frame_gap","2",
                 // "--subseq","c",
                 "--output",
-                "/data2/sgslam/val_swap",
+                "/data2/sgslam/output",
                 "--global_tsdf"
                 // "/data2/matterport3d/val",
                 // "/data2/ScanNetGraph/train"
