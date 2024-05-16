@@ -210,12 +210,12 @@ int SceneGraph::create_new_instance(const DetectionPtr &detection, const unsigne
     instance->integrate(rgbd_image,pose.inverse());
     instance->update_label(detection);
     instance->fast_update_centroid();
-    instance->color_ = InstanceColorBar[instance->id_%InstanceColorBar.size()];
+    instance->color_ = InstanceColorBar[instance->get_id()%InstanceColorBar.size()];
 
     // std::cout<<"Init instance with "<<instance->point_cloud->points_.size()<<" points\n"; // EXTRACT POINT FIRST
-    instance_map.emplace(instance->id_,instance);
-    latest_created_instance_id = instance->id_;
-    return instance->id_;
+    instance_map.emplace(instance->get_id(),instance);
+    latest_created_instance_id = instance->get_id();
+    return instance->get_id();
     
 }
 
@@ -294,9 +294,8 @@ void SceneGraph::merge_overlap_instances(std::vector<InstanceId> instance_list)
     for(int i=0;i<target_instances.size();i++){
         auto instance_i = instance_map[target_instances[i]];
         if (!instance_i->point_cloud)
-            o3d_utility::LogWarning("Instance {:d} has no point cloud",instance_i->id_);
+            o3d_utility::LogWarning("Instance {:d} has no point cloud",instance_i->get_id());
         std::string label_i = instance_i->get_predicted_class().first;
-        // std::cout<<instance_i->id_<<":"<<label_i<<";  "<<instance_i->point_cloud->points_.size()<<"\n";
         if (instance_i->point_cloud->points_.size()<30) continue;
 
         for(int j=i+1;j<target_instances.size();j++){
@@ -305,7 +304,7 @@ void SceneGraph::merge_overlap_instances(std::vector<InstanceId> instance_list)
             
             auto instance_j = instance_map[target_instances[j]];
             if (!instance_j->point_cloud)
-                o3d_utility::LogWarning("Instance {:d} has no point cloud",instance_j->id_);
+                o3d_utility::LogWarning("Instance {:d} has no point cloud",instance_j->get_id());
             // std::cout<<instance_j->id_<<":"<<instance_j->get_predicted_class().first<<";  "
             //     <<instance_j->point_cloud->points_.size()<<"\n";
             if (instance_j->point_cloud->points_.size()<30) continue;
@@ -332,9 +331,9 @@ void SceneGraph::merge_overlap_instances(std::vector<InstanceId> instance_list)
             if(iou>config_.merge_iou){
                 large_instance->merge_with(
                     small_instance->point_cloud,small_instance->get_measured_labels(),small_instance->get_observation_count());
-                remove_instances.insert(small_instance->id_);
+                remove_instances.insert(small_instance->get_id());
                 // std::cout<<small_instance->id_<<" merged into "<<large_instance->id_<<std::endl;
-                if(small_instance->id_==instance_i->id_) break;
+                if(small_instance->get_id()==instance_i->get_id()) break;
             }   
         }
     }
@@ -387,9 +386,9 @@ void SceneGraph::merge_overlap_structural_instances()
             if(iou>0.03){
                 large_instance->merge_with(
                     small_instance->point_cloud,small_instance->get_measured_labels(),small_instance->get_observation_count());
-                remove_instances.insert(small_instance->id_);
+                remove_instances.insert(small_instance->get_id());
                 // std::cout<<small_instance->id_<<" merged into "<<large_instance->id_<<std::endl;
-                if(small_instance->id_==instance_i->id_) break;
+                if(small_instance->get_id()==instance_i->get_id()) break;
             }   
         }
     }
@@ -501,7 +500,7 @@ bool SceneGraph::Save(const std::string &path)
 
         global_instances_pcd += *instance_cloud;
         stringstream ss; // instance info string
-        ss<<std::setw(4)<<std::setfill('0')<<instance.second->id_;
+        ss<<std::setw(4)<<std::setfill('0')<<instance.second->get_id();
         open3d::io::WritePointCloud(path+"/"+ss.str()+".ply",*instance_cloud);
 
         ss<<";"
@@ -509,11 +508,11 @@ bool SceneGraph::Save(const std::string &path)
             <<instance.second->get_observation_count()<<";"
             <<instance.second->get_measured_labels_string()<<";"
             <<instance_cloud->points_.size()<<";\n";
-        instance_info.emplace_back(instance.second->id_,ss.str());
+        instance_info.emplace_back(instance.second->get_id(),ss.str());
 
         if(!instance.second->min_box->IsEmpty()){
             stringstream box_ss;
-            box_ss<<std::setw(4)<<std::setfill('0')<<instance.second->id_<<";";
+            box_ss<<std::setw(4)<<std::setfill('0')<<instance.second->get_id()<<";";
             auto box = instance.second->min_box;
             box_ss<<box->center_(0)<<","<<box->center_(1)<<","<<box->center_(2)<<";"
                 <<box->R_.coeff(0,0)<<","<<box->R_.coeff(0,1)<<","<<box->R_.coeff(0,2)<<","<<box->R_.coeff(1,0)<<","<<box->R_.coeff(1,1)<<","<<box->R_.coeff(1,2)<<","<<box->R_.coeff(2,0)<<","<<box->R_.coeff(2,1)<<","<<box->R_.coeff(2,2)<<";"
@@ -599,13 +598,17 @@ bool SceneGraph::load(const std::string &path)
 
 }
 
-std::vector<InstancePtr> SceneGraph::export_instances()
+void SceneGraph::export_instances(
+    std::vector<InstanceId> &names, std::vector<InstancePtr> &instances)
 {
-    std::vector<InstancePtr> instances;
     for(auto &instance:instance_map){
-        instances.emplace_back(instance.second);
+        auto point_size = instance.second->point_cloud->points_.size();
+        if (point_size>config_.shape_min_points){
+            names.emplace_back(instance.first);
+            instances.emplace_back(instance.second);
+        }
     }
-    return instances;
+    // return instances;
 }
 
 int SceneGraph::merge_other_instances(std::vector<InstancePtr> &instances)
@@ -613,9 +616,11 @@ int SceneGraph::merge_other_instances(std::vector<InstancePtr> &instances)
     int count = 0;
     for(auto &instance:instances){
         if(instance->point_cloud->points_.size()<config_.shape_min_points) continue;
-        instance->id_ = latest_created_instance_id+1;
-        instance_map.emplace(instance->id_,instance);
-        latest_created_instance_id = instance->id_;
+        // todo: initialize new instance instead
+        instance->change_id(latest_created_instance_id+1);
+        // instance->id_ = latest_created_instance_id+1;
+        instance_map.emplace(instance->get_id(),instance);
+        latest_created_instance_id = instance->get_id();
         count ++;
     }
     o3d_utility::LogInfo("Merge {:d} instances",count);

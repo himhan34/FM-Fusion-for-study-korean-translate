@@ -47,7 +47,9 @@ int main(int argc, char *argv[])
 
         local_sg->load(scene_folder);
         local_sg->Transform(it->second);
-        auto local_instances = local_sg->export_instances();
+        std::vector<fmfusion::InstanceId> local_instance_names;
+        std::vector<fmfusion::InstancePtr> local_instances;
+        local_sg->export_instances(local_instance_names, local_instances);
         global_scene_graph->merge_other_instances(local_instances);
 
         if(count>0) global_scene_graph->merge_overlap_instances();

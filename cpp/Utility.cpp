@@ -83,7 +83,8 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
         
         fs["tmp_dir"]>>config->tmp_dir;
 
-        auto loop_config = fs["Loop"];
+        auto graph_config_fs = fs["GNN"];
+        config->gnn.edge_radius_ratio = graph_config_fs["edge_radius_ratio"];
 
         // Close and print
         fs.release();
@@ -138,6 +139,9 @@ std::string config_to_message(const fmfusion::Config &config)
     message << "cleanup_period: " + std::to_string(config.cleanup_period) + "\n";
     message << "save_da_images: " + std::to_string(config.save_da_images) + "\n";
     message << "tmp_dir: " + config.tmp_dir + "\n";
+
+    message <<"GNN: \n";
+    message<<"  edge_radius_ratio: "<<config.gnn.edge_radius_ratio<<"\n";
 
     return message.str();
 }

@@ -4,6 +4,7 @@
 #include "open3d/Open3D.h"
 #include "opencv2/opencv.hpp"
 #include "cluster/PoseGraph.h"
+#include "sgloop/Graph.h"
 
 namespace fmfusion
 {
@@ -51,10 +52,16 @@ struct Config
     int cleanup_period=20; // in frames
     bool save_da_images;
     std::string tmp_dir; // For debug
+
+    //
+    GraphConfig gnn;
+    
 };
 
 typedef std::shared_ptr<cv::Mat> CvMatPtr;
 typedef open3d::geometry::Image O3d_Image;
+typedef open3d::geometry::Geometry O3d_Geometry;
+typedef std::shared_ptr<const open3d::geometry::Geometry> O3d_Geometry_Ptr;
 typedef std::shared_ptr<open3d::geometry::Image> O3d_Image_Ptr;
 
 }

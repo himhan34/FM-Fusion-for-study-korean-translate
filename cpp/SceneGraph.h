@@ -4,7 +4,6 @@
 #include "Common.h"
 #include "Color.h"
 #include "mapping/Instance.h"
-#include "mapping/Edge.h"
 #include "Utility.h"
 
 namespace fmfusion
@@ -33,9 +32,6 @@ public:
     /// \brief  Extract and update bounding box for each instance.
     void extract_bounding_boxes();
 
-    // todo
-    bool construct_edges(const std::vector<InstanceId> instance_list=std::vector<InstanceId>());
-
     void remove_invalid_instances();
 
     /// \brief  Get geometries for each instance.
@@ -54,7 +50,8 @@ public:
 
     const Config &get_config() { return config_; }
 
-    std::vector<InstancePtr> export_instances();
+    /// \brief  Export instances to the vector. Select by point cloud size.
+    void export_instances(std::vector<InstanceId> &names, std::vector<InstancePtr> &instances);
 
 protected:
     /// \brief  match vector in [K,1], K is the number of detections;
@@ -85,10 +82,10 @@ private:
     Config config_;
     InstanceConfig instance_config;
     std::unordered_map<InstanceId,InstancePtr> instance_map;
-    std::unordered_map<std::string, std::vector<InstanceId>> label_instance_map;
+        std::unordered_map<std::string, std::vector<InstanceId>> label_instance_map;
     InstanceId latest_created_instance_id;
     int last_cleanup_frame_id;
-
+    
 };
 
 

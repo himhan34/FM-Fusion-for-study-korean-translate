@@ -34,6 +34,11 @@ merge_inflation: 3.5
 merge_iou: 0.4
 cleanup_period: 6600
 
+
+# 
+GNN:
+  edge_radius_ratio: 3.0
+
 #
 Loop:
   min_nodes: 5

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.18)
 
 project(fmfusion LANGUAGES C CXX)
 
-set(Open3D_DIR "/home/cliuci/code_ws/Open3D_CPU/install")
+set(Open3D_DIR "/home/lch/Code_ws/Open3D/install")
 set(Libtorch_ROOT "/home/cliuci/tools/libtorch")
 option(ENABLE_TORCH ON)
 
@@ -23,7 +23,8 @@ if (ENABLE_TORCH)
     add_library(libfmfusion SHARED
         mapping/Detection.cpp
         mapping/Instance.cpp
-        mapping/Edge.cpp
+        sgloop/Graph.cpp
+        tools/Visualization.cpp
         cluster/PoseGraph.cpp
         SceneGraph.cpp
         Utility.cpp
@@ -39,6 +40,8 @@ else()
     add_library(libfmfusion SHARED
         mapping/Detection.cpp
         mapping/Instance.cpp
+        sgloop/Graph.cpp
+        tools/Visualization.cpp
         cluster/PoseGraph.cpp
         SceneGraph.cpp
         Utility.cpp
@@ -71,5 +74,5 @@ target_link_libraries(GraphMatchNode PRIVATE Open3D::Open3D ${OpenCV_LIBS} libfm
 
 add_executable(TestLoop)
 target_sources(TestLoop PRIVATE TestLoop.cpp)
-target_link_libraries(TestLoop PRIVATE Open3D::Open3D libfmfusion ${TORCH_LIBRARIES})
+target_link_libraries(TestLoop PRIVATE Open3D::Open3D libfmfusion)
 set_target_properties(TestLoop PROPERTIES CXX_STANDARD 17)

@@ -69,16 +69,17 @@ public:
     int get_observation_count()const{
         return observation_count;}
 
+    InstanceId get_id()const{return id_;}
+
     /// \brief  label_str:label_name(score),label_name(score),...
     void load_previous_labels(const std::string &labels_str);
 
     void save(const std::string &path);
     void load(const std::string &path);
 
-    
+    void change_id(InstanceId new_id){id_ = new_id;}
 
 public:
-    InstanceId id_; // >=1
     unsigned int frame_id_; // initrialization frame id
     Eigen::Vector3d color_;
     std::shared_ptr<cv::Mat> observed_image_mask; // Poject volume on image plane;
@@ -86,8 +87,9 @@ public:
     O3d_Cloud_Ptr point_cloud;
     Eigen::Vector3d centroid;
     std::shared_ptr<open3d::geometry::OrientedBoundingBox> min_box;
-
+    
 private:
+    InstanceId id_; // >=1
     InstanceConfig config_;
     std::unordered_map<std::string,float> measured_labels;
     LabelScore predicted_label;
