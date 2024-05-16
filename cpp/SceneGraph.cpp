@@ -416,7 +416,8 @@ void SceneGraph::extract_bounding_boxes()
         // instance.second->filter_pointcloud_by_cluster();
         if (instance.second->point_cloud->points_.size()>config_.shape_min_points){
             instance.second->CreateMinimalBoundingBox();
-            if(instance.second->min_box->IsEmpty()) count++;
+            count++;
+            // if(instance.second->min_box->IsEmpty()) count++;
         }
     }
     timer.Stop();

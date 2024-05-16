@@ -41,21 +41,21 @@ bool DetectionFile::ConvertFromJsonValue(const Json::Value &value)
     using namespace open3d;
     
     if (!value.isObject()) {
-        open3d::utility::LogWarning(
-                "DetectionField read JSON failed: unsupported json "
-                "format.");
+        std::cerr<<"DetectionField read JSON failed: unsupported json format."<<std::endl;
+        // open3d::utility::LogWarning(
+        //         "DetectionField read JSON failed: unsupported json "
+        //         "format.");
         return false;
     }
     const Json::Value object_array = value["mask"];
 
     if (!object_array.isArray() || object_array.size() <2) {
-        open3d::utility::LogWarning(
-                "DetectionField cannot find valid objects.");
+        std::cerr<<"DetectionField cannot find valid objects."<<std::endl;
         return false;
     }
     
     // open3d::utility::LogInfo("DetectionField read {:d} objects.", object_array.size()-1);
-    stringstream msg;
+    std::stringstream msg;
 
     for(int i=0;i<object_array.size();++i){ // update detected objects
         const Json::Value object = object_array[i];
@@ -121,7 +121,7 @@ bool DetectionFile::updateInstanceMap(const std::string &instance_file)
 
     // todo: run sam with larger number of boxes
     if(max!=K){
-        o3d_utility::LogWarning("instance map has different number of instances");
+        std::cerr<<"instance map has different number of instances"<<std::endl;
         return false;
     }
     assert (max == K), "instance map has different number of instances";
@@ -138,7 +138,7 @@ bool DetectionFile::updateInstanceMap(const std::string &instance_file)
 
     // remove invalid detections 
     if(to_remove_detections.size()>0){
-        o3d_utility::LogWarning("Remove {:d} invalid detections", to_remove_detections.size());
+        std::cerr<<"Remove "<<to_remove_detections.size()<<" invalid detections"<<std::endl;
         for(int i=to_remove_detections.size()-1;i>=0;--i){
             detections.erase(detections.begin()+to_remove_detections[i]);
         }

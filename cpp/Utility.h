@@ -4,7 +4,7 @@
 #include "open3d/Open3D.h"
 #include "opencv2/opencv.hpp"
 #include "Common.h"
-#include "Detection.h"
+#include "mapping/Instance.h"
 
 namespace fmfusion
 {

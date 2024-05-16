@@ -5,12 +5,15 @@
 #include <string>
 
 #include "open3d/Open3D.h"
-
-#include "Common.h"
 #include "Detection.h"
 
 namespace fmfusion
 {
+
+namespace o3d_utility = open3d::utility;
+typedef uint32_t InstanceId;
+typedef open3d::geometry::PointCloud O3d_Cloud;
+typedef std::shared_ptr<open3d::geometry::PointCloud> O3d_Cloud_Ptr;
 
 struct InstanceConfig{
     double voxel_length = 0.02;
@@ -39,7 +42,7 @@ public:
     void fast_update_centroid(){centroid = volume_->get_centroid();};
 
     void merge_with(const O3d_Cloud_Ptr &other_cloud, 
-        const std::unordered_map<string,float> &label_measurements, const int &observations_);
+        const std::unordered_map<std::string,float> &label_measurements, const int &observations_);
 
     std::shared_ptr<open3d::geometry::PointCloud> extract_point_cloud();
 

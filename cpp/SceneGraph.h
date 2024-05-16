@@ -3,8 +3,8 @@
 
 #include "Common.h"
 #include "Color.h"
-#include "Detection.h"
-#include "Instance.h"
+#include "mapping/Instance.h"
+#include "mapping/Edge.h"
 #include "Utility.h"
 
 namespace fmfusion

@@ -46,7 +46,7 @@ bool Instance::filter_pointcloud_by_cluster()
     }
     else{
         auto labels = point_cloud->ClusterDBSCAN(config_.cluster_eps,config_.cluster_min_points,true);
-        unordered_map<int,int> cluster_counts; // cluster_id:count
+        std::unordered_map<int,int> cluster_counts; // cluster_id:count
         const size_t old_points_number = point_cloud->points_.size();
 
         // create cluster

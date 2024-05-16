@@ -83,6 +83,8 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
         
         fs["tmp_dir"]>>config->tmp_dir;
 
+        auto loop_config = fs["Loop"];
+
         // Close and print
         fs.release();
         if (verbose){

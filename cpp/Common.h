@@ -53,14 +53,9 @@ struct Config
     std::string tmp_dir; // For debug
 };
 
-namespace o3d_utility = open3d::utility;
 typedef std::shared_ptr<cv::Mat> CvMatPtr;
 typedef open3d::geometry::Image O3d_Image;
-typedef open3d::geometry::PointCloud O3d_Cloud;
 typedef std::shared_ptr<open3d::geometry::Image> O3d_Image_Ptr;
-typedef std::shared_ptr<open3d::geometry::PointCloud> O3d_Cloud_Ptr;
-
-typedef uint32_t InstanceId;
 
 }
 

@@ -3,8 +3,6 @@
 
 #include "opencv2/opencv.hpp"
 #include "open3d/utility/IJsonConvertible.h"
-#include "Common.h"
-// #include "Utility.h"
 
 
 namespace fmfusion
@@ -40,7 +38,7 @@ class DetectionFile: public open3d::utility::IJsonConvertible
 public:
     DetectionFile(int min_mask, int max_box_area): min_mask_(min_mask), max_box_area_(max_box_area) {};
 
-    bool updateInstanceMap(const string &instance_file);    
+    bool updateInstanceMap(const std::string &instance_file);    
 
 public:
     bool ConvertToJsonValue(Json::Value &value) const override {return true;};
