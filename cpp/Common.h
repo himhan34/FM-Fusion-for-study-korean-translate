@@ -55,7 +55,7 @@ struct Config
 
     //
     GraphConfig gnn;
-    
+        
 };
 
 typedef std::shared_ptr<cv::Mat> CvMatPtr;

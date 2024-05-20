@@ -3,6 +3,41 @@
 
 namespace fmfusion
 {
+    void Node::sample_corners(const int &max_corner_number, std::vector<Corner> &corner_vector, int padding_value)
+    {
+        // std::vector<Corner> corner_vector;
+        std::stringstream msg;
+        msg<<corners.size()<<" corners: ";
+        corner_vector.reserve(max_corner_number);
+        Corner padding_corner = {padding_value, padding_value};
+
+        if (corners.size()<max_corner_number){
+            corner_vector.insert(corner_vector.end(), corners.begin(), corners.end());
+
+            // zero padding
+            for (int i=corners.size(); i<max_corner_number; i++){
+                corner_vector.emplace_back(padding_corner);
+            }
+
+        }
+        else if (corners.size()==max_corner_number){
+            corner_vector.insert(corner_vector.end(), corners.begin(), corners.end());
+        }
+        else{
+            std::vector<int> indices(corners.size());
+            std::iota(indices.begin(), indices.end(), 0);
+            std::random_shuffle(indices.begin(), indices.end());
+            for (int i=0; i<max_corner_number; i++){
+                corner_vector.emplace_back(corners[indices[i]]);
+                // corner_array[i] = corners[indices[i]];
+                // msg<< indices[i]<<",";
+            }
+        }
+        assert(corner_vector.size()==max_corner_number);
+        msg<<"\n";
+        // std::cout<<msg.str();
+    }
+
     Graph::Graph(GraphConfig config_):config(config_),max_corner_number(0),max_neighbor_number(0)
     {
         std::cout<<"GNN initialized.\n";
@@ -14,13 +49,15 @@ namespace fmfusion
         o3d_utility::Timer timer_;
         timer_.Start();
         std::cout<<"Constructing GNN...\n";
+        std::string ignore_labels = "floor. carpet. ceiling.";
         for (auto inst:instances){
             NodePtr node = std::make_shared<Node>(nodes.size(), inst->get_id());
-            node->semantic = inst->get_predicted_class().first;
+            std::string label = inst->get_predicted_class().first;
+            if (ignore_labels.find(label)!=std::string::npos) continue;
+            node->semantic = label;
             node->centroid = inst->centroid;
             node->bbox_shape = inst->min_box->extent_;
             node->cloud = std::make_shared<open3d::geometry::PointCloud>(*inst->point_cloud); // deep copy
-
 
             nodes.push_back(node);
             node_instance_idxs.push_back(inst->get_id());
@@ -150,6 +187,8 @@ namespace fmfusion
         std::cout<<"Construct corners for all the nodes.\n"
             <<"The max nieghbor number is "<<max_neighbor_number<<"; "
             <<"The max corner number is "<<max_corner_number<<".\n";
+        assert(max_corner_number>0);
+
     }
 
 

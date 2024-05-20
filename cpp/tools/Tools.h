@@ -15,6 +15,10 @@ namespace visualization
     std::shared_ptr<const open3d::geometry::LineSet> draw_edges(
         const std::vector<NodePtr> &nodes, const std::vector<EdgePtr> &edges);
     
+
+    std::shared_ptr<const open3d::geometry::LineSet> draw_instance_correspondences(
+        const std::vector<Eigen::Vector3d> &src_centroids, const std::vector<Eigen::Vector3d> &ref_centroids);
+
 }
 
 

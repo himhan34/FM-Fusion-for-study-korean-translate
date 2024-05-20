@@ -17,6 +17,13 @@ class Node
     public:
         Node(uint32_t node_id_, InstanceId instance_id_):
             id(node_id_), instance_id(instance_id_){};
+        
+        /// @brief 
+        /// @param max_corner_number 
+        /// @param corner_vector 
+        /// @param padding_value For the corners less than max_corner_number, padding with this value. 
+        void sample_corners(const int &max_corner_number, std::vector<Corner> &corner_vector, int padding_value=0);
+
         ~Node(){};
     public:
         uint32_t id; // node id, reordered from 0
@@ -68,13 +75,16 @@ class Graph
     private:
         void update_neighbors();
 
+    public:
+        int max_neighbor_number;
+        int max_corner_number;        
+
     private:
         GraphConfig config;
         std::vector<InstanceId> node_instance_idxs; // corresponds to original instance ids
         std::vector<NodePtr> nodes;
         std::vector<EdgePtr> edges; // Each edge is a pair of node id
-        int max_neighbor_number;
-        int max_corner_number;
+
 
 };
 

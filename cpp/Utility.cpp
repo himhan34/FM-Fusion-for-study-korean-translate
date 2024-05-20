@@ -323,6 +323,12 @@ O3d_Image_Ptr extract_masked_o3d_image(const O3d_Image &depth, const O3d_Image &
     return masked_depth;
 }
 
+void random_sample(const std::vector<int> &indices, const int &sample_size, std::vector<int> &sampled_indices)
+{
+    std::vector<int> shuffled_indices = indices;
+    std::random_shuffle(shuffled_indices.begin(), shuffled_indices.end());
+    sampled_indices = std::vector<int>(shuffled_indices.begin(), shuffled_indices.begin()+sample_size);
+}
 
 }
 

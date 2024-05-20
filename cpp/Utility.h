@@ -36,6 +36,8 @@ bool create_masked_rgbd(
 
 O3d_Image_Ptr extract_masked_o3d_image(const O3d_Image &depth, const O3d_Image &mask);
 
+void random_sample(const std::vector<int> &indices, const int &sample_size, std::vector<int> &sampled_indices);
+
 }
 
 #endif //FMFUSION_UTILITY_H

@@ -2,10 +2,7 @@ cmake_minimum_required(VERSION 3.18)
 
 project(tokenizer VERSION 1.0)
 
-set(SPDLOG_ROOT "/home/cliuci/tools/spdlog/install")
-set(LIB_UTF8PROC "/usr/local/lib/libutf8proc.so")
-
-find_package(spdlog REQUIRED PATHS ${SPDLOG_ROOT})
+find_package(spdlog REQUIRED) # PATHS ${SPDLOG_ROOT})
 find_package(glog REQUIRED)
 
 add_library(tokenizer SHARED 

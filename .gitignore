@@ -5,9 +5,12 @@ measurement_model/prompt
 build
 eval
 .history
+torchscript
 
 # Ignore files 
 *.pyc
 *.zip
 *.npy
-
+.idea
+.vscode
+datasets

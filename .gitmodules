@@ -1,0 +1,3 @@
+[submodule "cpp/thirdparty/G3Reg"]
+	path = cpp/thirdparty/G3Reg
+	url = https://github.com/HKUST-Aerial-Robotics/G3Reg.git

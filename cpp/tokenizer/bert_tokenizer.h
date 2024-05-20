@@ -1,4 +1,5 @@
 /*
+ * This is a thirdparty module adopted from: https://github.com/LieluoboAi/radish
  * File: bert_tokenizer.h
  * Project: bert
  * File Created: Saturday, 19th October 2019 10:41:25 am
