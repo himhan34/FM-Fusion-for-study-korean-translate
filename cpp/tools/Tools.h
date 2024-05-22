@@ -7,6 +7,14 @@
 namespace fmfusion
 {
 
+namespace IO
+{
+    void extract_match_instances(const std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
+        const std::vector<fmfusion::NodePtr> &src_nodes,const std::vector<fmfusion::NodePtr> &ref_nodes,
+        std::vector<std::pair<fmfusion::InstanceId,fmfusion::InstanceId>> &match_instances);
+
+}
+
 namespace visualization
 {
 /// \brief  Visualization functions in Open3D lib.

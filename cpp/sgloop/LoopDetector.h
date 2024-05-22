@@ -28,6 +28,10 @@ public:
     LoopDetector(const LoopDetectorConfig &config, const std::string weight_folder);
     ~LoopDetector() {};
 
+    /// @brief Modality encoder and graph encoder.
+    /// @param nodes 
+    /// @param node_features 
+    /// @return  
     bool graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node_features);
 
     void detect_loop(const torch::Tensor &src_node_features, const torch::Tensor &ref_node_features,

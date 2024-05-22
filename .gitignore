@@ -6,6 +6,9 @@ build
 eval
 .history
 torchscript
+catkin_ws/devel
+catkin_ws/build
+install
 
 # Ignore files 
 *.pyc

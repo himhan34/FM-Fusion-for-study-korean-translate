@@ -44,6 +44,7 @@ namespace fmfusion::visualization
             lines.push_back(Eigen::Vector2i(points.size() - 2, points.size() - 1));
         }
         std::shared_ptr<const open3d::geometry::LineSet> line_set = std::make_shared<open3d::geometry::LineSet>(points,lines);
+        return line_set;
     }
 
 

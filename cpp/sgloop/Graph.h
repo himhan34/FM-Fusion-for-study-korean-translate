@@ -70,6 +70,11 @@ class Graph
 
         const std::vector<EdgePtr> get_const_edges() const { return edges; }
 
+        /// \brief  Extract global point cloud from the graph.
+        /// @param xyz Global point cloud.
+        /// @param labels Node ids.
+        void extract_global_cloud(std::vector<Eigen::Vector3d> &xyz,std::vector<uint32_t> &labels);
+
         ~Graph() {};
 
     private:

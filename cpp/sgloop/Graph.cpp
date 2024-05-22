@@ -191,5 +191,17 @@ namespace fmfusion
 
     }
 
+    void Graph::extract_global_cloud(std::vector<Eigen::Vector3d> &xyz,std::vector<uint32_t> &labels)
+    {
+        // std::vector<Eigen::Vector3d> xyz;
+        // std::vector<int> labels;
+
+        for(auto node:nodes){
+            xyz.insert(xyz.end(), node->cloud->points_.begin(), node->cloud->points_.end());
+            labels.insert(labels.end(), node->cloud->points_.size(), node->id);
+        }
+
+    }
+
 
 }

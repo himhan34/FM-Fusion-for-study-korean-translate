@@ -5,11 +5,9 @@ Bayesian fuse the object detectin from RAM-Grounded-SAM into consistent scene gr
 ## Install
 
 ### Dependencies
-
-Install G3Reg
-
-```angular2html
-git pull --recurse-submodules
+Install packages
+```bash
+sudo apt-get install libgoogle-glog-dev
 ```
 
 Install our adopted Open3D from source
@@ -63,7 +61,7 @@ Uncompresss the downloaded compress file. Our computer settings that related to 
 
 ```
 CUDA=11.8
-Pytorch=2.3.1
+LibTorch=2.3.0
 GCC=9.4.0
 ```
 
