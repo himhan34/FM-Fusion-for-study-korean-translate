@@ -62,10 +62,10 @@ void extract_instance_correspondences(const std::vector<fmfusion::NodePtr> &src_
 
     auto src_cloud = vectorToMatrix(src_points);
     auto ref_cloud = vectorToMatrix(ref_points);
-    config::readParameters();
-    std::vector<double> noise_bound_vec = {0.2, 0.3};
-    std::string tf_solver = "quatro";
-    FRGresult result = g3reg::SolveFromCorresp(src_corrp, ref_corrp, src_cloud, ref_cloud, noise_bound_vec, tf_solver);
+    g3reg::Config config;
+    config.vertex_info.noise_bound_vec = {0.2, 0.3};
+    config.tf_solver = "quatro";
+    FRGresult result = g3reg::SolveFromCorresp(src_corrp, ref_corrp, src_cloud, ref_cloud, config);
     std::cout << "FRG result: \n" << result.tf << "\n";
     std::cout << msg.str() << std::endl;
 
