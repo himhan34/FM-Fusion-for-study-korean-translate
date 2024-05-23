@@ -137,33 +137,6 @@ bool LoopDetector::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tenso
     torch::Tensor corners = torch::from_blob(triplet_corners_arr, {N_valid, triplet_number, 2}).to(torch::kInt32).to(torch::kCUDA);
     torch::Tensor corners_mask = torch::from_blob(triplet_corners_masks, {N_valid, triplet_number}).to(torch::kInt32).to(torch::kCUDA);    
 
-    //
-    /*
-    std::vector<std::string> labels_str = {"floor","wall","bookshelf","television","chair"};
-    std::cout<<"Test tokenizer\n";
-    i=0;
-    for (auto label: labels_str){
-        std::vector<int> label_tokens = tokenizer->Encode(label);
-
-        tokens[i][0] = 101;
-        int k=1;
-        for (auto token: label_tokens){
-            tokens[i][k] = token;
-            k++;
-        }
-        tokens[i][k] = 102;
-        
-        for(int iter=0; iter<=k; iter++)
-            tokens_attention_mask[i][iter] = 1;
-        i++;
-    }
-    const int token_number = labels_str.size();
-    */
-
-    // fake tokens
-    // torch::Tensor input_ids = torch::ones({5, token_padding}).to(torch::kInt32).to(torch::kCUDA);
-    // std::cout<<input_ids<<std::endl;
-
     // Graph encoding
     std::cout<<"Encoding "<<N<<" node features, with "<<N_valid<<" nodes have valid triplets\n";
     torch::Tensor semantic_embeddings = bert_encoder.forward({input_ids, attention_mask, token_type_ids}).toTensor();

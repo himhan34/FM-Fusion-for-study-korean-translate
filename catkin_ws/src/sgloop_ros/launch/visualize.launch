@@ -1,0 +1,3 @@
+<launch>
+    <node name="rviz" pkg="rviz" type="rviz" args="-d /home/lch/Code_ws/OpensetFusion/catkin_ws/src/sgloop_ros/launch/looper.rviz" />
+</launch>

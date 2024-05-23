@@ -8,6 +8,7 @@ namespace fmfusion
 
 struct GraphConfig{
     float edge_radius_ratio = 2.0;
+    float voxel_size = 0.02;
     bool involve_floor = false;
 };
 typedef std::array<uint32_t,2> Corner;
@@ -55,6 +56,13 @@ public:
 typedef std::shared_ptr<Edge> EdgePtr;
 
 
+struct DataDict{
+    std::vector<Eigen::Vector3d> xyz; // (X,3)
+    std::vector<uint32_t> labels; // (X,)
+    std::vector<Eigen::Vector3d> centroids; // (N,3)
+    std::vector<uint32_t> nodes; // (N,)
+};
+
 class Graph
 {
     /// \brief  Graph neural network(GNN) representations. Constructed from explicit scene graph.
@@ -70,10 +78,15 @@ class Graph
 
         const std::vector<EdgePtr> get_const_edges() const { return edges; }
 
+        const std::vector<Eigen::Vector3d> get_centroids()const;
+
         /// \brief  Extract global point cloud from the graph.
         /// @param xyz Global point cloud.
         /// @param labels Node ids.
         void extract_global_cloud(std::vector<Eigen::Vector3d> &xyz,std::vector<uint32_t> &labels);
+
+        ///
+        DataDict extract_data_dict();
 
         ~Graph() {};
 

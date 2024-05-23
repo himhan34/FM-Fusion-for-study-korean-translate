@@ -1,0 +1,15 @@
+<launch>
+
+
+  <node pkg="sgloop_ros" name="OfflineLoop" type="OfflineLoop" output="screen">
+    <param name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/realsense.yaml"/>
+    <param name="weights_folder" value="/home/cliuci/code_ws/OpensetFusion/torchscript"/>
+    <param name="output_folder" value="/data2/sgslam/output/sgloop"/>
+    <param name="ref_scene_dir" value="/data2/sgslam/val/uc0107_00a"/>
+    <param name="src_scene_dir" value="/data2/sgslam/val/uc0107_00b"/>
+    <param name="visualization" value="1"/>
+  </node>
+
+  <node pkg="tf" type="static_transform_publisher" name="link_before_loop" args="0 0 0 0 0 0 1 world local 100" />
+
+</launch>

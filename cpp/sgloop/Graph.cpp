@@ -58,12 +58,16 @@ namespace fmfusion
             node->centroid = inst->centroid;
             node->bbox_shape = inst->min_box->extent_;
             node->cloud = std::make_shared<open3d::geometry::PointCloud>(*inst->point_cloud); // deep copy
-
+            if (config.voxel_size>0.0)
+                node->cloud = node->cloud->VoxelDownSample(config.voxel_size);
+            
             nodes.push_back(node);
             node_instance_idxs.push_back(inst->get_id());
         }
         timer_.Stop();
-        std::cout<<"Constructed "<<nodes.size()<<" nodes in "<<timer_.GetDurationInMillisecond()<< " ms.\n";
+        std::cout<<"Constructed "<<nodes.size()<<" nodes in "
+                        <<std::fixed<<std::setprecision(3)
+                        <<timer_.GetDurationInMillisecond()<< " ms.\n";
 
     }
 
@@ -151,7 +155,9 @@ namespace fmfusion
         }
 
         timer_.Stop();
-        std::cout<<"Constructed "<<edges.size()<<" edges in "<<timer_.GetDurationInMillisecond()<<" ms.\n";
+        std::cout<<"Constructed "<<edges.size()<<" edges in "
+            <<std::fixed<<std::setprecision(3)
+            <<timer_.GetDurationInMillisecond()<<" ms.\n";
 
         update_neighbors();
     }
@@ -195,13 +201,37 @@ namespace fmfusion
     {
         // std::vector<Eigen::Vector3d> xyz;
         // std::vector<int> labels;
-
+        std::stringstream msg;
+        msg<<"Nodes id: ";
         for(auto node:nodes){
             xyz.insert(xyz.end(), node->cloud->points_.begin(), node->cloud->points_.end());
             labels.insert(labels.end(), node->cloud->points_.size(), node->id);
+            msg<<node->id<<",";
         }
+        msg<<"\n";
+        // std::cout<<msg.str();
 
     }
 
+    DataDict Graph::extract_data_dict()
+    {
+        DataDict data_dict;
+        for (auto node:nodes){
+            data_dict.xyz.insert(data_dict.xyz.end(), node->cloud->points_.begin(), node->cloud->points_.end());
+            data_dict.labels.insert(data_dict.labels.end(), node->cloud->points_.size(), node->id);
+            data_dict.centroids.push_back(node->centroid);
+            data_dict.nodes.push_back(node->id);
+        }
+        return data_dict;
+    }
+
+    const std::vector<Eigen::Vector3d> Graph::get_centroids()const
+    {
+        std::vector<Eigen::Vector3d> centroids;
+        for (auto node:nodes){
+            centroids.push_back(node->centroid);
+        }
+        return centroids;
+    }
 
 }

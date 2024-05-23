@@ -16,6 +16,7 @@ std::vector<at::Tensor> grid_subsampling(
 
   std::size_t batch_size = lengths.size(0);
   std::size_t total_points = points.size(0);
+  assert(batch_size == 1);
 
   std::vector<PointXYZ> vec_points = std::vector<PointXYZ>(
     reinterpret_cast<PointXYZ*>(points.data_ptr<float>()),

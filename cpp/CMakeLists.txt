@@ -14,7 +14,7 @@ find_package(jsoncpp REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Open3D REQUIRED)
 find_package(OpenCV REQUIRED)
-add_subdirectory(thirdparty/G3Reg)
+# add_subdirectory(thirdparty/G3Reg)
 
 ##
 include_directories(${OpenCV_INCLUDE_DIRS})
@@ -26,6 +26,16 @@ include_directories(/usr/include/eigen3)
 message(STATUS "Open3D_INCLUDE_DIRS: ${Open3D_INCLUDE_DIRS}")
 message(STATUS "Open3D_LIBRARIES: ${Open3D_LIBRARIES}")
 message(STATUS "Eigen library: ${EIGEN_LIBRARIES}")
+
+set(FMFUSION_HEADER 
+    mapping/Detection.h
+    mapping/Instance.h
+    cluster/PoseGraph.h
+    tools/Tools.h    
+    SceneGraph.h
+    Common.h    
+    Utility.h
+)
 
 set(FMFUSION_SRC 
     mapping/Detection.cpp
@@ -40,7 +50,14 @@ set(FMFUSION_SRC
 if (ENABLE_TORCH)
     set(LIB_UTF8PROC "/usr/local/lib/libutf8proc.so")
     add_subdirectory(tokenizer)
+    add_subdirectory(thirdparty/extensions)
     find_package(Torch REQUIRED)
+
+    list(APPEND FMFUSION_HEADER
+        sgloop/Graph.h
+        sgloop/LoopDetector.h
+        sgloop/ShapeEncoder.h
+        )
 
     list(APPEND FMFUSION_SRC
         tools/IO.cpp
@@ -49,7 +66,7 @@ if (ENABLE_TORCH)
         sgloop/ShapeEncoder.cpp)
     add_library(fmfusion SHARED ${FMFUSION_SRC})
 
-    target_link_libraries(fmfusion PRIVATE Open3D::Open3D jsoncpp_lib ${OpenCV_LIBS} ${TORCH_LIBRARIES} tokenizer)
+    target_link_libraries(fmfusion PRIVATE Open3D::Open3D jsoncpp_lib ${OpenCV_LIBS} ${TORCH_LIBRARIES} tokenizer extensions) # G3REG::g3reg)
     target_include_directories(fmfusion PRIVATE ${TORCH_INCLUDE_DIRS} thirdparty/extensions)
     message(STATUS "TORCH_LIBRARIES: ${TORCH_LIBRARIES}")
     message(STATUS "TORCH_INCLUDE_DIRS: ${TORCH_INCLUDE_DIRS}")
@@ -84,12 +101,12 @@ target_link_libraries(MapMerger PRIVATE Open3D::Open3D ${OpenCV_LIBS} fmfusion)
 if (LOOP_DETECTION)
     add_executable(TestLoop)
     target_sources(TestLoop PRIVATE TestLoop.cpp)
-    target_link_libraries(TestLoop PRIVATE Open3D::Open3D fmfusion ${TORCH_LIBRARIES})
+    target_link_libraries(TestLoop PRIVATE Open3D::Open3D fmfusion ${TORCH_LIBRARIES}) # G3REG::g3reg)
 endif()
 
 # Install fmfusion library
 if(INSTALL_FMFUSION)
-    message(STATUS "Installing fmfusion library")
+    message(STATUS "Installing fmfusion library. So it can be used in ros warpper.")
 
     install(TARGETS fmfusion
         # EXPORT fmfusionTargets
@@ -100,9 +117,38 @@ if(INSTALL_FMFUSION)
     )
     install(FILES 
         SceneGraph.h
-        Common.h
+        Common.h    
+        Utility.h
+        Color.h
         DESTINATION include/fmfusion
     )
+    install(FILES
+        cluster/PoseGraph.h
+        DESTINATION include/fmfusion/cluster
+    )
+    install(FILES 
+        mapping/Detection.h
+        mapping/Instance.h
+        DESTINATION include/fmfusion/mapping
+    )
+    install(FILES 
+        sgloop/Graph.h
+        sgloop/LoopDetector.h
+        sgloop/ShapeEncoder.h
+        DESTINATION include/fmfusion/sgloop
+    )
+    install(FILES
+        tools/Tools.h
+        DESTINATION include/fmfusion/tools
+    )
+    install(FILES 
+        tokenizer/logging.h
+        tokenizer/basic_string_util.h
+        tokenizer/text_tokenizer.h
+        tokenizer/bert_tokenizer.h
+        DESTINATION include/fmfusion/tokenizer
+    )
+
 
     # include(CMakePackageConfigHelpers)
     # write_basic_package_version_file(
@@ -113,7 +159,7 @@ if(INSTALL_FMFUSION)
 
     # install(EXPORT fmfusionTargets
     #     FILE fmfusionTargets.cmake
-    #     NAMESPACE fmfusion::
+    #     NAMESPACE fmfusion::s
     #     DESTINATION lib/cmake/fmfusion
     # )
 

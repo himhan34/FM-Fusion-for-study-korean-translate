@@ -423,6 +423,18 @@ void SceneGraph::extract_bounding_boxes()
     o3d_utility::LogInfo("Extract {:d} valid bounding box in {:f} ms",count,timer.GetDurationInMillisecond());
 }
 
+std::shared_ptr<open3d::geometry::PointCloud> SceneGraph::export_global_pcd(bool filter)
+{
+    auto global_pcd = std::make_shared<open3d::geometry::PointCloud>();
+    for(const auto &inst:instance_map){
+        if(filter && inst.second->point_cloud->points_.size()<config_.shape_min_points) continue;
+        *global_pcd += *inst.second->point_cloud;
+    }
+
+    return global_pcd;
+}
+
+
 std::vector<std::shared_ptr<const open3d::geometry::Geometry>> SceneGraph::get_geometries(bool point_cloud, bool bbox)
 {
     std::vector<std::shared_ptr<const open3d::geometry::Geometry>> viz_geometries;

@@ -10,35 +10,72 @@
 #include "sgloop/Graph.h"
 #include "sgloop/ShapeEncoder.h"
 #include "sgloop/LoopDetector.h"
-#include "back_end/reglib.h"
+// #include "back_end/reglib.h"
 
 struct ExplicitInstances{
   std::vector<fmfusion::InstanceId> names;
   std::vector<fmfusion::InstancePtr> instances;
-  std::vector<Eigen::Vector3d> xyz;
-  std::vector<uint32_t> labels;
+  // std::vector<Eigen::Vector3d> xyz;
+  // std::vector<uint32_t> labels;
 };
 
 
-void extract_instance_correspondences(const std::vector<fmfusion::NodePtr> &src_nodes, const std::vector<fmfusion::NodePtr> &ref_nodes, 
-  const std::vector<std::pair<uint32_t,uint32_t>> &match_pairs, const std::vector<float> &match_scores,
-  std::vector<Eigen::Vector3d> &src_centroids, std::vector<Eigen::Vector3d> &ref_centroids)
-{
-  // std::vector<Eigen::Vector3d> src_centroids;
-  // std::vector<Eigen::Vector3d> ref_centroids;
-  std::stringstream msg;
-  msg<<match_pairs.size()<<"Matched pairs: \n";
+Eigen::MatrixX3d vectorToMatrix(const std::vector<Eigen::Vector3d> &vector) {
+    // 创建一个动态大小的矩阵，行数为 vector 的大小，每行3列
+    Eigen::MatrixX3d matrix(vector.size(), 3);
 
-  for (auto pair: match_pairs){
-    auto src_node = src_nodes[pair.first];
-    auto ref_node = ref_nodes[pair.second];
-    src_centroids.push_back(src_node->centroid);
-    ref_centroids.push_back(ref_node->centroid);
-    msg<<"("<<src_node->instance_id<<","<<ref_node->instance_id<<") "
-      <<"("<<src_node->semantic<<","<<ref_node->semantic<<")\n";
-  }
+    // 将 vector 中的每个点复制到矩阵的对应行中
+    for (size_t i = 0; i < vector.size(); ++i) {
+        matrix.row(i) = vector[i];
+    }
 
-  std::cout<<msg.str()<<std::endl;
+    return matrix;
+}
+
+
+void extract_instance_correspondences(const std::vector<fmfusion::NodePtr> &src_nodes,
+                                      const std::vector<fmfusion::NodePtr> &ref_nodes,
+                                      const std::vector<std::pair<uint32_t, uint32_t>> &match_pairs,
+                                      const std::vector<float> &match_scores) {
+    std::vector<Eigen::Vector3d> src_centroids;
+    std::vector<Eigen::Vector3d> ref_centroids;
+    std::stringstream msg;
+    msg << match_pairs.size() << "Matched pairs: \n";
+
+    Eigen::MatrixX3d src_corrp(match_pairs.size(), 3);
+    Eigen::MatrixX3d ref_corrp(match_pairs.size(), 3);
+    std::vector<Eigen::Vector3d> src_points, ref_points;
+    int64_t index = 0;
+    for (auto pair: match_pairs) {
+        auto src_node = src_nodes[pair.first];
+        auto ref_node = ref_nodes[pair.second];
+        src_centroids.push_back(src_node->centroid);
+        src_corrp.row(index) = src_node->centroid;
+        src_points.insert(src_points.end(), src_node->cloud->points_.begin(), src_node->cloud->points_.end());
+        ref_centroids.push_back(ref_node->centroid);
+        ref_corrp.row(index) = ref_node->centroid;
+        ref_points.insert(ref_points.end(), ref_node->cloud->points_.begin(), ref_node->cloud->points_.end());
+        index++;
+        msg << "(" << pair.first << "," << pair.second << ") "
+            << "(" << src_node->semantic << "," << ref_node->semantic << ")\n";
+    }
+
+    auto src_cloud = vectorToMatrix(src_points);
+    auto ref_cloud = vectorToMatrix(ref_points);
+    config::readParameters();
+    std::vector<double> noise_bound_vec = {0.2, 0.3};
+    std::string tf_solver = "quatro";
+    FRGresult result = g3reg::SolveFromCorresp(src_corrp, ref_corrp, src_cloud, ref_cloud, noise_bound_vec, tf_solver);
+    std::cout << "FRG result: \n" << result.tf << "\n";
+    std::cout << msg.str() << std::endl;
+
+    fmfusion::O3d_Cloud_Ptr src_cloud_ptr = std::make_shared<fmfusion::O3d_Cloud>(src_points);
+    fmfusion::O3d_Cloud_Ptr ref_cloud_ptr = std::make_shared<fmfusion::O3d_Cloud>(ref_points);
+    src_cloud_ptr->Transform(result.tf);
+    std::vector<fmfusion::O3d_Geometry_Ptr> viz_geometries;
+    viz_geometries.emplace_back(src_cloud_ptr);
+    viz_geometries.emplace_back(ref_cloud_ptr);
+    open3d::visualization::DrawGeometries(viz_geometries, "UST_RI", 1920, 1080);
 };
 
 bool save_match_results(const std::vector<std::pair<uint32_t,uint32_t>> &match_pairs, 
@@ -107,9 +144,14 @@ int main(int argc, char* argv[])
     src_graph->construct_edges();
     ref_graph->construct_triplets();
     src_graph->construct_triplets();
-    ref_graph->extract_global_cloud(ref_instances.xyz, ref_instances.labels);
 
-    ref_shape_encoder->encode(ref_instances.xyz,ref_instances.labels);
+    fmfusion::o3d_utility::Timer timer;
+    timer.Start();
+    fmfusion::DataDict ref_data_dict = ref_graph->extract_data_dict();
+    ref_shape_encoder->encode(ref_data_dict.xyz, ref_data_dict.labels, ref_data_dict.centroids, ref_data_dict.nodes);
+    timer.Stop();
+    std::cout<<"Encode ref point cloud takes "<<std::fixed<<std::setprecision(3)
+              <<timer.GetDurationInMillisecond()<<" ms\n";
 
     // Detect loop
     fmfusion::LoopDetectorConfig loop_config;

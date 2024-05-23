@@ -32,6 +32,8 @@ public:
     /// \brief  Extract and update bounding box for each instance.
     void extract_bounding_boxes();
 
+    std::shared_ptr<open3d::geometry::PointCloud> export_global_pcd(bool filter=false);
+
     void remove_invalid_instances();
 
     /// \brief  Get geometries for each instance.
