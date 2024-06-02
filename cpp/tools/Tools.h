@@ -20,6 +20,10 @@ namespace IO
                                         std::vector<Eigen::Vector3d> &src_centroids, 
                                         std::vector<Eigen::Vector3d> &ref_centroids);
 
+    bool save_match_results(const Eigen::Matrix4d &pose,
+                        const std::vector<std::pair<uint32_t,uint32_t>> &match_pairs, 
+                        const std::vector<float> &match_scores,
+                        const std::string &output_file_dir);
 }
 
 namespace visualization

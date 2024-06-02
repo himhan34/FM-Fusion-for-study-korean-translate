@@ -2,9 +2,9 @@ cmake_minimum_required(VERSION 3.18)
 
 project(fmfusion LANGUAGES CXX VERSION 1.0)
 
+set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
-# set(Open3D_DIR "/home/cliuci/code_ws/Open3d_CPU/install")
 set(CMAKE_PREFIX_PATH "/home/cliuci/tools/libtorch")
 option(ENABLE_TORCH ON)
 option(LOOP_DETECTION ON)
@@ -14,18 +14,20 @@ find_package(jsoncpp REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Open3D REQUIRED)
 find_package(OpenCV REQUIRED)
-# add_subdirectory(thirdparty/G3Reg)
+add_subdirectory(thirdparty/G3Reg)
 
 ##
 include_directories(${OpenCV_INCLUDE_DIRS})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(${Open3D_INCLUDE_DIRS})
-include_directories(/usr/include/eigen3)
+include_directories(${GTSAM_INCLUDE_DIR})
+include_directories(${EIGEN3_INCLUDE_DIR})
+
 ##
 # print open3d directories
 message(STATUS "Open3D_INCLUDE_DIRS: ${Open3D_INCLUDE_DIRS}")
 message(STATUS "Open3D_LIBRARIES: ${Open3D_LIBRARIES}")
-message(STATUS "Eigen library: ${EIGEN_LIBRARIES}")
+message(STATUS "Eigen library: ${EIGEN3_INCLUDE_DIR}")
 
 set(FMFUSION_HEADER 
     mapping/Detection.h
@@ -45,6 +47,16 @@ set(FMFUSION_SRC
     SceneGraph.cpp
     Utility.cpp
 )    
+
+set(ALL_TARGET_LIBRARIES
+    Open3D::Open3D
+    jsoncpp_lib
+    ${OpenCV_LIBS}
+    gtsam
+    G3REG::g3reg
+)
+
+message(STATUS "GTSAM VERSION: ${GTSAM_VERSION} ${GTSAM_INCLUDE_DIR} ${gtsam}")
 
 # FMFusion
 if (ENABLE_TORCH)
@@ -66,14 +78,18 @@ if (ENABLE_TORCH)
         sgloop/ShapeEncoder.cpp)
     add_library(fmfusion SHARED ${FMFUSION_SRC})
 
-    target_link_libraries(fmfusion PRIVATE Open3D::Open3D jsoncpp_lib ${OpenCV_LIBS} ${TORCH_LIBRARIES} tokenizer extensions) # G3REG::g3reg)
+    list(APPEND ALL_TARGET_LIBRARIES 
+        ${TORCH_LIBRARIES} 
+        tokenizer 
+        extensions)
+
+    target_link_libraries(fmfusion PRIVATE ${ALL_TARGET_LIBRARIES})
     target_include_directories(fmfusion PRIVATE ${TORCH_INCLUDE_DIRS} thirdparty/extensions)
     message(STATUS "TORCH_LIBRARIES: ${TORCH_LIBRARIES}")
     message(STATUS "TORCH_INCLUDE_DIRS: ${TORCH_INCLUDE_DIRS}")
 else()
-
     add_library(fmfusion SHARED ${FMFUSION_SRC})
-    target_link_libraries(fmfusion PRIVATE Open3D::Open3D jsoncpp_lib ${OpenCV_LIBS})
+    target_link_libraries(fmfusion PRIVATE ${ALL_TARGET_LIBRARIES})
 endif()
 
 ##
@@ -101,7 +117,7 @@ target_link_libraries(MapMerger PRIVATE Open3D::Open3D ${OpenCV_LIBS} fmfusion)
 if (LOOP_DETECTION)
     add_executable(TestLoop)
     target_sources(TestLoop PRIVATE TestLoop.cpp)
-    target_link_libraries(TestLoop PRIVATE Open3D::Open3D fmfusion ${TORCH_LIBRARIES}) # G3REG::g3reg)
+    target_link_libraries(TestLoop PRIVATE ${ALL_TARGET_LIBRARIES} fmfusion)
 endif()
 
 # Install fmfusion library

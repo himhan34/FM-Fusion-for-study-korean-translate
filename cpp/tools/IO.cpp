@@ -40,6 +40,37 @@ namespace IO
         std::cout<<msg.str()<<std::endl;
     };
 
+    bool save_match_results(const Eigen::Matrix4d &pose,
+                            const std::vector<std::pair<uint32_t,uint32_t>> &match_pairs, 
+                            const std::vector<float> &match_scores,
+                            const std::string &output_file_dir)
+    {
+        std::ofstream file(output_file_dir);
+        if (!file.is_open()){
+            std::cerr<<"Failed to open file: "<<output_file_dir<<std::endl;
+            return false;
+        }
+
+        file<<"# pose\n";
+        file<<std::fixed<<std::setprecision(6);
+        for(int i=0; i<4; i++){
+            for(int j=0; j<4; j++){
+                file<<pose(i,j)<<" ";
+            }
+            file<<std::endl;
+        }
+
+        file<<"# src, ref, score\n";
+        file<<std::fixed<<std::setprecision(3);
+        for (size_t i=0; i<match_pairs.size(); i++){
+            file<<"("<<match_pairs[i].first<<","<<match_pairs[i].second<<") "
+            <<match_scores[i]<<std::endl;
+        }
+
+        file.close();
+        return true;
+    };
+
     
 } // namespace name
 
