@@ -33,10 +33,16 @@ Eigen::MatrixX3d vectorToMatrix(const std::vector<Eigen::Vector3d> &vector) {
 }
 
 
-void extract_instance_correspondences(const std::vector<fmfusion::NodePtr> &src_nodes,
-                                      const std::vector<fmfusion::NodePtr> &ref_nodes,
-                                      const std::vector<std::pair<uint32_t, uint32_t>> &match_pairs,
-                                      const std::vector<float> &match_scores) {
+void estimate_pose(const std::vector<fmfusion::NodePtr> &src_nodes,
+                    const std::vector<fmfusion::NodePtr> &ref_nodes,
+                    const std::vector<std::pair<uint32_t, uint32_t>> &match_pairs,
+                    const std::vector<float> &match_scores,
+                    const std::vector<Eigen::Vector3d> &corr_src_points,
+                    const std::vector<Eigen::Vector3d> &corr_ref_points,
+                    fmfusion::O3d_Cloud_Ptr &src_cloud_ptr,
+                    fmfusion::O3d_Cloud_Ptr &ref_cloud_ptr,
+                    Eigen::Matrix4d &pose) 
+{
     std::vector<Eigen::Vector3d> src_centroids;
     std::vector<Eigen::Vector3d> ref_centroids;
     std::stringstream msg;
@@ -216,7 +222,15 @@ int main(int argc, char* argv[])
         match_pairs, src_graph->get_const_nodes(), ref_graph->get_const_nodes(), match_instances);
     fmfusion::IO::extract_instance_correspondences(
         src_graph->get_const_nodes(), ref_graph->get_const_nodes(), match_pairs, match_scores, src_centroids, ref_centroids);
-    estimate_pose(src_graph->get_const_nodes(), ref_graph->get_const_nodes(), match_pairs, match_scores, src_cloud_ptr, ref_cloud_ptr, pred_pose);
+    estimate_pose(src_graph->get_const_nodes(), 
+                ref_graph->get_const_nodes(), 
+                match_pairs, 
+                match_scores, 
+                corr_src_points,
+                corr_ref_points,
+                src_cloud_ptr, 
+                ref_cloud_ptr, 
+                pred_pose);
 
     // visualization
     if (viz_mode==1){ // instance match
