@@ -1,9 +1,6 @@
 import os, sys
 import torch
-# from typing import Optional
-
-# import torch
-# import torch.nn.functional as F
+import argparse
 
 import numpy as np
 import open3d as o3d
@@ -149,18 +146,25 @@ def evaluate_fine(src_corr_points,ref_corr_points,transform, acceptance_radius=0
     
         
 if __name__ == '__main__':
-    exe_dir = '/home/cliuci/code_ws/OpensetFusion/build/cpp/TestLoop'
     
     # args
-    config_file = '/home/cliuci/code_ws/OpensetFusion/config/realsense.yaml'
-    dataroot = '/data2/sgslam'
-    split = 'val'
-    split_file = 'val_bk.txt'
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config_file', type=str, default='config/realsense.yaml')
+    parser.add_argument('--dataroot', type=str, default='/data2/sgslam')
+    parser.add_argument('--output_folder', type=str, default='/data2/sgslam/output/testloop')
+    parser.add_argument('--split', type=str, default='val')
+    parser.add_argument('--split_file', type=str, default='val.txt')
+    args = parser.parse_args()
+    
+    config_file = args.config_file
+    dataroot = args.dataroot
+    output_folder = args.output_folder
+    split = args.split
+    split_file = args.split_file
     RMSE_THRESHOLD = 0.2
     INLINER_RADIUS = 0.1
     
     # 
-    output_folder = os.path.join(dataroot,'output','testloop')
     scan_pairs = read_scan_pairs(os.path.join(dataroot, 'splits', split_file))
     inst_evaluator = InstanceEvaluator()
     registration_tp = 0
