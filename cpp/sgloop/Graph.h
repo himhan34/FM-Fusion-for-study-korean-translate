@@ -1,16 +1,12 @@
 #ifndef FMFUSION_GRAPH_H
 #define FMFUSION_GRAPH_H
 
-#include "mapping/Instance.h"
+#include <Common.h>
+#include <mapping/Instance.h>
 
 namespace fmfusion
 {
 
-struct GraphConfig{
-    float edge_radius_ratio = 2.0;
-    float voxel_size = 0.02;
-    bool involve_floor = false;
-};
 typedef std::array<uint32_t,2> Corner;
 
 class Node

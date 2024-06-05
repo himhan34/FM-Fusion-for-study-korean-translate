@@ -1,19 +1,44 @@
-#include "LoopDetector.h"
+#include "SGNet.h"
 
 
 namespace fmfusion 
 {
 
-LoopDetector::LoopDetector(const LoopDetectorConfig &config, const std::string weight_folder)
+int extract_corr_points(const torch::Tensor &src_guided_knn_points,
+                        const torch::Tensor &ref_guided_knn_points,
+                        const torch::Tensor &corr_points, 
+                        std::vector<Eigen::Vector3d> &corr_src_points, 
+                        std::vector<Eigen::Vector3d> &corr_ref_points)
 {
-    std::cout << "LibTorch version: " << TORCH_VERSION_MAJOR<<"." 
-                                    << TORCH_VERSION_MINOR<<"."
-                                    <<TORCH_VERSION_PATCH<< std::endl;
+    int C = corr_points.size(0);
+    if(C>0){
+        for (int i=0;i<C;i++){
+            int node_index = corr_points[i][0].item<int>();
+            int src_index = corr_points[i][1].item<int>();
+            int ref_index = corr_points[i][2].item<int>();
+            corr_src_points.push_back({src_guided_knn_points[node_index][src_index][0].item<float>(),
+                                src_guided_knn_points[node_index][src_index][1].item<float>(),
+                                src_guided_knn_points[node_index][src_index][2].item<float>()});
+            corr_ref_points.push_back({ref_guided_knn_points[node_index][ref_index][0].item<float>(),
+                                ref_guided_knn_points[node_index][ref_index][1].item<float>(),
+                                ref_guided_knn_points[node_index][ref_index][2].item<float>()});
+        }
+    }
+    return C;
+}
+
+SgNet::SgNet(const SgNetConfig &config, const std::string weight_folder)
+{
+    // std::cout << "LibTorch version: " << TORCH_VERSION_MAJOR<<"." 
+    //                                 << TORCH_VERSION_MINOR<<"."
+    //                                 <<TORCH_VERSION_PATCH<< std::endl;
     std::cout<<"Initializing loop detector\n";
     std::string sgnet_path = weight_folder + "/sgnet.pt";
     std::string bert_path = weight_folder + "/bert_script.pt";
     std::string vocab_path = weight_folder + "/bert-base-uncased-vocab.txt";
-    std::string instance_match_path = weight_folder + "/instance_match.pt";
+    std::string instance_match_light_path = weight_folder + "/instance_match_light.pt";
+    std::string instance_match_fused_path = weight_folder + "/instance_match_fused.pt";
+    std::string point_match_path = weight_folder + "/point_match_layer.pt";
 
     try {
         // Deserialize the ScriptModule from a file using torch::jit::load().
@@ -40,9 +65,31 @@ LoopDetector::LoopDetector(const LoopDetectorConfig &config, const std::string w
 
     //
     try{
-        match_layer = torch::jit::load(instance_match_path);
-        match_layer.to(torch::kCUDA);
-        std::cout << "Load match layer from "<< instance_match_path << std::endl;
+        light_match_layer = torch::jit::load(instance_match_light_path);
+        light_match_layer.to(torch::kCUDA);
+        std::cout << "Load light match layer from "<< instance_match_light_path << std::endl;
+    }
+    catch(const std::exception& e)
+    {
+        std::cerr << e.what() << '\n';
+    }
+
+    //
+    try{
+        fused_match_layer = torch::jit::load(instance_match_fused_path);
+        fused_match_layer.to(torch::kCUDA);
+        std::cout << "Load fused match layer from "<< instance_match_fused_path << std::endl;
+    }
+    catch(const std::exception& e)
+    {
+        std::cerr << e.what() << '\n';
+    }
+
+    //
+    try{
+        point_match_layer = torch::jit::load(point_match_path);
+        point_match_layer.to(torch::kCUDA);
+        std::cout << "Load point match layer from "<< point_match_path << std::endl;
     }
     catch(const std::exception& e)
     {
@@ -52,7 +99,7 @@ LoopDetector::LoopDetector(const LoopDetectorConfig &config, const std::string w
     // Load tokenizer
     tokenizer.reset(radish::TextTokenizerFactory::Create("radish::BertTokenizer"));
     tokenizer->Init(vocab_path);
-    std::cout<<" tokenizer loaded and initialized\n";
+    std::cout<<"Tokenizer loaded and initialized\n";
 
     //
     token_padding = config.token_padding;
@@ -60,7 +107,7 @@ LoopDetector::LoopDetector(const LoopDetectorConfig &config, const std::string w
 }
 
 
-bool LoopDetector::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node_features)
+bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node_features)
 {
     //
     int N = nodes.size();
@@ -148,51 +195,72 @@ bool LoopDetector::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tenso
     torch::Tensor triplet_verify_mask = output->elements()[1].toTensor();
     assert(triplet_verify_mask.sum().item<int>()<5);
     // std::cout<<triplet_verify_mask.sum().item<int>()<<" triplets are invalid\n";
-    std::cout<<"Node features encoded: "<<node_features.sizes()<<std::endl;
+    // std::cout<<"Node features encoded: "<<node_features.sizes()<<std::endl;
 
     return true;
 }
 
-void LoopDetector::detect_loop(const torch::Tensor &src_node_features, const torch::Tensor &ref_node_features,
-                            std::vector<std::pair<uint32_t,uint32_t>> &match_pairs, std::vector<float> &match_scores)
+void SgNet::match_nodes(const torch::Tensor &src_node_features, const torch::Tensor &ref_node_features,
+                            std::vector<std::pair<uint32_t,uint32_t>> &match_pairs, std::vector<float> &match_scores,bool fused)
 {
     // Match layer
-    std::cout<<"Matching ... \n";
-    std::cout<<"src shape: "<<src_node_features.sizes()<<std::endl; // (X,C)
-    std::cout<<"ref shape: "<<ref_node_features.sizes()<<std::endl; // (Y,C)
+    int Ns = src_node_features.size(0);
+    int Nr = ref_node_features.size(0);
+    std::cout<<"Matching "<< Ns << " src nodes and "
+                        << Nr << " ref nodes\n";
+    // std::cout<<"src shape: "<<src_node_features.sizes()<<std::endl; // (X,C)
+    // std::cout<<"ref shape: "<<ref_node_features.sizes()<<std::endl; // (Y,C)
+    c10::intrusive_ptr<torch::ivalue::Tuple> match_output;
 
-    auto match_output = match_layer.forward({src_node_features, ref_node_features}).toTuple();
-    // torch::Tensor assignment = match_output->elements()[0].toTensor(); // 
-    // torch::Tensor assignment_scores = match_output->elements()[1].toTensor(); //
+    if(fused)
+        match_output = fused_match_layer.forward({src_node_features, ref_node_features}).toTuple();
+    else
+        match_output = light_match_layer.forward({src_node_features, ref_node_features}).toTuple();
 
     torch::Tensor matches = match_output->elements()[0].toTensor(); // (M,2)
     torch::Tensor matches_scores = match_output->elements()[1].toTensor(); // (M,)
     torch::Tensor Kn = match_output->elements()[2].toTensor(); // (X,Y)
 
     int matched_pair = matches.size(0);
-    //assignment.sum().item<int>();
     std::cout<<"Find "<<matched_pair<<" matched pairs\n";
     // std::cout<<"matches: "<<matches<<std::endl;
     // std::cout<<"matching scores: "<<matches_scores<<std::endl;
 
-    // std::vector<std::pair<uint32_t,uint32_t>> match_pairs;
     for (int i=0;i<matched_pair;i++){
         match_pairs.push_back({matches[i][0].item<int>(), matches[i][1].item<int>()});
         match_scores.push_back(matches_scores[i].item<float>());
     }
 
-
-    /*
-    torch::Tensor matches = match_output->elements()[0].toTensor();
-    torch::Tensor matches_scores = match_output->elements()[1].toTensor();
-    torch::Tensor score_mat = match_output->elements()[2].toTensor();
-
-    std::cout<<"Find "<<matches.sizes()<<" instance matches"<<std::endl;
-    std::cout<<matches_scores <<std::endl;
-    std::cout<<score_mat<<std::endl;
-    */
 }
 
+int SgNet::match_points(const torch::Tensor &src_guided_knn_feats, const torch::Tensor &ref_guided_knn_feats,
+                            torch::Tensor &corr_points, torch::Tensor &corr_scores)
+{
+    // std::cout<<src_guided_knn_feats.sizes()<<std::endl; // (M,K,D)
+    // std::cout<<ref_guided_knn_feats.sizes()<<std::endl; // (M,K,D)
+    // torch::Tensor src_fake_knn_feats = torch::ones({M,K,D}).to(torch::kFloat32).to(torch::kCUDA);
+
+    auto match_output = point_match_layer.forward({src_guided_knn_feats, ref_guided_knn_feats}).toTuple();
+    corr_points = match_output->elements()[0].toTensor(); // (C,3),[node_index, src_index, ref_index]
+    torch::Tensor matching_scores = match_output->elements()[1].toTensor(); // (M,K,K)
+    std::cout<<"Find "<<corr_points.size(0)<<" matched points\n";
+
+    int C = corr_points.size(0);
+    return C;
+    if(C>0){
+        corr_scores = torch::zeros({C}).to(torch::kFloat32).to(torch::kCUDA);
+        float corr_scores_arr[C];
+        for (int i=0;i<C;i++){
+            int node_index = corr_points[i][0].item<int>();
+            int src_index = corr_points[i][1].item<int>();
+            int ref_index = corr_points[i][2].item<int>();
+            corr_scores_arr[i] = matching_scores[node_index][src_index][ref_index].item<float>();
+            // std::cout<<std::fixed<<std::setprecision(3)<<corr_scores_arr[i]<<",";
+        }
+        // std::cout<<std::endl;
+    }
+
+}
 
 } // namespace fmfusion
 

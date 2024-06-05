@@ -41,7 +41,6 @@ namespace fmfusion
     Graph::Graph(GraphConfig config_):config(config_),max_corner_number(0),max_neighbor_number(0)
     {
         std::cout<<"GNN initialized.\n";
-
     }
 
     void Graph::initialize(const std::vector<InstancePtr> &instances)
@@ -49,11 +48,10 @@ namespace fmfusion
         o3d_utility::Timer timer_;
         timer_.Start();
         std::cout<<"Constructing GNN...\n";
-        std::string ignore_labels = "floor. carpet. ceiling.";
         for (auto inst:instances){
             NodePtr node = std::make_shared<Node>(nodes.size(), inst->get_id());
             std::string label = inst->get_predicted_class().first;
-            if (ignore_labels.find(label)!=std::string::npos) continue;
+            if (config.ignore_labels.find(label)!=std::string::npos) continue;
             node->semantic = label;
             node->centroid = inst->centroid;
             node->bbox_shape = inst->min_box->extent_;
@@ -132,9 +130,9 @@ namespace fmfusion
         // std::cout<<edge_msgs.str();
 
         //
-        if (config.involve_floor && !floors.empty()){
+        if (config.involve_floor_edge && !floors.empty()){
 
-            for (int i=0; i<N; i++){
+            for (int i=0; i<N; i++){ // each instance connect to one closest floor
                 if (floors.find(i)!=floors.end()) continue;
                 std::pair<int,float> closet_floor = std::make_pair(-1,1000000.0);
                 const NodePtr src = nodes[i];

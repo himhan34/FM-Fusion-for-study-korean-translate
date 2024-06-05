@@ -23,6 +23,12 @@ std::vector<std::string> split_str(const std::string s, const std::string delim)
     return list;
 }
 
+bool int_to_bool(int flag)
+{
+    if(flag>0) return true;
+    else return false;
+}
+
 fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool verbose)
 {
     fmfusion::Config *config = new fmfusion::Config();
@@ -68,8 +74,6 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
         config->min_iou = fs["min_iou"];
         config->search_radius = fs["search_radius"];
 
-        // config->cluster_eps = fs["cluster_eps"];
-        // config->cluster_min_points = fs["cluster_min_points"];
         config->min_voxel_weight = fs["min_voxel_weight"];
         config->shape_min_points = fs["shape_min_points"];
 
@@ -83,8 +87,16 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
         
         fs["tmp_dir"]>>config->tmp_dir;
 
-        auto graph_config_fs = fs["GNN"];
-        config->gnn.edge_radius_ratio = graph_config_fs["edge_radius_ratio"];
+        // Graph config
+        auto graph_config_fs = fs["Graph"];
+        config->graph.edge_radius_ratio = graph_config_fs["edge_radius_ratio"];
+        config->graph.voxel_size = graph_config_fs["voxel_size"];
+        config->graph.involve_floor_edge = int_to_bool(graph_config_fs["involve_floor_edge"]);
+        graph_config_fs["ignore_labels"]>>config->graph.ignore_labels;
+
+        //
+        auto sgnet_config_fs = fs["SGNet"];
+        // config->sgnet.triplet_number = sgnet_config_fs["triplet_number"];
 
         // Close and print
         fs.release();
@@ -140,8 +152,9 @@ std::string config_to_message(const fmfusion::Config &config)
     message << "save_da_images: " + std::to_string(config.save_da_images) + "\n";
     message << "tmp_dir: " + config.tmp_dir + "\n";
 
-    message <<"GNN: \n";
-    message<<"  edge_radius_ratio: "<<config.gnn.edge_radius_ratio<<"\n";
+    message <<"Graph: \n"<<config.graph.print_msg();
+
+    // message <<"SGNet: \n"<<config.sgnet.print_msg();
 
     return message.str();
 }

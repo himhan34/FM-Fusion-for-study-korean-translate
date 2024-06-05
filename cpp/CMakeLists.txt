@@ -67,14 +67,14 @@ if (ENABLE_TORCH)
 
     list(APPEND FMFUSION_HEADER
         sgloop/Graph.h
-        sgloop/LoopDetector.h
+        sgloop/SGNet.h
         sgloop/ShapeEncoder.h
         )
 
     list(APPEND FMFUSION_SRC
         tools/IO.cpp
         sgloop/Graph.cpp
-        sgloop/LoopDetector.cpp
+        sgloop/SGNet.cpp
         sgloop/ShapeEncoder.cpp)
     add_library(fmfusion SHARED ${FMFUSION_SRC})
 
@@ -149,7 +149,7 @@ if(INSTALL_FMFUSION)
     )
     install(FILES 
         sgloop/Graph.h
-        sgloop/LoopDetector.h
+        sgloop/SGNet.h
         sgloop/ShapeEncoder.h
         DESTINATION include/fmfusion/sgloop
     )

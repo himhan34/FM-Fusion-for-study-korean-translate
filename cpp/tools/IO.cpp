@@ -26,7 +26,7 @@ namespace IO
                                             std::vector<Eigen::Vector3d> &src_centroids, std::vector<Eigen::Vector3d> &ref_centroids)
     {
         std::stringstream msg;
-        msg<<match_pairs.size()<<"Matched pairs: \n";
+        msg<<match_pairs.size()<<" Matched pairs: \n";
 
         for (auto pair: match_pairs){
             auto src_node = src_nodes[pair.first];
@@ -37,7 +37,7 @@ namespace IO
             <<"("<<src_node->semantic<<","<<ref_node->semantic<<")\n";
         }
 
-        std::cout<<msg.str()<<std::endl;
+        // std::cout<<msg.str()<<std::endl;
     };
 
     bool save_match_results(const Eigen::Matrix4d &pose,

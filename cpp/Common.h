@@ -4,11 +4,41 @@
 #include "open3d/Open3D.h"
 #include "opencv2/opencv.hpp"
 #include "cluster/PoseGraph.h"
-#include "sgloop/Graph.h"
+// #include "sgloop/Graph.h"
 
 namespace fmfusion
 {
 using namespace std;
+
+struct GraphConfig{
+    float edge_radius_ratio = 2.0;
+    float voxel_size = 0.02;
+    bool involve_floor_edge = false;
+    std::string ignore_labels = "floor. carpet. ceiling.";
+
+    const std::string print_msg()const{
+        std::stringstream msg;
+        msg<<" - edge_radius_ratio: "<<edge_radius_ratio<<std::endl;
+        msg<<" - voxel_size: "<<voxel_size<<std::endl;
+        msg<<" - involve_floor_edge: "<<involve_floor_edge<<std::endl;
+        msg<<" - ignore_labels: "<<ignore_labels<<std::endl;
+        return msg.str();
+    }
+};
+
+struct SgNetConfig
+{
+    int token_padding=8;
+    int triplet_number=20; // number of triplets for each node
+
+    const std::string print_msg()const{
+        std::stringstream msg;
+        msg<<" - token_padding: "<<token_padding<<std::endl;
+        msg<<" - triplet_number: "<<triplet_number<<std::endl;
+        return msg.str();
+    }
+};
+
 
 struct Config
 {
@@ -54,7 +84,7 @@ struct Config
     std::string tmp_dir; // For debug
 
     //
-    GraphConfig gnn;
+    GraphConfig graph;
         
 };
 

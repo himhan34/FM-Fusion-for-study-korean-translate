@@ -58,7 +58,7 @@ int main(int argc, char **argv)
 
     // Load Config
     GraphConfig graph_config;
-    LoopDetectorConfig loop_config;
+    SgNetConfig loop_config;
     // ShapeEncoderConfig shape_config;
     Config *sg_config = utility::create_scene_graph_config(config_file, true);
     if (sg_config==nullptr){
@@ -80,8 +80,8 @@ int main(int argc, char **argv)
     src_map->export_instances(src_names,src_instances);
 
     // Construct explicit graph
-    auto ref_graph = std::make_shared<Graph>(sg_config->gnn);
-    auto src_graph = std::make_shared<Graph>(sg_config->gnn);
+    auto ref_graph = std::make_shared<Graph>(sg_config->graph);
+    auto src_graph = std::make_shared<Graph>(sg_config->graph);
 
     ref_graph->initialize(ref_instances);
     src_graph->initialize(src_instances);
@@ -96,7 +96,7 @@ int main(int argc, char **argv)
     std::vector<float> match_scores;
     std::vector<Eigen::Vector3d> src_centroids, ref_centroids;
 
-    auto loop_detector = std::make_shared<LoopDetector>(loop_config, weights_folder);
+    auto loop_detector = std::make_shared<SgNet>(loop_config, weights_folder);
     loop_detector->graph_encoder(ref_graph->get_const_nodes(), ref_node_features);
     loop_detector->graph_encoder(src_graph->get_const_nodes(), src_node_features);
     TORCH_CHECK(src_node_features.device().is_cuda(), "src node feats must be a CUDA tensor")

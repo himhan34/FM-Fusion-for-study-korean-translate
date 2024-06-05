@@ -36,13 +36,14 @@ cleanup_period: 6600
 
 
 # 
-GNN:
+Graph:
   edge_radius_ratio: 3.0
+  voxel_size: 0.02
+  involve_floor_edge: 0
+  ignore_labels: "ceiling. floor. carpet."
 
-#
-Loop:
-  min_nodes: 5
-  min_edges: 10
+SGNet:
+  triplet_number: 20
 
 # output
 save_da_images: 0

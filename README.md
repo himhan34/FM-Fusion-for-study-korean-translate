@@ -82,15 +82,21 @@ Depends on your computer environment, you may comment or adjust ```set(CMAKE_CXX
 ## Run Loop Detection Node
 
 ```bash
-./build/cpp/TestLoop --config config/realsense.yaml --weights_folder ${TORCHSCRIPT_FOLDER} --ref_scene /data2/sgslam/val/uc0107_00a --src_scene /data2/sgslam/val/uc0107_00b
+./build/cpp/TestLoop --config config/realsense.yaml --weights_folder ${TORCHSCRIPT_FOLDER} --ref_scene /data2/sgslam/val/uc0107_00a --src_scene /data2/sgslam/val/uc0107_00b --output_folder ${OUTPUT_FOLDER}
 ```
 
 The ```ref_scene``` and ```src_scene``` options can be changed to any scene folder directories. The node read scene
 graphs from the two scene, and generate instance-wise association results.
 
 The trained torchscript model can be downloaded from
-the [NutSpace Link](https://www.jianguoyun.com/p/DWQgL7oQpKe2Chi8ntEFIAA). Download and unzip the torchscript folder and
+the [OneDrive Link](https://hkustconnect-my.sharepoint.com/:f:/g/personal/cliuci_connect_ust_hk/Encm_4ETKV9EiZ2PRlCLVdEBTCiuBYQ4yckF7SzFTDHg6g?e=oDsTHu). Download and unzip the torchscript folder and
 set the ```--weights_folder``` accordingly.
+
+To evaluate the registration results,
+```
+python scripts/eval_loop.py --dataroot ${DATAROOT} --output_folder ${OUTPUT_FOLDER}
+```
+The latest evaluation result is saved [here](eval/loop_closure.txt).
 
 ## Run instance mapping node
 

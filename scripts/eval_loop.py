@@ -134,15 +134,17 @@ def eval_registration_error(src_cloud, pred_tf, gt_tf):
     realigned_src_points_f = apply_transform(src_points, realignment_transform)
     rmse = torch.linalg.norm(realigned_src_points_f - src_points, dim=1).mean()    
     return rmse
+
+def evaluate_fine(src_corr_points,ref_corr_points,transform, acceptance_radius=0.1):
+    src_corr_points = torch.from_numpy(src_corr_points).float()
+    ref_corr_points = torch.from_numpy(ref_corr_points).float()
+    transform = torch.from_numpy(transform).float()
     
-    # rmse = torch.linalg.norm(realigned_src_points_f - src_points, dim=1).mean()
-    # recall = torch.lt(rmse, self.acceptance_rmse).float()
-
-
-    # src_corr_points = apply_transform(src_corr_points, transform)
-    # corr_distances = torch.linalg.norm(ref_corr_points - src_corr_points, dim=1)
-    # precision = torch.lt(corr_distances, self.acceptance_radius).float().mean()
-    # return precision, corr_distances
+    src_corr_points = apply_transform(src_corr_points, transform)
+    corr_distances = torch.linalg.norm(ref_corr_points - src_corr_points, dim=1)
+    corr_true_mask = torch.lt(corr_distances, acceptance_radius)
+    precision = torch.lt(corr_distances, acceptance_radius).float().mean()
+    return precision, corr_true_mask
 
     
         
@@ -154,17 +156,20 @@ if __name__ == '__main__':
     dataroot = '/data2/sgslam'
     split = 'val'
     split_file = 'val_bk.txt'
-    ACCEPTANCE_RMSE = 0.2
+    RMSE_THRESHOLD = 0.2
+    INLINER_RADIUS = 0.1
     
     # 
     output_folder = os.path.join(dataroot,'output','testloop')
     scan_pairs = read_scan_pairs(os.path.join(dataroot, 'splits', split_file))
     inst_evaluator = InstanceEvaluator()
     registration_tp = 0
+    inliner_count = 0
+    corr_count = 1e-6
     
     # run
     for pair in scan_pairs:
-        print('processing {} {}'.format(pair[0], pair[1]))
+        print('--- processing {} {} ---'.format(pair[0], pair[1]))
         scene_name = pair[1][:-1]
         src_subid = pair[0][-1]
         ref_subid = pair[1][-1]
@@ -178,14 +183,28 @@ if __name__ == '__main__':
             pred_tp_mask = eval_instance_match(pred_nodes, iou_map)
             inst_evaluator.update(pred_tp_mask, gt_pairs.numpy())
             gt_tf = np.loadtxt(os.path.join(dataroot, split, pair[0], 'transform.txt')) # src to ref
-            src_pcd = o3d.io.read_point_cloud(os.path.join(output_folder, '{}.ply'.format(pair[0])))
             
-            rmse = eval_registration_error(src_pcd, pred_pose, gt_tf)
-            if rmse<ACCEPTANCE_RMSE:
+            src_pcd_dir = os.path.join(output_folder, '{}.ply'.format(pair[0]))
+            if os.path.exists(src_pcd_dir): # no instance matched
+                src_pcd = o3d.io.read_point_cloud(src_pcd_dir)
+                corr_src_pcd = o3d.io.read_point_cloud(os.path.join(output_folder, '{}-{}_csrc.ply'.format(pair[0],pair[1])))
+                corr_ref_pcd = o3d.io.read_point_cloud(os.path.join(output_folder, '{}-{}_cref.ply'.format(pair[0],pair[1])))
+            
+                rmse = eval_registration_error(src_pcd, pred_pose, gt_tf)
+                inliner_rate, corr_true_mask = evaluate_fine(np.asarray(corr_src_pcd.points), 
+                                                          np.asarray(corr_ref_pcd.points), 
+                                                          pred_pose, 
+                                                          acceptance_radius=INLINER_RADIUS)
+                inliner_count += corr_true_mask.sum()
+                corr_count += corr_true_mask.shape[0]
+            else:
+                rmse = 10.0
+                inliner_rate = 0.0
+                
+            if rmse<RMSE_THRESHOLD:
                 registration_tp += 1
-            
-            print('registration rmse: {:.3f}'.format(rmse))
-            # print('gt matches',gt_pairs)
+            print('Instance match, tp: {}, fp:{}'.format(pred_tp_mask.sum(), (~pred_tp_mask).sum()))
+            print('PIR: {:.3f}, registration rmse:{:.3f}'.format(inliner_rate, rmse))
         else:
             print('WARNING: {} does not exist'.format(gt_match_file))
 
@@ -194,4 +213,5 @@ if __name__ == '__main__':
     #
     print('---------- Summary {} pairs ---------'.format(len(scan_pairs)))
     print('instance recall: {:.3f}, instance precision: {:.3f}, f1: {:.3f}'.format(*inst_evaluator.get_metrics()))
+    print('points inliner rate: {:.3f}'.format(inliner_count/corr_count))
     print('registration recall:{}/{}'.format(registration_tp,len(scan_pairs)))
