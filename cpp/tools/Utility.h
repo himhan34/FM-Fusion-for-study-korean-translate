@@ -19,7 +19,20 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
 
 std::string config_to_message(const fmfusion::Config &config);
 
-bool LoadPredictions(const std::string &folder_path, const std::string &frame_name, const Config &config, std::vector<DetectionPtr> &detections);
+template <typename T>
+inline std::vector<T> update_masked_vec(const std::vector<T> &pairs, const std::vector<bool> &prune_masks)
+{
+    assert(pairs.size() == prune_masks.size() && "Size mismatch");
+    std::vector<T> pruned_pairs;
+    for(int i=0;i<prune_masks.size();i++){
+        if(prune_masks[i]) pruned_pairs.push_back(pairs[i]);
+    }
+    return pruned_pairs;
+}
+
+bool LoadPredictions(const std::string &folder_path, const std::string &frame_name, 
+                    const MappingConfig &mapping_cfg, const int &img_width, const int &img_height,
+                    std::vector<DetectionPtr> &detections);
 
 std::shared_ptr<cv::Mat> RenderDetections(const std::shared_ptr<cv::Mat> &rgb_img,
     const std::vector<fmfusion::DetectionPtr> &detections, const std::unordered_map<InstanceId,CvMatPtr> &instances_mask,

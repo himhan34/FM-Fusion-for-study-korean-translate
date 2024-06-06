@@ -28,32 +28,36 @@ include_directories(${EIGEN3_INCLUDE_DIR})
 message(STATUS "Open3D_INCLUDE_DIRS: ${Open3D_INCLUDE_DIRS}")
 message(STATUS "Open3D_LIBRARIES: ${Open3D_LIBRARIES}")
 message(STATUS "Eigen library: ${EIGEN3_INCLUDE_DIR}")
+message(STATUS "CMake install prefix: ${CMAKE_INSTALL_PREFIX}")
 
-set(FMFUSION_HEADER 
-    mapping/Detection.h
-    mapping/Instance.h
-    cluster/PoseGraph.h
-    tools/Tools.h    
-    SceneGraph.h
-    Common.h    
-    Utility.h
+set(FMFUSION_HEADER
+        mapping/Detection.h
+        mapping/Instance.h
+        mapping/SemanticMapping.h
+        cluster/PoseGraph.h
+        tools/Tools.h
+        tools/Utility.h
+        tools/IO.h
+        tools/g3reg_api.h
+        Common.h
 )
 
-set(FMFUSION_SRC 
-    mapping/Detection.cpp
-    mapping/Instance.cpp
-    cluster/PoseGraph.cpp
-    tools/Visualization.cpp
-    SceneGraph.cpp
-    Utility.cpp
-)    
+set(FMFUSION_SRC
+        mapping/Detection.cpp
+        mapping/Instance.cpp
+        mapping/SemanticMapping.cpp
+        cluster/PoseGraph.cpp
+        tools/Visualization.cpp
+        tools/Utility.cpp
+        tools/IO.cpp
+)
 
 set(ALL_TARGET_LIBRARIES
-    Open3D::Open3D
-    jsoncpp_lib
-    ${OpenCV_LIBS}
-    gtsam
-    G3REG::g3reg
+        Open3D::Open3D
+        jsoncpp_lib
+        ${OpenCV_LIBS}
+        gtsam
+        G3REG::g3reg
 )
 
 message(STATUS "GTSAM VERSION: ${GTSAM_VERSION} ${GTSAM_INCLUDE_DIR} ${gtsam}")
@@ -66,31 +70,34 @@ if (ENABLE_TORCH)
     find_package(Torch REQUIRED)
 
     list(APPEND FMFUSION_HEADER
-        sgloop/Graph.h
-        sgloop/SGNet.h
-        sgloop/ShapeEncoder.h
-        )
+            sgloop/Graph.h
+            sgloop/SGNet.h
+            sgloop/ShapeEncoder.h
+            sgloop/LoopDetector.h
+    )
 
     list(APPEND FMFUSION_SRC
-        tools/IO.cpp
-        sgloop/Graph.cpp
-        sgloop/SGNet.cpp
-        sgloop/ShapeEncoder.cpp)
+            tools/IO.cpp
+            sgloop/Graph.cpp
+            sgloop/SGNet.cpp
+            sgloop/ShapeEncoder.cpp
+            sgloop/LoopDetector.cpp
+    )
     add_library(fmfusion SHARED ${FMFUSION_SRC})
 
-    list(APPEND ALL_TARGET_LIBRARIES 
-        ${TORCH_LIBRARIES} 
-        tokenizer 
-        extensions)
+    list(APPEND ALL_TARGET_LIBRARIES
+            ${TORCH_LIBRARIES}
+            tokenizer
+            extensions)
 
     target_link_libraries(fmfusion PRIVATE ${ALL_TARGET_LIBRARIES})
     target_include_directories(fmfusion PRIVATE ${TORCH_INCLUDE_DIRS} thirdparty/extensions)
     message(STATUS "TORCH_LIBRARIES: ${TORCH_LIBRARIES}")
     message(STATUS "TORCH_INCLUDE_DIRS: ${TORCH_INCLUDE_DIRS}")
-else()
+else ()
     add_library(fmfusion SHARED ${FMFUSION_SRC})
     target_link_libraries(fmfusion PRIVATE ${ALL_TARGET_LIBRARIES})
-endif()
+endif ()
 
 ##
 include_directories(${OpenCV_INCLUDE_DIRS})
@@ -106,9 +113,9 @@ add_executable(IntegrateInstanceMap)
 target_sources(IntegrateInstanceMap PRIVATE IntegrateInstanceMap.cpp)
 target_link_libraries(IntegrateInstanceMap PRIVATE Open3D::Open3D ${OpenCV_LIBS} fmfusion)
 
-add_executable(GraphMatchNode)
-target_sources(GraphMatchNode PRIVATE GraphMatch.cpp)
-target_link_libraries(GraphMatchNode PRIVATE Open3D::Open3D ${OpenCV_LIBS} fmfusion)
+# add_executable(GraphMatchNode)
+# target_sources(GraphMatchNode PRIVATE GraphMatch.cpp)
+# target_link_libraries(GraphMatchNode PRIVATE Open3D::Open3D ${OpenCV_LIBS} fmfusion)
 
 add_executable(MapMerger)
 target_sources(MapMerger PRIVATE MapMerger.cpp)
@@ -118,59 +125,62 @@ if (LOOP_DETECTION)
     add_executable(TestLoop)
     target_sources(TestLoop PRIVATE TestLoop.cpp)
     target_link_libraries(TestLoop PRIVATE ${ALL_TARGET_LIBRARIES} fmfusion)
-endif()
+endif ()
 
 # Install fmfusion library
-if(INSTALL_FMFUSION)
+if (INSTALL_FMFUSION)
     message(STATUS "Installing fmfusion library. So it can be used in ros warpper.")
 
     install(TARGETS fmfusion
-        # EXPORT fmfusionTargets
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib
-        RUNTIME DESTINATION bin
-        INCLUDES DESTINATION include
-    )
-    install(FILES 
-        SceneGraph.h
-        Common.h    
-        Utility.h
-        Color.h
-        DESTINATION include/fmfusion
+            # EXPORT fmfusionTargets
+            LIBRARY DESTINATION lib
+            ARCHIVE DESTINATION lib
+            RUNTIME DESTINATION bin
+            INCLUDES DESTINATION include
     )
     install(FILES
-        cluster/PoseGraph.h
-        DESTINATION include/fmfusion/cluster
-    )
-    install(FILES 
-        mapping/Detection.h
-        mapping/Instance.h
-        DESTINATION include/fmfusion/mapping
-    )
-    install(FILES 
-        sgloop/Graph.h
-        sgloop/SGNet.h
-        sgloop/ShapeEncoder.h
-        DESTINATION include/fmfusion/sgloop
+            Common.h
+            DESTINATION include/fmfusion
     )
     install(FILES
-        tools/Tools.h
-        tools/Eval.h
-        DESTINATION include/fmfusion/tools
+            cluster/PoseGraph.h
+            DESTINATION include/fmfusion/cluster
     )
-    install(FILES 
-        tokenizer/logging.h
-        tokenizer/basic_string_util.h
-        tokenizer/text_tokenizer.h
-        tokenizer/bert_tokenizer.h
-        DESTINATION include/fmfusion/tokenizer
+    install(FILES
+            mapping/Detection.h
+            mapping/Instance.h
+            mapping/SemanticMapping.h
+            DESTINATION include/fmfusion/mapping
+    )
+    install(FILES
+            sgloop/Graph.h
+            sgloop/SGNet.h
+            sgloop/ShapeEncoder.h
+            sgloop/LoopDetector.h
+            DESTINATION include/fmfusion/sgloop
+    )
+    install(FILES
+            tools/Tools.h
+            tools/Eval.h
+            tools/Utility.h
+            tools/Color.h
+            tools/IO.h
+            tools/g3reg_api.h
+            DESTINATION include/fmfusion/tools
+    )
+    install(FILES
+            tokenizer/logging.h
+            tokenizer/basic_string_util.h
+            tokenizer/text_tokenizer.h
+            tokenizer/bert_tokenizer.h
+            DESTINATION include/fmfusion/tokenizer
     )
 
     install(FILES
-        thirdparty/extensions/cpu/torch_helper.h
-        thirdparty/extensions/cpu/grid_subsampling.h
-        thirdparty/extensions/cpu/radius_neighbors.h
-        DESTINATION include/fmfusion/thirdparty/extensions/cpu
+            thirdparty/extensions/cpu/torch_helper.h
+            thirdparty/extensions/cpu/grid_subsampling.h
+            thirdparty/extensions/cpu/radius_neighbors.h
+            DESTINATION include/fmfusion/thirdparty/extensions/cpu
     )
 
     # include(CMakePackageConfigHelpers)
@@ -191,4 +201,4 @@ if(INSTALL_FMFUSION)
     #     COPYONLY
     # )
 
-endif()
+endif ()

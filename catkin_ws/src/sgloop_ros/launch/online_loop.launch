@@ -1,0 +1,19 @@
+<launch>
+
+  <arg name="dataroot" value="/data2/sgslam"/>
+  <arg name="ref_scene" value="uc0107_00a"/>
+  <arg name="active_sequence" value="uc0107_00b"/>
+
+  <node pkg="sgloop_ros" name="OnlineLoop" type="OnlineLoop" output="screen">
+    <param name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/realsense.yaml"/>
+    <param name="weights_folder" value="/home/cliuci/code_ws/OpensetFusion/torchscript"/>
+    <param name="output_folder" value="$(arg dataroot)/output/online_mapping"/>
+    <param name="ref_scene_dir" value="$(arg dataroot)/val/$(arg ref_scene)"/>
+    <param name="active_sequence_dir" value="$(arg dataroot)/scans/$(arg active_sequence)"/>
+    <param name="frame_gap" value="2"/>
+    <param name="visualization" value="1"/>
+  </node>
+
+  <node pkg="tf" type="static_transform_publisher" name="link_before_loop" args="0 0 0 0 0 0 1 world local 100" />
+
+</launch>

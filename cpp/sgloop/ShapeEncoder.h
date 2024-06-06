@@ -7,22 +7,12 @@
 #include <torch/script.h> 
 #include <open3d/Open3D.h>
 
+#include "Common.h"
 #include "thirdparty/extensions/cpu/grid_subsampling.h"
 #include "thirdparty/extensions/cpu/radius_neighbors.h"
 
 namespace fmfusion
 {
-    struct ShapeEncoderConfig
-    {
-        int num_stages = 4;
-        float voxel_size = 0.05;
-        int neighbor_limits[4] = {32, 9, 9, 9};
-        float init_voxel_size = 2.5 * voxel_size;
-        float init_radius = 2.0 * voxel_size;
-        int K_shape_samples = 1024;
-        int K_match_samples = 512;
-    };
-
     at::Tensor radius_search(at::Tensor q_points, 
                         at::Tensor s_points, 
                         at::Tensor q_lengths, 
@@ -64,9 +54,6 @@ namespace fmfusion
     
     private:
         ShapeEncoderConfig config;
-        // std::vector<Eigen::Vector3d> xyz;
-        // std::vector<uint32_t> labels;
-        // at::Tensor points;
         torch::jit::script::Module encoder;
 
     };

@@ -6,7 +6,7 @@ namespace fmfusion
 
 
 Instance::Instance(const InstanceId id, const unsigned int frame_id, const InstanceConfig &config): 
-    id_(id), frame_id_(frame_id),config_(config)
+    id_(id), frame_id_(frame_id),update_frame_id(frame_id),config_(config)
 {
     // open3d::utility::LogInfo("Initialize Instance");
     volume_ = new open3d::pipelines::integration::InstanceTSDFVolume(
@@ -191,6 +191,20 @@ std::shared_ptr<open3d::geometry::PointCloud> Instance::extract_point_cloud()
     point_cloud->PaintUniformColor(color_);
 
     return point_cloud;
+}
+
+bool Instance::update_point_cloud(int cur_frame_id,int min_frame_gap)
+{
+    if(cur_frame_id-update_frame_id<min_frame_gap){
+        return false;
+    }
+    else{
+        extract_point_cloud();
+        CreateMinimalBoundingBox();
+        update_frame_id = cur_frame_id;
+        return true;
+    }
+
 }
 
 void Instance::load_previous_labels(const std::string &labels_str)

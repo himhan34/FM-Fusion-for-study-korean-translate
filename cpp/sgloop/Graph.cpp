@@ -219,6 +219,7 @@ namespace fmfusion
             data_dict.labels.insert(data_dict.labels.end(), node->cloud->points_.size(), node->id);
             data_dict.centroids.push_back(node->centroid);
             data_dict.nodes.push_back(node->id);
+            data_dict.instances.push_back(node->instance_id);
         }
         return data_dict;
     }
@@ -230,6 +231,15 @@ namespace fmfusion
             centroids.push_back(node->centroid);
         }
         return centroids;
+    }
+
+    const std::vector<std::pair<int,int>> Graph::get_edges()const
+    {
+        std::vector<std::pair<int,int>> edge_pairs;
+        for (auto edge:edges){
+            edge_pairs.push_back(std::make_pair(edge->src_id, edge->ref_id));
+        }
+        return edge_pairs;
     }
 
 }

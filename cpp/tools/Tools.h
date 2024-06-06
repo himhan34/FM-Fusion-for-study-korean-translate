@@ -7,25 +7,6 @@
 namespace fmfusion
 {
 
-namespace IO
-{
-    void extract_match_instances(const std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
-        const std::vector<fmfusion::NodePtr> &src_nodes,const std::vector<fmfusion::NodePtr> &ref_nodes,
-        std::vector<std::pair<fmfusion::InstanceId,fmfusion::InstanceId>> &match_instances);
-
-    void extract_instance_correspondences(const std::vector<fmfusion::NodePtr> &src_nodes, 
-                                        const std::vector<fmfusion::NodePtr> &ref_nodes, 
-                                        const std::vector<std::pair<uint32_t,uint32_t>> &match_pairs, 
-                                        const std::vector<float> &match_scores,
-                                        std::vector<Eigen::Vector3d> &src_centroids, 
-                                        std::vector<Eigen::Vector3d> &ref_centroids);
-
-    bool save_match_results(const Eigen::Matrix4d &pose,
-                        const std::vector<std::pair<uint32_t,uint32_t>> &match_pairs, 
-                        const std::vector<float> &match_scores,
-                        const std::string &output_file_dir);
-}
-
 namespace visualization
 {
 /// \brief  Visualization functions in Open3D lib.

@@ -3,12 +3,13 @@
 python/__pycache__/
 measurement_model/prompt
 build
-eval
 .history
 torchscript
 catkin_ws/devel
 catkin_ws/build
+catkin_ws/src/sgloop_ros/thirdparty
 install
+eval/fmfusion
 
 # Ignore files 
 *.pyc
@@ -17,3 +18,4 @@ install
 .idea
 .vscode
 datasets
+Log

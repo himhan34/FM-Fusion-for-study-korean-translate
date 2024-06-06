@@ -33,7 +33,7 @@
 #include "open3d/Open3D.h"
 #include "opencv2/opencv.hpp"
 
-#include "Utility.h"
+#include "tools/Utility.h"
 
 std::vector<std::string> 
   split_str(const std::string s, const std::string delim) 

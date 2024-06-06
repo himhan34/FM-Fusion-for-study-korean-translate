@@ -1,20 +1,17 @@
-#include "SceneGraph.h"
+#include "SemanticMapping.h"
 
 namespace fmfusion
 {
 
-SceneGraph::SceneGraph(const Config &config): config_(config)
+SemanticMapping::SemanticMapping(const MappingConfig &mapping_cfg, const InstanceConfig &instance_cfg): mapping_config(mapping_cfg), instance_config(instance_cfg)
 {
     open3d::utility::LogInfo("Initialize SceneGraph server");
-    instance_config.voxel_length = config_.voxel_length;
-    instance_config.sdf_trunc = config_.sdf_trunc;
-    instance_config.intrinsic = config_.intrinsic;
-    instance_config.min_voxel_weight = config_.min_voxel_weight;
     latest_created_instance_id = 0;
     last_cleanup_frame_id = 0;
+    last_update_frame_id = 0;
 }
 
-void SceneGraph::integrate(const int &frame_id,
+void SemanticMapping::integrate(const int &frame_id,
     const std::shared_ptr<open3d::geometry::RGBDImage> &rgbd_image, const Eigen::Matrix4d &pose,
     std::vector<DetectionPtr> &detections)
 {
@@ -26,9 +23,9 @@ void SceneGraph::integrate(const int &frame_id,
         o3d_utility::Timer timer_query, timer_da, timer_integrate;
         timer_query.Start();
 
-        auto depth_cloud = O3d_Cloud::CreateFromDepthImage(rgbd_image->depth_,config_.intrinsic,pose.inverse(),1.0,config_.depth_max);
-        if (config_.query_depth_vx_size>0.0)
-            depth_cloud = depth_cloud->VoxelDownSample(config_.query_depth_vx_size);
+        auto depth_cloud = O3d_Cloud::CreateFromDepthImage(rgbd_image->depth_,instance_config.intrinsic,pose.inverse(),1.0,mapping_config.depth_max);
+        if (mapping_config.query_depth_vx_size>0.0)
+            depth_cloud = depth_cloud->VoxelDownSample(mapping_config.query_depth_vx_size);
         auto active_instances = search_active_instances(depth_cloud,pose);
         timer_query.Stop();
 
@@ -41,7 +38,7 @@ void SceneGraph::integrate(const int &frame_id,
         for (int k_=0;k_<n_det;k_++){
             auto masked_rgbd = std::make_shared<open3d::geometry::RGBDImage>();
             bool valid_detection_depth = utility::create_masked_rgbd(
-                rgbd_image->color_,rgbd_image->depth_,detections[k_]->instances_idxs_,config_.min_det_masks,masked_rgbd);
+                rgbd_image->color_,rgbd_image->depth_,detections[k_]->instances_idxs_,mapping_config.min_det_masks,masked_rgbd);
 
             if(!valid_detection_depth){
                 matches(k_) = -1;
@@ -52,6 +49,7 @@ void SceneGraph::integrate(const int &frame_id,
                 auto matched_instance = instance_map[matches(k_)];
                 matched_instance->integrate(masked_rgbd,pose.inverse());
                 matched_instance->update_label(detections[k_]);
+                matched_instance->update_point_cloud(frame_id,mapping_config.update_period);
             }
             else{
                 int added_idx = create_new_instance(detections[k_], frame_id,masked_rgbd,pose);
@@ -61,27 +59,27 @@ void SceneGraph::integrate(const int &frame_id,
         timer_integrate.Stop();
         o3d_utility::LogInfo("{:d} new instances are created.",new_instances.size());
 
-        // Visualize associations
-        auto rgb_cv = std::make_shared<cv::Mat>(rgbd_image->color_.height_,rgbd_image->color_.width_,CV_8UC3);
-        memcpy(rgb_cv->data,rgbd_image->color_.data_.data(),rgbd_image->color_.data_.size()*sizeof(uint8_t));
-        cv::cvtColor(*rgb_cv,*rgb_cv,cv::COLOR_RGB2BGR);
-
-        std::stringstream msg;
-        std::unordered_map<InstanceId,CvMatPtr> active_instance_masks;
-        std::unordered_map<InstanceId,Eigen::Vector3d> active_instance_colors;
-        msg<<"active instances: ";
-        for(auto &instance_j:instance_map){
-            if(instance_j.second->observed_image_mask){
-                active_instance_masks.emplace(instance_j.first,instance_j.second->observed_image_mask);
-                active_instance_colors.emplace(instance_j.first,instance_j.second->color_);
-                msg<<instance_j.second->get_predicted_class().first<<", ";
+        if(mapping_config.save_da_dir.size()>0){
+            std::stringstream msg;
+            std::unordered_map<InstanceId,CvMatPtr> active_instance_masks;
+            std::unordered_map<InstanceId,Eigen::Vector3d> active_instance_colors;
+            msg<<"active instances: ";
+            for(auto &instance_j:instance_map){
+                if(instance_j.second->observed_image_mask){
+                    active_instance_masks.emplace(instance_j.first,instance_j.second->observed_image_mask);
+                    active_instance_colors.emplace(instance_j.first,instance_j.second->color_);
+                    msg<<instance_j.second->get_predicted_class().first<<", ";
+                }
             }
-        }
-        // std::cout<<msg.str()<<"\n";
+            // std::cout<<msg.str()<<"\n";
 
-        if(config_.save_da_images){
+            // Visualize associations
+            auto rgb_cv = std::make_shared<cv::Mat>(rgbd_image->color_.height_,rgbd_image->color_.width_,CV_8UC3);
+            memcpy(rgb_cv->data,rgbd_image->color_.data_.data(),rgbd_image->color_.data_.size()*sizeof(uint8_t));
+            cv::cvtColor(*rgb_cv,*rgb_cv,cv::COLOR_RGB2BGR);
+            
             std::stringstream ss;
-            ss<<config_.tmp_dir<<"/frame-"<<std::fixed<<std::setw(6)<<std::setfill('0')<<frame_id<<".png";
+            ss<<mapping_config.save_da_dir<<"/frame-"<<std::fixed<<std::setw(6)<<std::setfill('0')<<frame_id<<".png";
             auto render_img = utility::RenderDetections(rgb_cv,detections,active_instance_masks,matches, active_instance_colors);
             cv::imwrite(ss.str(),*render_img);
         }
@@ -90,7 +88,8 @@ void SceneGraph::integrate(const int &frame_id,
         update_active_instances(active_instances);
         for(InstanceId j_:active_instances) recent_instances.emplace(j_);
         for(InstanceId j_:new_instances) recent_instances.emplace(j_);
-        if(frame_id-last_cleanup_frame_id>config_.cleanup_period){
+
+        if(frame_id-last_cleanup_frame_id>mapping_config.cleanup_period){
             std::vector<InstanceId> recent_instance_vec(recent_instances.begin(),recent_instances.end());
             extract_point_cloud(recent_instance_vec);
             merge_overlap_instances(recent_instance_vec);
@@ -107,40 +106,51 @@ void SceneGraph::integrate(const int &frame_id,
 
 }
 
-std::vector<InstanceId> SceneGraph::search_active_instances(
+std::vector<InstanceId> SemanticMapping::search_active_instances(
     const O3d_Cloud_Ptr &depth_cloud, const Eigen::Matrix4d &pose, const double search_radius)
 {
     std::vector<InstanceId> active_instances;
     const size_t MIN_UNITS= 1;
     if (instance_map.empty()) return active_instances;
+    open3d::utility::Timer timer;
+    float query_time_ms = 0.0;
+    float projection_time_msg = 0.0;
 
     for(auto &instance_j:instance_map){
         auto observed_cloud = std::make_shared<O3d_Cloud>();
         double dist = (depth_cloud->GetCenter() - instance_j.second->centroid).norm();
         if (dist>search_radius) continue;
 
+        timer.Start();
         instance_j.second->get_volume()->query_observed_points(depth_cloud,observed_cloud);
-        if(observed_cloud->points_.size()>config_.min_active_points){
+        timer.Stop();
+        query_time_ms += timer.GetDurationInMillisecond();
+        if(observed_cloud->points_.size()>mapping_config.min_active_points){
+            timer.Start();
             std::shared_ptr<cv::Mat> instance_img_mask = utility::PrjectionCloudToDepth(
-                *observed_cloud,pose.inverse(),instance_config.intrinsic,config_.dilation_size);
+                *observed_cloud,pose.inverse(),instance_config.intrinsic,mapping_config.dilation_size);
             instance_j.second->observed_image_mask = instance_img_mask;
             active_instances.emplace_back(instance_j.first);
+            timer.Stop();
+            projection_time_msg += timer.GetDurationInMillisecond();
         }
     }
+
+    open3d::utility::LogInfo("Query time: {:.2f} ms, Projection time: {:.2f} ms",query_time_ms,projection_time_msg);
 
     return active_instances;
 }
 
-void SceneGraph::update_active_instances(const std::vector<InstanceId> &active_instances)
+void SemanticMapping::update_active_instances(const std::vector<InstanceId> &active_instances)
 {
     for(InstanceId j_:active_instances){
         auto instance_j = instance_map[j_];
         instance_j->observed_image_mask.reset();
-        instance_j->fast_update_centroid();
+        // instance_j->fast_update_centroid();
     }
 }
 
-Eigen::VectorXi SceneGraph::data_association(const std::vector<DetectionPtr> &detections,
+Eigen::VectorXi SemanticMapping::data_association(const std::vector<DetectionPtr> &detections,
     const std::vector<InstanceId> &active_instances)
 {
     int K = detections.size();
@@ -171,14 +181,14 @@ Eigen::VectorXi SceneGraph::data_association(const std::vector<DetectionPtr> &de
     for (int m_=0;m_<M;m_++){
         int max_row;
         double max_iou = iou.col(m_).maxCoeff(&max_row);
-        if (max_iou>config_.min_iou)assignment_colwise(max_row,m_) = 1;
+        if (max_iou>mapping_config.min_iou)assignment_colwise(max_row,m_) = 1;
     }
 
     // Find the maximum match for each row
     for (int k_=0;k_<K;k_++){
         int max_col;
         double max_iou = iou.row(k_).maxCoeff(&max_col);
-        if (max_iou>config_.min_iou)assignment_rowise(k_,max_col) = 1;
+        if (max_iou>mapping_config.min_iou)assignment_rowise(k_,max_col) = 1;
     }
 
     assignment = assignment_colwise + assignment_rowise;
@@ -202,7 +212,7 @@ Eigen::VectorXi SceneGraph::data_association(const std::vector<DetectionPtr> &de
     return matches;
 }
 
-int SceneGraph::create_new_instance(const DetectionPtr &detection, const unsigned int &frame_id,
+int SemanticMapping::create_new_instance(const DetectionPtr &detection, const unsigned int &frame_id,
     const std::shared_ptr<open3d::geometry::RGBDImage> &rgbd_image, const Eigen::Matrix4d &pose)
 {
     // open3d::utility::LogInfo("Create new instance");
@@ -210,7 +220,7 @@ int SceneGraph::create_new_instance(const DetectionPtr &detection, const unsigne
     instance->integrate(rgbd_image,pose.inverse());
     instance->update_label(detection);
     instance->fast_update_centroid();
-    instance->color_ = InstanceColorBar[instance->get_id()%InstanceColorBar.size()];
+    instance->color_ = InstanceColorBar20[instance->get_id()%InstanceColorBar20.size()];
 
     // std::cout<<"Init instance with "<<instance->point_cloud->points_.size()<<" points\n"; // EXTRACT POINT FIRST
     instance_map.emplace(instance->get_id(),instance);
@@ -219,7 +229,7 @@ int SceneGraph::create_new_instance(const DetectionPtr &detection, const unsigne
     
 }
 
-bool SceneGraph::IsSemanticSimilar (const std::unordered_map<std::string,float> &measured_labels_a,
+bool SemanticMapping::IsSemanticSimilar (const std::unordered_map<std::string,float> &measured_labels_a,
     const std::unordered_map<std::string,float> &measured_labels_b)
 {
     if(measured_labels_a.size()<1 || measured_labels_b.size()<1) return false;
@@ -232,7 +242,7 @@ bool SceneGraph::IsSemanticSimilar (const std::unordered_map<std::string,float> 
     return false;
 }
 
-double SceneGraph::Compute2DIoU(
+double SemanticMapping::Compute2DIoU(
     const open3d::geometry::OrientedBoundingBox &box_a, const open3d::geometry::OrientedBoundingBox &box_b)
 {
     auto box_a_aligned = box_a.GetAxisAlignedBoundingBox();
@@ -264,15 +274,15 @@ double SceneGraph::Compute2DIoU(
     return iou;
 }
 
-double SceneGraph::Compute3DIoU (const O3d_Cloud_Ptr &cloud_a, const O3d_Cloud_Ptr &cloud_b, double inflation)
+double SemanticMapping::Compute3DIoU (const O3d_Cloud_Ptr &cloud_a, const O3d_Cloud_Ptr &cloud_b, double inflation)
 {
-    auto vxgrid_a = open3d::geometry::VoxelGrid::CreateFromPointCloud(*cloud_a, inflation * config_.voxel_length);
+    auto vxgrid_a = open3d::geometry::VoxelGrid::CreateFromPointCloud(*cloud_a, inflation * instance_config.voxel_length);
     std::vector<bool> overlap = vxgrid_a->CheckIfIncluded(cloud_b->points_);
     double iou = double(std::count(overlap.begin(), overlap.end(), true)) / double(overlap.size()+0.000001);
     return iou;
 }
 
-void SceneGraph::merge_overlap_instances(std::vector<InstanceId> instance_list)
+void SemanticMapping::merge_overlap_instances(std::vector<InstanceId> instance_list)
 {
     double SEARCH_DISTANCE = 3.0; // in meters
 
@@ -325,10 +335,10 @@ void SceneGraph::merge_overlap_instances(std::vector<InstanceId> instance_list)
                 small_instance = instance_i;
             }
 
-            double iou = Compute3DIoU(large_instance->point_cloud,small_instance->point_cloud,config_.merge_inflation);
+            double iou = Compute3DIoU(large_instance->point_cloud,small_instance->point_cloud,mapping_config.merge_inflation);
             
             // Merge
-            if(iou>config_.merge_iou){
+            if(iou>mapping_config.merge_iou){
                 large_instance->merge_with(
                     small_instance->point_cloud,small_instance->get_measured_labels(),small_instance->get_observation_count());
                 remove_instances.insert(small_instance->get_id());
@@ -349,7 +359,7 @@ void SceneGraph::merge_overlap_instances(std::vector<InstanceId> instance_list)
 
 }
 
-void SceneGraph::merge_overlap_structural_instances()
+void SemanticMapping::merge_overlap_structural_instances()
 {
     std::vector<InstanceId> target_instances;
     std::string structural_categories = "floor,ceiling";
@@ -402,7 +412,7 @@ void SceneGraph::merge_overlap_structural_instances()
 
 }
 
-void SceneGraph::extract_bounding_boxes()
+void SemanticMapping::extract_bounding_boxes()
 {
     open3d::utility::Timer timer;
     timer.Start();
@@ -413,7 +423,7 @@ void SceneGraph::extract_bounding_boxes()
         instance.second->filter_pointcloud_statistic();
         // std::cout<<instance.second->point_cloud->points_.size()<<" points\n";
         // instance.second->filter_pointcloud_by_cluster();
-        if (instance.second->point_cloud->points_.size()>config_.shape_min_points){
+        if (instance.second->point_cloud->points_.size()>mapping_config.shape_min_points){
             instance.second->CreateMinimalBoundingBox();
             count++;
             // if(instance.second->min_box->IsEmpty()) count++;
@@ -423,11 +433,11 @@ void SceneGraph::extract_bounding_boxes()
     o3d_utility::LogInfo("Extract {:d} valid bounding box in {:f} ms",count,timer.GetDurationInMillisecond());
 }
 
-std::shared_ptr<open3d::geometry::PointCloud> SceneGraph::export_global_pcd(bool filter)
+std::shared_ptr<open3d::geometry::PointCloud> SemanticMapping::export_global_pcd(bool filter)
 {
     auto global_pcd = std::make_shared<open3d::geometry::PointCloud>();
     for(const auto &inst:instance_map){
-        if(filter && inst.second->point_cloud->points_.size()<config_.shape_min_points) continue;
+        if(filter && inst.second->point_cloud->points_.size()<mapping_config.shape_min_points) continue;
         *global_pcd += *inst.second->point_cloud;
     }
 
@@ -435,11 +445,11 @@ std::shared_ptr<open3d::geometry::PointCloud> SceneGraph::export_global_pcd(bool
 }
 
 
-std::vector<std::shared_ptr<const open3d::geometry::Geometry>> SceneGraph::get_geometries(bool point_cloud, bool bbox)
+std::vector<std::shared_ptr<const open3d::geometry::Geometry>> SemanticMapping::get_geometries(bool point_cloud, bool bbox)
 {
     std::vector<std::shared_ptr<const open3d::geometry::Geometry>> viz_geometries;
     for (const auto &instance: instance_map){
-        if(instance.second->point_cloud->points_.size()<config_.shape_min_points) continue;
+        if(instance.second->point_cloud->points_.size()<mapping_config.shape_min_points) continue;
         if(point_cloud){
             viz_geometries.emplace_back(instance.second->point_cloud);
         }
@@ -450,7 +460,7 @@ std::vector<std::shared_ptr<const open3d::geometry::Geometry>> SceneGraph::get_g
     return viz_geometries;
 }
 
-void SceneGraph::Transform(const Eigen::Matrix4d &pose)
+void SemanticMapping::Transform(const Eigen::Matrix4d &pose)
 {
     for (const auto &instance: instance_map){
         instance.second->point_cloud->Transform(pose);
@@ -458,7 +468,7 @@ void SceneGraph::Transform(const Eigen::Matrix4d &pose)
     }
 }
 
-void SceneGraph::extract_point_cloud(const std::vector<InstanceId> instance_list)
+void SemanticMapping::extract_point_cloud(const std::vector<InstanceId> instance_list)
 {
     std::vector<InstanceId> target_instances;
     if (instance_list.empty()){
@@ -471,18 +481,39 @@ void SceneGraph::extract_point_cloud(const std::vector<InstanceId> instance_list
     for(const InstanceId idx:target_instances){
         if(instance_map.find(idx)==instance_map.end()) continue; //
         instance_map[idx]->extract_point_cloud();
-        // auto instance = instance_map[idx];
-        // instance.second->point_cloud = instance.second->extract_point_cloud();
     }
-    o3d_utility::LogInfo("Extract point cloud for {:d} instances",instance_map.size());
+    o3d_utility::LogInfo("Extract point cloud for {:d} instances",target_instances.size());
 }
 
-void SceneGraph::remove_invalid_instances()
+int SemanticMapping::update_instances(const int &cur_frame_id, 
+                                        const std::vector<InstanceId> &instance_list)
+{
+    std::vector<InstanceId> target_instances;
+    int count=0;
+    std::cout<<"Updating instances at frame "<<cur_frame_id<<"\n";
+    if(instance_list.empty()){
+        for(auto &instance:instance_map){
+            target_instances.emplace_back(instance.first);
+        }
+    }
+    else
+        target_instances = instance_list;
+
+    //
+    for(const InstanceId &idx:target_instances){
+        if(instance_map.find(idx)==instance_map.end()) continue;
+        instance_map[idx]->update_point_cloud(cur_frame_id,mapping_config.update_period);
+        count ++;
+    }
+
+    return count;
+}
+void SemanticMapping::remove_invalid_instances()
 {
     std::vector<InstanceId> remove_instances;
     for(auto &instance:instance_map){
         // instance.second->point_cloud = instance.second->extract_point_cloud();
-        if(instance.second->point_cloud->points_.size()<config_.shape_min_points)
+        if(instance.second->point_cloud->points_.size()<mapping_config.shape_min_points)
             remove_instances.emplace_back(instance.first);
     }
 
@@ -493,7 +524,7 @@ void SceneGraph::remove_invalid_instances()
 
 }
 
-bool SceneGraph::Save(const std::string &path)
+bool SemanticMapping::Save(const std::string &path)
 {
     using namespace o3d_utility::filesystem;
     if(!DirectoryExists(path)) MakeDirectory(path);
@@ -508,7 +539,7 @@ bool SceneGraph::Save(const std::string &path)
         LabelScore semantic_class_score = instance.second->get_predicted_class();
         auto instance_cloud = instance.second->point_cloud;
         if(!instance.second->point_cloud) continue;
-        if(instance_cloud->points_.size()<config_.shape_min_points) continue;
+        if(instance_cloud->points_.size()<mapping_config.shape_min_points) continue;
 
         global_instances_pcd += *instance_cloud;
         stringstream ss; // instance info string
@@ -570,7 +601,7 @@ bool SceneGraph::Save(const std::string &path)
     return true;
 }
 
-bool SceneGraph::load(const std::string &path)
+bool SemanticMapping::load(const std::string &path)
 {
     o3d_utility::LogInfo("Load SceneGraph from {:s}",path);
     using namespace o3d_utility::filesystem;
@@ -595,7 +626,7 @@ bool SceneGraph::load(const std::string &path)
         instance_toadd->load_previous_labels(label_measurments_str);
         instance_toadd->point_cloud = open3d::io::CreatePointCloudFromFile(path+"/"+instance_id_str+".ply");
         instance_toadd->centroid = instance_toadd->point_cloud->GetCenter();
-        instance_toadd->color_ = InstanceColorBar[instance_id%InstanceColorBar.size()];
+        instance_toadd->color_ = InstanceColorBar20[instance_id%InstanceColorBar20.size()];
         instance_map.emplace(instance_id,instance_toadd);
 
         // cout<<instance_id_str<<","<<label_measurments_str
@@ -610,12 +641,12 @@ bool SceneGraph::load(const std::string &path)
 
 }
 
-void SceneGraph::export_instances(
+void SemanticMapping::export_instances(
     std::vector<InstanceId> &names, std::vector<InstancePtr> &instances)
 {
     for(auto &instance:instance_map){
         auto point_size = instance.second->point_cloud->points_.size();
-        if (point_size>config_.shape_min_points){
+        if (point_size>mapping_config.shape_min_points){
             names.emplace_back(instance.first);
             instances.emplace_back(instance.second);
         }
@@ -623,11 +654,11 @@ void SceneGraph::export_instances(
     // return instances;
 }
 
-int SceneGraph::merge_other_instances(std::vector<InstancePtr> &instances)
+int SemanticMapping::merge_other_instances(std::vector<InstancePtr> &instances)
 {
     int count = 0;
     for(auto &instance:instances){
-        if(instance->point_cloud->points_.size()<config_.shape_min_points) continue;
+        if(instance->point_cloud->points_.size()<mapping_config.shape_min_points) continue;
         // todo: initialize new instance instead
         instance->change_id(latest_created_instance_id+1);
         // instance->id_ = latest_created_instance_id+1;

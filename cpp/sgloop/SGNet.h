@@ -1,5 +1,5 @@
-#ifndef LOOP_DETECTOR_H_
-#define LOOP_DETECTOR_H_
+#ifndef SGNet_H_
+#define SGNet_H_
 
 #include <torch/script.h> 
 #include <torch/torch.h>
@@ -21,6 +21,11 @@ int extract_corr_points(const torch::Tensor &src_guided_knn_points,
                         std::vector<Eigen::Vector3d> &corr_src_points, 
                         std::vector<Eigen::Vector3d> &corr_ref_points);
 
+/// @brief  
+/// @param features, (N, D) 
+/// @return number_nan_features
+int check_nan_features(const torch::Tensor &features);
+
 class SgNet
 {
 
@@ -37,8 +42,14 @@ public:
     void match_nodes(const torch::Tensor &src_node_features, const torch::Tensor &ref_node_features,
         std::vector<std::pair<uint32_t,uint32_t>> &match_pairs, std::vector<float> &match_scores, bool fused=false);
 
+    /// @brief  Match the points of the matched nodes. Each node sampled 512 points.
+    /// @param src_guided_knn_feats (M,512,256)
+    /// @param ref_guided_knn_feats (M,512,256)
+    /// @param corr_points (C,3)
+    /// @param corr_scores_vec (C,)
+    /// @return 
     int match_points(const torch::Tensor &src_guided_knn_feats, const torch::Tensor &ref_guided_knn_feats,
-        torch::Tensor &corr_points, torch::Tensor &corr_scores);
+        torch::Tensor &corr_points, std::vector<float> &corr_scores_vec);
 
 private:
 

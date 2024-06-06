@@ -79,6 +79,22 @@ make
 Set the ```${LIBTORCH_DIR}``` to the unzipped libtorch directory. If the ```Open3D``` and ```spdlog``` are installed in customized directories, they should also be appended in ```-DCMAKE_INSTALL_PREFIX```. 
 Depends on your computer environment, you may comment or adjust ```set(CMAKE_CXX_STANDARD 17)``` in ```CMakeLists.txt```.
 
+### Compile ROS Node (Optional)
+Generate the ```lib_fmfusion``` as a shared library.
+```
+mkdir install
+cd build
+cmake -DINSTALL_FMFUSION=ON ..
+make -j12 & make install
+```
+The library should be installed at ```install``` folder of the  current project.
+Then, compile the ros nodes,
+```bash
+cd ../catkin_ws
+catkin_make
+```
+The ROS node is used to run multi-session SLAM. It is an optional module.
+
 ## Run Loop Detection Node
 
 ```bash
@@ -97,6 +113,15 @@ To evaluate the registration results,
 python scripts/eval_loop.py --dataroot ${DATAROOT} --output_folder ${OUTPUT_FOLDER}
 ```
 The latest evaluation result is saved [here](eval/loop_closure.txt).
+
+## Run Loop Detection Node on ROS
+```
+source catkin_ws/devel/setup.bash
+roslaunch sgloop_ros testloop.launch
+roslaunch sgloop_ros visualize.launch
+```
+Currently, it is similar to the ```TestLoop``` program in the last step.
+It read a pair of scene graph and register them. The result is visualized on Rviz.
 
 ## Run instance mapping node
 

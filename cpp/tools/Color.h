@@ -5,7 +5,7 @@
 namespace fmfusion
 {
     // Generate 40 colors as a color bar
-    std::array<Eigen::Vector3d, 40> InstanceColorBar2 =
+    std::array<Eigen::Vector3d, 40> InstanceColorBar40 =
     {
         Eigen::Vector3d(0.0, 0.0, 1.0), 
         Eigen::Vector3d(1.0, 1.0, 0.0), 
@@ -50,7 +50,7 @@ namespace fmfusion
     };
 
 
-    std::array<Eigen::Vector3d,20> InstanceColorBar = 
+    std::array<Eigen::Vector3d,20> InstanceColorBar20 = 
     {
         Eigen::Vector3d(0.65098039, 0.80784314, 0.89019608),
         Eigen::Vector3d(0.12156863, 0.47058824, 0.70588235),

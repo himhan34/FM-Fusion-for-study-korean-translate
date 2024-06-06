@@ -19,10 +19,12 @@ if __name__ == '__main__':
     config_file = '/home/cliuci/code_ws/OpensetFusion/config/realsense.yaml'
     dataroot = '/data2/sgslam'
     split = 'val'
-    split_file = 'val.txt'
+    split_file = 'val_bk.txt'
     
     # 
-    output_folder = os.path.join(dataroot,'output','testloop')
+    output_folder = os.path.join(dataroot,'output','coarse_register2')
+    if os.path.exists(output_folder)==False:
+        os.makedirs(output_folder)
     scan_pairs = read_scan_pairs(os.path.join(dataroot, 'splits', split_file))
     
     # run
@@ -38,6 +40,8 @@ if __name__ == '__main__':
             ref_folder,
             src_folder,
             output_folder)
+        cmd += " --prune_instance"
+        # cmd += " --dense_match"
         
         ret = subprocess.run(cmd,
                             stdin=subprocess.PIPE,shell=True)

@@ -57,6 +57,14 @@ struct DataDict{
     std::vector<uint32_t> labels; // (X,)
     std::vector<Eigen::Vector3d> centroids; // (N,3)
     std::vector<uint32_t> nodes; // (N,)
+    std::vector<uint32_t> instances; // (N,)
+    std::string print_instances(){
+        std::stringstream msg;
+        for (auto instance:instances){
+            msg<<instance<<",";
+        }
+        return msg.str();
+    }
 };
 
 class Graph
@@ -73,6 +81,8 @@ class Graph
         const std::vector<NodePtr> get_const_nodes() const { return nodes; }
 
         const std::vector<EdgePtr> get_const_edges() const { return edges; }
+
+        const std::vector<std::pair<int,int>> get_edges() const;
 
         const std::vector<Eigen::Vector3d> get_centroids()const;
 

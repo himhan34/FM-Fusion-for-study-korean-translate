@@ -4,13 +4,29 @@
 #include "std_msgs/ColorRGBA.h"
 #include "geometry_msgs/PointStamped.h"
 #include "sensor_msgs/PointCloud2.h"
+#include "sensor_msgs/Image.h"
 #include "visualization_msgs/Marker.h"
+
+#include "cv_bridge/cv_bridge.h"
 #include "open3d_conversions/open3d_conversions.h"
 
 namespace Visualization
 {
+    struct VizParam{
+        float edge_width = 0.02;
+        std::array<float,3> edge_color;
+        float centroid_size = 0.1;
+        std::array<float,3> centroid_color = {0.0,0.0,0.0};
+    }; 
 
     bool render_point_cloud(const std::shared_ptr<open3d::geometry::PointCloud> &pcd, ros::Publisher pub, std::string frame_id="world");
+
+    bool inter_graph_edges(const std::vector<Eigen::Vector3d> &centroids,
+                            const std::vector<std::pair<int,int>> &edges,
+                            ros::Publisher pub,
+                            float width=0.02,
+                            std::array<float,3> color={0.0,0.0,1.0},
+                            std::string frame_id="world");
 
     bool instance_match(const std::vector<Eigen::Vector3d> &src_centroids,
                         const std::vector<Eigen::Vector3d> &ref_centroids,
@@ -21,7 +37,10 @@ namespace Visualization
     bool instance_centroids(const std::vector<Eigen::Vector3d> &centroids,
                             ros::Publisher pub, 
                             std::string frame_id="world", 
-                            std::array<uint8_t,3> color={255,0,0});
+                            float scale=0.1,
+                            std::array<float,3> color={0.0,0.0,1.0});
+
+    bool render_image(const cv::Mat &image, ros::Publisher pub, std::string frame_id="world");
 
     // class Visualizer
     // {

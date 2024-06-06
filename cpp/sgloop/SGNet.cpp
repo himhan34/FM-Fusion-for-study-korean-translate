@@ -1,35 +1,43 @@
 #include "SGNet.h"
 
 
-namespace fmfusion 
+namespace fmfusion
 {
 
 int extract_corr_points(const torch::Tensor &src_guided_knn_points,
                         const torch::Tensor &ref_guided_knn_points,
-                        const torch::Tensor &corr_points, 
-                        std::vector<Eigen::Vector3d> &corr_src_points, 
+                        const torch::Tensor &corr_points,
+                        std::vector<Eigen::Vector3d> &corr_src_points,
                         std::vector<Eigen::Vector3d> &corr_ref_points)
 {
     int C = corr_points.size(0);
     if(C>0){
         for (int i=0;i<C;i++){
-            int node_index = corr_points[i][0].item<int>();
+            int match_index = corr_points[i][0].item<int>();
             int src_index = corr_points[i][1].item<int>();
             int ref_index = corr_points[i][2].item<int>();
-            corr_src_points.push_back({src_guided_knn_points[node_index][src_index][0].item<float>(),
-                                src_guided_knn_points[node_index][src_index][1].item<float>(),
-                                src_guided_knn_points[node_index][src_index][2].item<float>()});
-            corr_ref_points.push_back({ref_guided_knn_points[node_index][ref_index][0].item<float>(),
-                                ref_guided_knn_points[node_index][ref_index][1].item<float>(),
-                                ref_guided_knn_points[node_index][ref_index][2].item<float>()});
+            corr_src_points.push_back({src_guided_knn_points[match_index][src_index][0].item<float>(),
+                                src_guided_knn_points[match_index][src_index][1].item<float>(),
+                                src_guided_knn_points[match_index][src_index][2].item<float>()});
+            corr_ref_points.push_back({ref_guided_knn_points[match_index][ref_index][0].item<float>(),
+                                ref_guided_knn_points[match_index][ref_index][1].item<float>(),
+                                ref_guided_knn_points[match_index][ref_index][2].item<float>()});
         }
     }
     return C;
 }
 
+int check_nan_features(const torch::Tensor &features) 
+{
+    auto check_feat = torch::sum(torch::isnan(features),1); // (N,)
+    int N = features.size(0);
+    int wired_nodes = torch::sum(check_feat>0).item<int>();
+    return wired_nodes;
+}
+
 SgNet::SgNet(const SgNetConfig &config_, const std::string weight_folder):config(config_)
 {
-    // std::cout << "LibTorch version: " << TORCH_VERSION_MAJOR<<"." 
+    // std::cout << "LibTorch version: " << TORCH_VERSION_MAJOR<<"."
     //                                 << TORCH_VERSION_MINOR<<"."
     //                                 <<TORCH_VERSION_PATCH<< std::endl;
     std::cout<<"Initializing loop detector\n";
@@ -50,7 +58,7 @@ SgNet::SgNet(const SgNetConfig &config_, const std::string weight_folder):config
     catch (const c10::Error& e) {
         std::cerr << "error loading the model\n";
     }
-    
+
     //
     try
     {
@@ -109,7 +117,7 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
 {
     //
     int N = nodes.size();
-    
+
     float centroids_arr[N][3];
     float boxes_arr[N][3];
     std::string labels[N];
@@ -147,7 +155,7 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
 
         for (int iter=0; iter<=k; iter++)
             tokens_attention_mask[i][iter] = 1;
-        
+
         // Triplet corners
         if (node->corners.size()>0){
             triplet_anchors.push_back(i);
@@ -157,7 +165,7 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
             triplet_corners.push_back(corner_vector);
         }
     }
-    
+
     // Pack triplets
     int N_valid = triplet_anchors.size(); // Node with at least one valid triplet
     float triplet_anchors_arr[N_valid];
@@ -180,11 +188,15 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
     torch::Tensor token_type_ids = torch::zeros({N, config.token_padding}).to(torch::kInt32).to(torch::kCUDA);
     torch::Tensor anchors = torch::from_blob(triplet_anchors_arr,{N_valid}).to(torch::kInt32).to(torch::kCUDA); //torch::zeros({30, 1}).to(torch::kCUDA);
     torch::Tensor corners = torch::from_blob(triplet_corners_arr, {N_valid, config.triplet_number, 2}).to(torch::kInt32).to(torch::kCUDA);
-    torch::Tensor corners_mask = torch::from_blob(triplet_corners_masks, {N_valid, config.triplet_number}).to(torch::kInt32).to(torch::kCUDA);    
+    torch::Tensor corners_mask = torch::from_blob(triplet_corners_masks, {N_valid, config.triplet_number}).to(torch::kInt32).to(torch::kCUDA);
 
     // Graph encoding
     std::cout<<"Encoding "<<N<<" node features, with "<<N_valid<<" nodes have valid triplets\n";
     torch::Tensor semantic_embeddings = bert_encoder.forward({input_ids, attention_mask, token_type_ids}).toTensor();
+    int semantic_nan = check_nan_features(semantic_embeddings);
+    if(semantic_nan>0)
+        open3d::utility::LogWarning("Found {:d} nan semantic embeddings", semantic_nan);
+    
 
     // std::cout<<"Anchor shape: "<<anchors.sizes()<<std::endl;
     // std::cout<<"Corner shape: "<<corners.sizes()<<std::endl;
@@ -193,7 +205,16 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
     torch::Tensor triplet_verify_mask = output->elements()[1].toTensor();
     assert(triplet_verify_mask.sum().item<int>()<5);
     // std::cout<<triplet_verify_mask.sum().item<int>()<<" triplets are invalid\n";
-    // std::cout<<"Node features encoded: "<<node_features.sizes()<<std::endl;
+    
+    int node_nan = check_nan_features(node_features);
+    if(node_nan>0){
+        open3d::utility::LogWarning("Found {:d} nan node features", node_nan);
+        auto nan_mask = torch::isnan(node_features);
+        node_features.index_put_({nan_mask.to(torch::kBool)}, 0);
+                                // torch::zeros({256}).to(torch::kFloat32).to(torch::kCUDA));
+        open3d::utility::LogWarning("Set nan node features to 0");
+
+    }
 
     return true;
 }
@@ -228,38 +249,53 @@ void SgNet::match_nodes(const torch::Tensor &src_node_features, const torch::Ten
         float score = matches_scores[i].item<float>();
         if(score>config.instance_match_threshold){
             match_pairs.push_back({matches[i][0].item<int>(), matches[i][1].item<int>()});
-            match_scores.push_back(score);            
+            match_scores.push_back(score);
         }
     }
+
+    // Check all elements in Kn is not nan
+    // std::cout<<Kn<<std::endl;
+    auto check_col = torch::sum(torch::isnan(Kn),0);
+    // std::cout<<"Check col: "<<check_col<<std::endl;
+    for(int j=0;j<check_col.size(0);j++){
+        if(check_col[j].item<int>()>0){
+            open3d::utility::LogWarning("Ref node {:d} nan in Kn matrix", j);
+        }
+    }
+
+    int check = torch::sum(torch::isnan(Kn)).item<int>();
+    if(check>0){
+        open3d::utility::LogWarning("Found {:d} nan in Kn matrix", check);
+    }
+
 
 }
 
 int SgNet::match_points(const torch::Tensor &src_guided_knn_feats, const torch::Tensor &ref_guided_knn_feats,
-                            torch::Tensor &corr_points, torch::Tensor &corr_scores)
+                            torch::Tensor &corr_points, std::vector<float> &corr_scores_vec)
 {
-    // std::cout<<src_guided_knn_feats.sizes()<<std::endl; // (M,K,D)
-    // std::cout<<ref_guided_knn_feats.sizes()<<std::endl; // (M,K,D)
     // torch::Tensor src_fake_knn_feats = torch::ones({M,K,D}).to(torch::kFloat32).to(torch::kCUDA);
 
     auto match_output = point_match_layer.forward({src_guided_knn_feats, ref_guided_knn_feats}).toTuple();
     corr_points = match_output->elements()[0].toTensor(); // (C,3),[node_index, src_index, ref_index]
     torch::Tensor matching_scores = match_output->elements()[1].toTensor(); // (M,K,K)
-    std::cout<<"Find "<<corr_points.size(0)<<" matched points\n";
-
+    // std::cout<<"matching score: "<<matching_scores.sizes()<<std::endl;
     int C = corr_points.size(0);
-    return C;
+    std::cout<<"Find "<<C<<" matched points\n";
+
+    // return C;
     if(C>0){
-        corr_scores = torch::zeros({C}).to(torch::kFloat32).to(torch::kCUDA);
-        float corr_scores_arr[C];
+        // corr_scores = torch::zeros({C}).to(torch::kFloat32).to(torch::kCUDA);
+        corr_scores_vec = std::vector<float>(C,0.0);
         for (int i=0;i<C;i++){
-            int node_index = corr_points[i][0].item<int>();
+            int match_index = corr_points[i][0].item<int>();
             int src_index = corr_points[i][1].item<int>();
             int ref_index = corr_points[i][2].item<int>();
-            corr_scores_arr[i] = matching_scores[node_index][src_index][ref_index].item<float>();
-            // std::cout<<std::fixed<<std::setprecision(3)<<corr_scores_arr[i]<<",";
+            corr_scores_vec[i] = matching_scores[match_index][src_index][ref_index].item<float>();
         }
-        // std::cout<<std::endl;
     }
+
+    return C;
 
 }
 

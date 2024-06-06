@@ -6,8 +6,8 @@
 #include "open3d/Open3D.h"
 #include "opencv2/opencv.hpp"
 
-#include "Utility.h"
-#include "SceneGraph.h"
+#include "tools/Utility.h"
+#include "mapping/SemanticMapping.h"
 
 using namespace open3d::visualization;
 
@@ -45,8 +45,8 @@ int main(int argc, char *argv[])
         utility::LogWarning("Failed to create scene graph config.");
         return 0;
     }
-    fmfusion::SceneGraph scene_graph_src(*sg_config);
-    fmfusion::SceneGraph scene_graph_tar(*sg_config);
+    fmfusion::SemanticMapping scene_graph_src(sg_config->mapping_cfg, sg_config->instance_cfg);
+    fmfusion::SemanticMapping scene_graph_tar(sg_config->mapping_cfg, sg_config->instance_cfg);
 
     // load
     scene_graph_src.load(map_folder+"/"+src_sequence);

@@ -2,19 +2,19 @@
 #include <fstream>
 
 #include "Common.h"
-#include "Color.h"
-#include "mapping/Instance.h"
-#include "Utility.h"
+#include "tools/Color.h"
+#include "tools/Utility.h"
+#include "Instance.h"
 
 namespace fmfusion
 {
 
-class SceneGraph
+class SemanticMapping
 {
 public:
-    SceneGraph(const Config &config);
+    SemanticMapping(const MappingConfig &mapping_cfg, const InstanceConfig &instance_cfg);
 
-    ~SceneGraph() {};
+    ~SemanticMapping() {};
 
 public:
     void integrate(const int &frame_id,
@@ -31,6 +31,8 @@ public:
 
     /// \brief  Extract and update bounding box for each instance.
     void extract_bounding_boxes();
+
+    int update_instances(const int &cur_frame_id, const std::vector<InstanceId> &instance_list);
 
     std::shared_ptr<open3d::geometry::PointCloud> export_global_pcd(bool filter=false);
 
@@ -49,8 +51,6 @@ public:
     bool Save(const std::string &path);
 
     bool load(const std::string &path);
-
-    const Config &get_config() { return config_; }
 
     /// \brief  Export instances to the vector. Select by point cloud size.
     void export_instances(std::vector<InstanceId> &names, std::vector<InstancePtr> &instances);
@@ -81,12 +81,14 @@ protected:
     std::unordered_set<InstanceId> recent_instances;
 
 private:
-    Config config_;
+    // Config config_;
+    MappingConfig mapping_config;
     InstanceConfig instance_config;
     std::unordered_map<InstanceId,InstancePtr> instance_map;
         std::unordered_map<std::string, std::vector<InstanceId>> label_instance_map;
     InstanceId latest_created_instance_id;
     int last_cleanup_frame_id;
+    int last_update_frame_id;
     
 };
 

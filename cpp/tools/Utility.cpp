@@ -59,33 +59,32 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
         double cx = fs["camera_cx"];
         double cy = fs["camera_cy"];
 
-        config->intrinsic.SetIntrinsics(img_width,img_height,fx,fy,cx,cy);
-        config->depth_scale = fs["depth_scale"];
-        config->depth_max = fs["depth_max"];
+        // Mapping
+        auto mapping_fs = fs["Mapping"];
+        config->instance_cfg.voxel_length = mapping_fs["voxel_length"];
+        config->instance_cfg.sdf_trunc = mapping_fs["sdf_trunc"];
+        config->instance_cfg.min_voxel_weight = mapping_fs["min_voxel_weight"];
+        config->instance_cfg.intrinsic.SetIntrinsics(img_width,img_height,fx,fy,cx,cy);
 
-        config->voxel_length = fs["voxel_length"];
-        config->sdf_trunc = fs["sdf_trunc"];
-        config->min_active_points = fs["min_active_points"];
+        config->mapping_cfg.depth_scale = mapping_fs["depth_scale"];
+        config->mapping_cfg.depth_max = mapping_fs["depth_max"];
+        config->mapping_cfg.min_active_points = mapping_fs["min_active_points"];
 
-        config->min_det_masks = fs["min_det_masks"];
-        config->max_box_area_ratio = fs["max_box_area_ratio"];
-        config->query_depth_vx_size = fs["query_depth_vx_size"];
-        config->dilation_size = fs["dilate_kernal"];
-        config->min_iou = fs["min_iou"];
-        config->search_radius = fs["search_radius"];
+        config->mapping_cfg.min_det_masks = mapping_fs["min_det_masks"];
+        config->mapping_cfg.max_box_area_ratio = mapping_fs["max_box_area_ratio"];
+        config->mapping_cfg.query_depth_vx_size = mapping_fs["query_depth_vx_size"];
+        config->mapping_cfg.dilation_size = mapping_fs["dilate_kernal"];
+        config->mapping_cfg.min_iou = mapping_fs["min_iou"];
+        config->mapping_cfg.search_radius = mapping_fs["search_radius"];
 
-        config->min_voxel_weight = fs["min_voxel_weight"];
-        config->shape_min_points = fs["shape_min_points"];
+        config->mapping_cfg.shape_min_points = mapping_fs["shape_min_points"];
 
-        config->merge_iou = fs["merge_iou"];
-        config->merge_inflation = fs["merge_inflation"];
-        config->cleanup_period = fs["cleanup_period"];
+        config->mapping_cfg.merge_iou = mapping_fs["merge_iou"];
+        config->mapping_cfg.merge_inflation = mapping_fs["merge_inflation"];
+        config->mapping_cfg.cleanup_period = mapping_fs["cleanup_period"];
+        config->mapping_cfg.update_period = mapping_fs["update_period"];
 
-        int save_da_images = fs["save_da_images"];
-        if (save_da_images>0) config->save_da_images = true;
-        else config->save_da_images = false;
-        
-        fs["tmp_dir"]>>config->tmp_dir;
+        mapping_fs["save_da_dir"] >> config->mapping_cfg.save_da_dir;
 
         // Graph config
         auto graph_config_fs = fs["Graph"];
@@ -98,6 +97,11 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
         auto sgnet_config_fs = fs["SGNet"];
         config->sgnet.triplet_number = sgnet_config_fs["triplet_number"];
         config->sgnet.instance_match_threshold = sgnet_config_fs["instance_match_threshold"];
+
+        //
+        auto reg_fs = fs["Registration"];
+        float noise_bound = reg_fs["noise_bound"];
+        config->reg.noise_bound_vec = {noise_bound};
 
         // Close and print
         fs.release();
@@ -126,47 +130,24 @@ std::string config_to_message(const fmfusion::Config &config)
     default:
         break;
     }
-    
-    message << "image_width: " + std::to_string(config.intrinsic.width_) + "\n";
-    message << "image_height: " + std::to_string(config.intrinsic.height_) + "\n";
-    message << "camera_fx: " + std::to_string(config.intrinsic.intrinsic_matrix_(0,0)) + "\n";
-    message << "camera_fy: " + std::to_string(config.intrinsic.intrinsic_matrix_(1,1)) + "\n";
-    message << "camera_cx: " + std::to_string(config.intrinsic.intrinsic_matrix_(0,2)) + "\n";
-    message << "camera_cy: " + std::to_string(config.intrinsic.intrinsic_matrix_(1,2)) + "\n";
-    message << "depth_max:" << std::to_string(config.depth_max) + "\n";
-
-    message << "voxel_length: " << config.voxel_length << "\n";
-    message << "sdf_trunc: " << std::to_string(config.sdf_trunc) + "\n";
-    message << "min_active_points: " << std::to_string(config.min_active_points) + "\n";
-    message << "shape min points: " << std::to_string(config.shape_min_points) + "\n";
-
-    message << "min_det_masks: " + std::to_string(config.min_det_masks) + "\n";
-    message << "max_box_area_ratio: "<< std::fixed<<std::setprecision(2)<<config.max_box_area_ratio << "\n";
-    message << "query_depth_vx_size: " + std::to_string(config.query_depth_vx_size) + "\n";
-    message << "dilate_kernal: " + std::to_string(config.dilation_size) + "\n";
-    message << "min_iou: "<< std::fixed<<std::setprecision(2)<<config.min_iou << "\n";
-    message << "search_radius: " + std::to_string(config.search_radius) + "\n";
-
-    message << "min_voxel_weight: " << std::fixed<<std::setprecision(2)<<config.min_voxel_weight << "\n";
-
-    message << "cleanup_period: " + std::to_string(config.cleanup_period) + "\n";
-    message << "save_da_images: " + std::to_string(config.save_da_images) + "\n";
-    message << "tmp_dir: " + config.tmp_dir + "\n";
-
+    message <<"Instance: \n"<<config.instance_cfg.print_msg();
+    message <<"Mapping: \n"<<config.mapping_cfg.print_msg();
     message <<"Graph: \n"<<config.graph.print_msg();
-
     message <<"SGNet: \n"<<config.sgnet.print_msg();
+    message <<"Shape encoder: \n" <<config.shape_encoder.print_msg();
+    message <<"Registration: \n"<<config.reg.print_msg();
 
     return message.str();
 }
 
 
-bool LoadPredictions(const std::string &folder_path, const std::string &frame_name, const Config &config,
-    std::vector<DetectionPtr> &detections)
+bool LoadPredictions(const std::string &folder_path, const std::string &frame_name,
+                    const MappingConfig &mapping_cfg, const int &img_width, const int &img_height,
+                    std::vector<DetectionPtr> &detections)
 {
-    const int MAX_BOX_AREA = config.max_box_area_ratio * (config.intrinsic.width_ * config.intrinsic.height_);
+    const int MAX_BOX_AREA = mapping_cfg.max_box_area_ratio * (img_width * img_height);
 
-    auto detection_fs = std::make_shared<fmfusion::DetectionFile>(config.min_det_masks,MAX_BOX_AREA);
+    auto detection_fs = std::make_shared<fmfusion::DetectionFile>(mapping_cfg.min_det_masks, MAX_BOX_AREA);
     std::string json_file_dir = folder_path + "/" + frame_name + "_label.json";
     std::string instance_file_dir = folder_path + "/" + frame_name + "_mask.png";
 
@@ -343,6 +324,7 @@ void random_sample(const std::vector<int> &indices, const int &sample_size, std:
     std::random_shuffle(shuffled_indices.begin(), shuffled_indices.end());
     sampled_indices = std::vector<int>(shuffled_indices.begin(), shuffled_indices.begin()+sample_size);
 }
+
 
 }
 

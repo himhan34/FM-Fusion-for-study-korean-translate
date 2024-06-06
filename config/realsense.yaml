@@ -9,34 +9,39 @@ camera_fx: 619.18
 camera_fy: 618.17
 camera_cx: 336.51
 camera_cy: 246.95
-depth_scale: 1000.0
-depth_max: 4.0
 
-# volumetric 
-voxel_length: 0.02
-sdf_trunc: 0.04
-min_active_points: 100 # active instances
-shape_min_points: 500 # export and bbox extract
+Mapping:
+  # Instance 
+  voxel_length: 0.02
+  sdf_trunc: 0.04
+  min_voxel_weight: 0.1 # weight/observation_count
 
-# associations
-min_det_masks: 100 # pixel-wise
-max_box_area_ratio: 0.9 # box_area/image_area
-query_depth_vx_size: -1.0
-dilate_kernal: 3 
-min_iou: 0.3
-search_radius: 10.0
+  #
+  depth_scale: 1000.0
+  depth_max: 4.0
+  min_active_points: 100 # active instances
+  shape_min_points: 500 # export and bbox extract
 
-# shape
-min_voxel_weight: 0.1 # weight/observation_count
+  # associations
+  min_det_masks: 100 # pixel-wise
+  max_box_area_ratio: 0.9 # box_area/image_area
+  query_depth_vx_size: -1.0
+  dilate_kernal: 3 
+  min_iou: 0.3
+  search_radius: 10.0
 
-# merge over-segmentation
-merge_inflation: 3.5
-merge_iou: 0.4
-cleanup_period: 6600
+  # merge over-segmentation
+  merge_inflation: 3.5
+  merge_iou: 0.4
+  cleanup_period: 6600
 
+  #
+  update_period: 20
+
+  save_da_dir: "" #"/data2/sgslam/output/da"
 # 
 Graph:
-  edge_radius_ratio: 3.0
+  edge_radius_ratio: 2.0
   voxel_size: 0.02
   involve_floor_edge: 0
   ignore_labels: "ceiling. floor. carpet."
@@ -44,6 +49,9 @@ Graph:
 SGNet:
   triplet_number: 20
   instance_match_threshold: 0.05
+
+Registration:
+  noise_bound: 1.0
 
 # output
 save_da_images: 0

@@ -6,6 +6,7 @@
 
 #include "open3d/Open3D.h"
 #include "Detection.h"
+#include "Common.h"
 
 namespace fmfusion
 {
@@ -15,15 +16,6 @@ typedef uint32_t InstanceId;
 typedef open3d::geometry::PointCloud O3d_Cloud;
 typedef std::shared_ptr<open3d::geometry::PointCloud> O3d_Cloud_Ptr;
 
-struct InstanceConfig{
-    double voxel_length = 0.02;
-    double sdf_trunc = 0.04;
-    open3d::camera::PinholeCameraIntrinsic intrinsic;
-    int max_label_measures = 20;
-    double min_voxel_weight = 2.0;
-    double cluster_eps = 0.05;
-    int cluster_min_points = 20;
-};
 
 class Instance
 {
@@ -40,6 +32,8 @@ public:
 
     /// \brief  Update the centroid from volume units origins.
     void fast_update_centroid(){centroid = volume_->get_centroid();};
+
+    bool update_point_cloud(int cur_frame_id,int min_frame_gap=10);
 
     void merge_with(const O3d_Cloud_Ptr &other_cloud, 
         const std::unordered_map<std::string,float> &label_measurements, const int &observations_);
@@ -81,6 +75,7 @@ public:
 
 public:
     unsigned int frame_id_; // initrialization frame id
+    unsigned int update_frame_id; // update point cloud and bounding box
     Eigen::Vector3d color_;
     std::shared_ptr<cv::Mat> observed_image_mask; // Poject volume on image plane;
     open3d::pipelines::integration::InstanceTSDFVolume *volume_;
