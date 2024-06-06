@@ -11,14 +11,12 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 message(STATES "compiling extensions")
 
 add_library(extensions SHARED 
-    extra/cloud/cloud.cpp
-    extra/nanoflann/nanoflann.hpp
-    cpu/radius_neighbors/radius_neighbors_cpu.cpp
-    cpu/grid_subsampling/grid_subsampling_cpu.cpp    
-    cpu/radius_neighbors/radius_neighbors.cpp
-    cpu/grid_subsampling/grid_subsampling.cpp    
-    # cpu/radius_neighbors/radius_neighbors.h
-    # common/torch_helper.h
+    extra/cloud.cpp
+    extra/nanoflann.hpp
+    cpu/radius_neighbors_cpu.cpp
+    cpu/grid_subsampling_cpu.cpp    
+    cpu/radius_neighbors.cpp
+    cpu/grid_subsampling.cpp    
 )
 
 target_link_libraries(extensions PRIVATE ${TORCH_LIBRARIES})

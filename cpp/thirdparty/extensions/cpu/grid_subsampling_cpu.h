@@ -2,7 +2,7 @@
 
 #include <vector>
 #include <unordered_map>
-#include "../../extra/cloud/cloud.h"
+#include "../extra/cloud.h"
 
 class SampledData {
 public:

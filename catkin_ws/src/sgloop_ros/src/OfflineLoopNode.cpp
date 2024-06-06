@@ -8,20 +8,21 @@
 
 #include "SceneGraph.h"
 #include "tools/Tools.h"
+#include "tools/Eval.h"
 #include "sgloop/Graph.h"
-#include "sgloop/LoopDetector.h"
-// #include "sgloop/ShapeEncoder.h"
+#include "sgloop/SGNet.h"
+#include "sgloop/ShapeEncoder.h"
 
 #include "Visualization.h"
 
 struct Publishers{
-  ros::Publisher ref_graph, src_graph;
-  ros::Publisher ref_centroids, src_centroids;
-  ros::Publisher instance_match;
+    ros::Publisher ref_graph, src_graph;
+    ros::Publisher ref_centroids, src_centroids;
+    ros::Publisher instance_match;
 }mypubs;
 
 struct GraphMsg{
-  sensor_msgs::PointCloud2 global_cloud;
+    sensor_msgs::PointCloud2 global_cloud;
 }ref_msgs, src_msgs;
 
 
@@ -42,6 +43,7 @@ int main(int argc, char **argv)
     bool set_src_scene = nh_private.getParam("src_scene_dir", src_scene_dir);
     std::string output_folder = nh_private.param("output_folder", std::string(""));
     std::string frame_id = nh_private.param("frame_id", std::string("world"));
+    std::string gt_file = nh_private.param("gt_file", std::string(""));
     int visualization = nh_private.param("visualization", 0);
 
     // Publisher
@@ -57,14 +59,12 @@ int main(int argc, char **argv)
     std::cout<<"config file: "<<config_file<<std::endl;
 
     // Load Config
-    GraphConfig graph_config;
-    SgNetConfig loop_config;
-    // ShapeEncoderConfig shape_config;
     Config *sg_config = utility::create_scene_graph_config(config_file, true);
     if (sg_config==nullptr){
         ROS_WARN("Failed to create scene graph config.");
         return 0;
     }
+    fmfusion::ShapeEncoderConfig shape_config;
 
     // Load reconstrcuted maps
     auto ref_map = std::make_shared<SceneGraph>(SceneGraph(*sg_config));
@@ -89,32 +89,91 @@ int main(int argc, char **argv)
     src_graph->construct_edges();
     ref_graph->construct_triplets();
     src_graph->construct_triplets();
+    fmfusion::DataDict ref_data_dict = ref_graph->extract_data_dict();
+    fmfusion::DataDict src_data_dict = src_graph->extract_data_dict();
 
-    // Loop detection
+    // Encode using SgNet
+    SgNetConfig sgnet_config;
     torch::Tensor ref_node_features, src_node_features;
-    std::vector<std::pair<uint32_t,uint32_t>> match_pairs;
-    std::vector<float> match_scores;
-    std::vector<Eigen::Vector3d> src_centroids, ref_centroids;
+    torch::Tensor ref_node_shape, src_node_shape;
+    torch::Tensor ref_node_knn_points, src_node_knn_points; // (Nr,K,3)
+    torch::Tensor ref_node_knn_feats, src_node_knn_feats;
 
-    auto loop_detector = std::make_shared<SgNet>(loop_config, weights_folder);
-    loop_detector->graph_encoder(ref_graph->get_const_nodes(), ref_node_features);
-    loop_detector->graph_encoder(src_graph->get_const_nodes(), src_node_features);
+    auto sgnet = std::make_shared<SgNet>(sgnet_config, weights_folder);
+    fmfusion::ShapeEncoderPtr shape_encoder = std::make_shared<fmfusion::ShapeEncoder>(shape_config, weights_folder);
+    fmfusion::o3d_utility::Timer timer;
+    timer.Start();
+    shape_encoder->encode(
+        ref_data_dict.xyz, ref_data_dict.labels, ref_data_dict.centroids, ref_data_dict.nodes, ref_node_shape, ref_node_knn_points, ref_node_knn_feats);
+    timer.Stop();
+    std::cout<<"Encode ref graph shape takes "<<std::fixed<<std::setprecision(3)<<timer.GetDurationInMillisecond()<<" ms\n";
+    timer.Start();
+    shape_encoder->encode(
+        src_data_dict.xyz, src_data_dict.labels, src_data_dict.centroids, src_data_dict.nodes, src_node_shape, src_node_knn_points, src_node_knn_feats);
+    std::cout<<"Encode src graph shape takes "<<std::fixed<<std::setprecision(3)<<timer.GetDurationInMillisecond()<<" ms\n";
+
+    sgnet->graph_encoder(ref_graph->get_const_nodes(), ref_node_features);
+    sgnet->graph_encoder(src_graph->get_const_nodes(), src_node_features);
     TORCH_CHECK(src_node_features.device().is_cuda(), "src node feats must be a CUDA tensor")
 
-    loop_detector->detect_loop(src_node_features, ref_node_features, match_pairs, match_scores);
+    // Hierachical matching
+    std::vector<std::pair<uint32_t,uint32_t>> match_pairs;
+    std::vector<float> match_scores;
+    std::vector<Eigen::Vector3d> corr_src_points, corr_ref_points;
+
+    int M; // number of matched nodes
+    int C=0; // number of matched points
+
+    sgnet->match_nodes(src_node_features, ref_node_features, match_pairs, match_scores);
+    M = match_pairs.size();
+    if(M>0){
+        torch::Tensor corr_points;
+        torch::Tensor corr_scores;        
+        float match_pairs_array[2][M]; // 
+        for(int i=0;i<M;i++){
+            match_pairs_array[0][i] = int(match_pairs[i].first);  // src_node
+            match_pairs_array[1][i] = int(match_pairs[i].second); // ref_node
+        }
+        torch::Tensor src_corr_nodes = torch::from_blob(match_pairs_array[0], {M}).to(torch::kInt64).to(torch::kCUDA);
+        torch::Tensor ref_corr_nodes = torch::from_blob(match_pairs_array[1], {M}).to(torch::kInt64).to(torch::kCUDA);
+
+        torch::Tensor src_guided_knn_points = src_node_knn_points.index_select(0, src_corr_nodes);
+        torch::Tensor src_guided_knn_feats = src_node_knn_feats.index_select(0, src_corr_nodes);
+        torch::Tensor ref_guided_knn_points = ref_node_knn_points.index_select(0, ref_corr_nodes);
+        torch::Tensor ref_guided_knn_feats = ref_node_knn_feats.index_select(0, ref_corr_nodes);
+        TORCH_CHECK(src_guided_knn_feats.device().is_cuda(), "src guided knn feats must be a CUDA tensor");
+        timer.Start();
+        C = sgnet->match_points(src_guided_knn_feats, ref_guided_knn_feats, corr_points, corr_scores);
+        timer.Stop();
+        std::cout<<"Match points takes "<<std::fixed<<std::setprecision(3)<<timer.GetDurationInMillisecond()<<" ms\n";
+        fmfusion::extract_corr_points(src_guided_knn_points, ref_guided_knn_points, corr_points, corr_src_points, corr_ref_points);
+    }
+
 
     // Export
-    std::vector<std::pair<fmfusion::InstanceId,fmfusion::InstanceId>> match_instances;
-    IO::extract_match_instances(match_pairs, src_graph->get_const_nodes(), ref_graph->get_const_nodes(), match_instances);
-    IO::extract_instance_correspondences(src_graph->get_const_nodes(), ref_graph->get_const_nodes(), match_pairs, match_scores, src_centroids, ref_centroids);
-    
+    std::vector<std::pair<fmfusion::InstanceId,fmfusion::InstanceId>> pred_instances;
+    std::vector<bool> pred_masks;
+    std::vector<Eigen::Vector3d> src_centroids, ref_centroids;
+    fmfusion::O3d_Cloud_Ptr src_cloud_ptr, ref_cloud_ptr;
+    Eigen::Matrix4d pred_pose;    
+    fmfusion::IO::extract_match_instances(
+        match_pairs, src_graph->get_const_nodes(), ref_graph->get_const_nodes(), pred_instances);
+    fmfusion::IO::extract_instance_correspondences(
+        src_graph->get_const_nodes(), ref_graph->get_const_nodes(), match_pairs, match_scores, src_centroids, ref_centroids);
+
+    if(gt_file.size()>0){
+        int count_true = fmfusion::maks_true_instance(gt_file, pred_instances, pred_masks);
+        std::cout<<"True instance match: "<<count_true<<"/"<<pred_instances.size()<<std::endl;
+    }
+
     if(visualization>0){
         ROS_WARN("run visualization");
         Visualization::render_point_cloud(ref_map->export_global_pcd(), mypubs.ref_graph,frame_id);
+        ros::Duration(0.5).sleep();
         Visualization::render_point_cloud(src_map->export_global_pcd(), mypubs.src_graph, "local");
         Visualization::instance_centroids(ref_graph->get_centroids(),mypubs.ref_centroids,frame_id,{255,0,0});
 
-        Visualization::instance_match(src_centroids, ref_centroids, mypubs.instance_match);
+        Visualization::instance_match(src_centroids, ref_centroids, mypubs.instance_match,"world", pred_masks);
     }
 
     ros::spinOnce();

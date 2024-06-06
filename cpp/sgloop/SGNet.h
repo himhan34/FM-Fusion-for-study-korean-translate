@@ -25,7 +25,7 @@ class SgNet
 {
 
 public:
-    SgNet(const SgNetConfig &config, const std::string weight_folder);
+    SgNet(const SgNetConfig &config_, const std::string weight_folder);
     ~SgNet() {};
 
     /// @brief Modality encoder and graph encoder.
@@ -48,8 +48,9 @@ private:
     torch::jit::script::Module light_match_layer;
     torch::jit::script::Module fused_match_layer;
     torch::jit::script::Module point_match_layer;
-    int token_padding;
-    int triplet_number;
+    // int token_padding;
+    // int triplet_number;
+    SgNetConfig config;
 
 };
 

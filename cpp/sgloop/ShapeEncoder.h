@@ -7,8 +7,8 @@
 #include <torch/script.h> 
 #include <open3d/Open3D.h>
 
-#include "thirdparty/extensions/cpu/grid_subsampling/grid_subsampling.h"
-#include "thirdparty/extensions/cpu/radius_neighbors/radius_neighbors.h"
+#include "thirdparty/extensions/cpu/grid_subsampling.h"
+#include "thirdparty/extensions/cpu/radius_neighbors.h"
 
 namespace fmfusion
 {

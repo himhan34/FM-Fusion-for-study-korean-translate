@@ -155,6 +155,7 @@ if(INSTALL_FMFUSION)
     )
     install(FILES
         tools/Tools.h
+        tools/Eval.h
         DESTINATION include/fmfusion/tools
     )
     install(FILES 
@@ -165,6 +166,12 @@ if(INSTALL_FMFUSION)
         DESTINATION include/fmfusion/tokenizer
     )
 
+    install(FILES
+        thirdparty/extensions/cpu/torch_helper.h
+        thirdparty/extensions/cpu/grid_subsampling.h
+        thirdparty/extensions/cpu/radius_neighbors.h
+        DESTINATION include/fmfusion/thirdparty/extensions/cpu
+    )
 
     # include(CMakePackageConfigHelpers)
     # write_basic_package_version_file(

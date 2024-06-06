@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../common/torch_helper.h"
+#include "torch_helper.h"
 
 at::Tensor radius_neighbors(
   at::Tensor q_points,

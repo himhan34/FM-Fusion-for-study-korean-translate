@@ -1,6 +1,7 @@
 #include "unordered_map"
 #include "ros/ros.h"
 
+#include "std_msgs/ColorRGBA.h"
 #include "geometry_msgs/PointStamped.h"
 #include "sensor_msgs/PointCloud2.h"
 #include "visualization_msgs/Marker.h"
@@ -13,7 +14,9 @@ namespace Visualization
 
     bool instance_match(const std::vector<Eigen::Vector3d> &src_centroids,
                         const std::vector<Eigen::Vector3d> &ref_centroids,
-                        ros::Publisher pub, std::string frame_id="world");
+                        ros::Publisher pub, 
+                        std::string frame_id="world",
+                        std::vector<bool> pred_masks={});
 
     bool instance_centroids(const std::vector<Eigen::Vector3d> &centroids,
                             ros::Publisher pub, 

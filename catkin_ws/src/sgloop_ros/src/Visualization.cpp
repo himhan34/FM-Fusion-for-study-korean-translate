@@ -16,7 +16,7 @@ namespace Visualization
 
     bool instance_match(const std::vector<Eigen::Vector3d> &src_centroids,
                         const std::vector<Eigen::Vector3d> &ref_centroids,
-                        ros::Publisher pub, std::string frame_id)
+                        ros::Publisher pub, std::string frame_id, std::vector<bool> pred_masks)
     {
         visualization_msgs::Marker marker;
         marker.header.frame_id = frame_id;
@@ -26,8 +26,7 @@ namespace Visualization
         marker.type = visualization_msgs::Marker::LINE_LIST;
         marker.action = visualization_msgs::Marker::ADD;
         marker.pose.orientation.w = 1.0;
-        marker.scale.x = 0.01; // line width
-        // marker.color.r = 1.0;
+        marker.scale.x = 0.02; // line width
         marker.color.a = 1.0;
 
         int n = src_centroids.size();
@@ -43,6 +42,15 @@ namespace Visualization
             p2.z = ref_centroids[i].z();
             marker.points.push_back(p1);
             marker.points.push_back(p2);
+            std_msgs::ColorRGBA line_color;
+            line_color.a = 1;
+            // line_color.r = 1;
+            if(!pred_masks.empty()){
+                if(pred_masks[i]) line_color.g = 1;
+                else line_color.r = 1;
+            }
+            marker.colors.push_back(line_color);
+            marker.colors.push_back(line_color);
         }
 
         pub.publish(marker);

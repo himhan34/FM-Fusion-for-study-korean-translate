@@ -96,7 +96,8 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
 
         //
         auto sgnet_config_fs = fs["SGNet"];
-        // config->sgnet.triplet_number = sgnet_config_fs["triplet_number"];
+        config->sgnet.triplet_number = sgnet_config_fs["triplet_number"];
+        config->sgnet.instance_match_threshold = sgnet_config_fs["instance_match_threshold"];
 
         // Close and print
         fs.release();
@@ -154,7 +155,7 @@ std::string config_to_message(const fmfusion::Config &config)
 
     message <<"Graph: \n"<<config.graph.print_msg();
 
-    // message <<"SGNet: \n"<<config.sgnet.print_msg();
+    message <<"SGNet: \n"<<config.sgnet.print_msg();
 
     return message.str();
 }

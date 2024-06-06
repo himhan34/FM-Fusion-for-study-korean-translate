@@ -1,6 +1,6 @@
 #include <vector>
-#include "../../extra/cloud/cloud.h"
-#include "../../extra/nanoflann/nanoflann.hpp"
+#include "../extra/cloud.h"
+#include "../extra/nanoflann.hpp"
 
 typedef nanoflann::KDTreeSingleIndexAdaptor<
   nanoflann::L2_Simple_Adaptor<float, PointCloud>, PointCloud, 3

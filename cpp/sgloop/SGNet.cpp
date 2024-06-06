@@ -27,7 +27,7 @@ int extract_corr_points(const torch::Tensor &src_guided_knn_points,
     return C;
 }
 
-SgNet::SgNet(const SgNetConfig &config, const std::string weight_folder)
+SgNet::SgNet(const SgNetConfig &config_, const std::string weight_folder):config(config_)
 {
     // std::cout << "LibTorch version: " << TORCH_VERSION_MAJOR<<"." 
     //                                 << TORCH_VERSION_MINOR<<"."
@@ -101,9 +101,7 @@ SgNet::SgNet(const SgNetConfig &config, const std::string weight_folder)
     tokenizer->Init(vocab_path);
     std::cout<<"Tokenizer loaded and initialized\n";
 
-    //
-    token_padding = config.token_padding;
-    triplet_number = config.triplet_number;
+
 }
 
 
@@ -115,8 +113,8 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
     float centroids_arr[N][3];
     float boxes_arr[N][3];
     std::string labels[N];
-    float tokens[N][token_padding]={};
-    float tokens_attention_mask[N][token_padding]={};
+    float tokens[N][config.token_padding]={};
+    float tokens_attention_mask[N][config.token_padding]={};
     std::vector<int> triplet_anchors; // (N',)
     std::vector<std::vector<Corner>> triplet_corners; // (N', triplet_number, 2)
     
@@ -155,7 +153,7 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
             triplet_anchors.push_back(i);
             std::vector<Corner> corner_vector;
             // for (int k=0;k<triplet_number;k++) corner_vector.push_back({0,1}); // fake corner
-            node->sample_corners(triplet_number, corner_vector, N); // padding with N
+            node->sample_corners(config.triplet_number, corner_vector, N); // padding with N
             triplet_corners.push_back(corner_vector);
         }
     }
@@ -163,11 +161,11 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
     // Pack triplets
     int N_valid = triplet_anchors.size(); // Node with at least one valid triplet
     float triplet_anchors_arr[N_valid];
-    float triplet_corners_arr[N_valid][triplet_number][2];
-    float triplet_corners_masks[N_valid][triplet_number]={}; // initiialized with 0
+    float triplet_corners_arr[N_valid][config.triplet_number][2];
+    float triplet_corners_masks[N_valid][config.triplet_number]={}; // initiialized with 0
     for (int i=0;i<N_valid;i++){
         triplet_anchors_arr[i] = triplet_anchors[i];
-        for (int j=0;j<triplet_number;j++){
+        for (int j=0;j<config.triplet_number;j++){
             triplet_corners_arr[i][j][0] = triplet_corners[i][j][0];
             triplet_corners_arr[i][j][1] = triplet_corners[i][j][1];
             if(triplet_corners[i][j][0]<N) triplet_corners_masks[i][j] = 1;
@@ -177,12 +175,12 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
     // Input tensors
     torch::Tensor boxes = torch::from_blob(boxes_arr, {N, 3}).to(torch::kCUDA);
     torch::Tensor centroids = torch::from_blob(centroids_arr, {N, 3}).to(torch::kCUDA);
-    torch::Tensor input_ids = torch::from_blob(tokens, {N, token_padding}).to(torch::kInt32).to(torch::kCUDA);
-    torch::Tensor attention_mask = torch::from_blob(tokens_attention_mask, {N, token_padding}).to(torch::kInt32).to(torch::kCUDA);
-    torch::Tensor token_type_ids = torch::zeros({N, token_padding}).to(torch::kInt32).to(torch::kCUDA);
+    torch::Tensor input_ids = torch::from_blob(tokens, {N, config.token_padding}).to(torch::kInt32).to(torch::kCUDA);
+    torch::Tensor attention_mask = torch::from_blob(tokens_attention_mask, {N, config.token_padding}).to(torch::kInt32).to(torch::kCUDA);
+    torch::Tensor token_type_ids = torch::zeros({N, config.token_padding}).to(torch::kInt32).to(torch::kCUDA);
     torch::Tensor anchors = torch::from_blob(triplet_anchors_arr,{N_valid}).to(torch::kInt32).to(torch::kCUDA); //torch::zeros({30, 1}).to(torch::kCUDA);
-    torch::Tensor corners = torch::from_blob(triplet_corners_arr, {N_valid, triplet_number, 2}).to(torch::kInt32).to(torch::kCUDA);
-    torch::Tensor corners_mask = torch::from_blob(triplet_corners_masks, {N_valid, triplet_number}).to(torch::kInt32).to(torch::kCUDA);    
+    torch::Tensor corners = torch::from_blob(triplet_corners_arr, {N_valid, config.triplet_number, 2}).to(torch::kInt32).to(torch::kCUDA);
+    torch::Tensor corners_mask = torch::from_blob(triplet_corners_masks, {N_valid, config.triplet_number}).to(torch::kInt32).to(torch::kCUDA);    
 
     // Graph encoding
     std::cout<<"Encoding "<<N<<" node features, with "<<N_valid<<" nodes have valid triplets\n";
@@ -221,14 +219,17 @@ void SgNet::match_nodes(const torch::Tensor &src_node_features, const torch::Ten
     torch::Tensor matches_scores = match_output->elements()[1].toTensor(); // (M,)
     torch::Tensor Kn = match_output->elements()[2].toTensor(); // (X,Y)
 
-    int matched_pair = matches.size(0);
-    std::cout<<"Find "<<matched_pair<<" matched pairs\n";
+    int M = matches.size(0);
+    // std::cout<<"Find "<<M<<" matched pairs\n";
     // std::cout<<"matches: "<<matches<<std::endl;
     // std::cout<<"matching scores: "<<matches_scores<<std::endl;
 
-    for (int i=0;i<matched_pair;i++){
-        match_pairs.push_back({matches[i][0].item<int>(), matches[i][1].item<int>()});
-        match_scores.push_back(matches_scores[i].item<float>());
+    for (int i=0;i<M;i++){
+        float score = matches_scores[i].item<float>();
+        if(score>config.instance_match_threshold){
+            match_pairs.push_back({matches[i][0].item<int>(), matches[i][1].item<int>()});
+            match_scores.push_back(score);            
+        }
     }
 
 }

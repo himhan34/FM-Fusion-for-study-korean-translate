@@ -7,6 +7,7 @@
 #include "SceneGraph.h"
 #include "Common.h"
 #include "tools/Tools.h"
+#include "tools/Eval.h"
 #include "sgloop/Graph.h"
 #include "sgloop/ShapeEncoder.h"
 #include "sgloop/SGNet.h"
@@ -111,6 +112,7 @@ int main(int argc, char* argv[])
     std::string src_map_dir = utility::GetProgramOptionAsString(argc, argv, "--src_scene");
     std::string weights_folder = utility::GetProgramOptionAsString(argc, argv, "--weights_folder");
     std::string output_folder = utility::GetProgramOptionAsString(argc, argv, "--output_folder");
+    std::string gt_file = utility::GetProgramOptionAsString(argc, argv, "--gt_file");
     bool fused = utility::ProgramOptionExists(argc, argv, "--fusion");
     bool dense_match = utility::ProgramOptionExists(argc, argv, "--dense_match");
     int viz_mode = utility::GetProgramOptionAsInt(argc, argv, "--viz_mode", 0);
@@ -154,8 +156,8 @@ int main(int argc, char* argv[])
     // Encode using SgNet
     fmfusion::o3d_utility::Timer timer;
 
-    fmfusion::SgNetConfig sgnet_config;
-    auto sgnet = std::make_shared<fmfusion::SgNet>(fmfusion::SgNet(sgnet_config, weights_folder));
+    // fmfusion::SgNetConfig sgnet_config;
+    auto sgnet = std::make_shared<fmfusion::SgNet>(fmfusion::SgNet(sg_config->sgnet, weights_folder));
     fmfusion::ShapeEncoderPtr shape_encoder = std::make_shared<fmfusion::ShapeEncoder>(shape_config, weights_folder);
 
     torch::Tensor ref_node_features, src_node_features;
@@ -182,7 +184,6 @@ int main(int argc, char* argv[])
 
     // Hierachical matching
     std::vector<std::pair<uint32_t,uint32_t>> match_pairs;
-    std::vector<std::pair<fmfusion::InstanceId,fmfusion::InstanceId>> match_instances;
     std::vector<float> match_scores;
     std::vector<Eigen::Vector3d> corr_src_points, corr_ref_points;
 
@@ -191,6 +192,8 @@ int main(int argc, char* argv[])
 
     sgnet->match_nodes(src_node_features, ref_node_features, match_pairs, match_scores,fused);
     M = match_pairs.size();
+    std::cout<<"Find "<<M<<" matched nodes\n";
+    // todo: filter outlier nodes by maximum clique
     if(dense_match && M>0){
         torch::Tensor corr_points;
         torch::Tensor corr_scores;        
@@ -215,6 +218,7 @@ int main(int argc, char* argv[])
     }
 
     // Estimate pose
+    std::vector<std::pair<fmfusion::InstanceId,fmfusion::InstanceId>> match_instances;
     std::vector<Eigen::Vector3d> src_centroids, ref_centroids;
     fmfusion::O3d_Cloud_Ptr src_cloud_ptr, ref_cloud_ptr;
     Eigen::Matrix4d pred_pose;    
@@ -231,11 +235,17 @@ int main(int argc, char* argv[])
                 src_cloud_ptr, 
                 ref_cloud_ptr, 
                 pred_pose);
+    
+    // Eval
+    std::vector<bool> matches_true_masks;
+    if(gt_file.size()>0){
+        int true_instance_match = fmfusion::maks_true_instance(gt_file, match_instances, matches_true_masks);
+        std::cout<<"True instance match: "<<true_instance_match<<"/"<<match_instances.size()<<std::endl;
+    }
 
     // visualization
     if (viz_mode==1){ // instance match
         auto ref_geometries = ref_map->get_geometries(true, false);
-        // auto ref_edge_lineset = fmfusion::visualization::draw_edges(ref_graph->get_const_nodes(), ref_graph->get_const_edges());
         auto instance_match_lineset = fmfusion::visualization::draw_instance_correspondences(src_centroids, ref_centroids);
 
         std::vector<fmfusion::O3d_Geometry_Ptr> viz_geometries;
