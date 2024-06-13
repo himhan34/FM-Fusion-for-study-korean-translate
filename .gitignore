@@ -10,6 +10,7 @@ catkin_ws/build
 catkin_ws/src/sgloop_ros/thirdparty
 install
 eval/fmfusion
+tmp
 
 # Ignore files 
 *.pyc

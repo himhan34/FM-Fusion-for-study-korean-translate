@@ -1,3 +1,27 @@
+## SgSlam data structure
+Construt the dataset folder as follows,
+```bash
+sgslam
+|---splits
+    |---val.txt
+|---val
+    |---uc0110_00a
+        |---instance_info.txt
+        |---instance_box.txt
+        |---transform.txt # ground-truth transformation to reference scene
+        |---edges.pth # for sgnet pytorch 
+        |---nodes.csv # for sgnet pytorch
+        |---xyzi.pth # [x,y,z,instance] for sgnet pytorch
+        |---instance_map.ply # global point cloud colored in instances
+        |---global_pcd.ply # global rgb point cloud (denser than instance_map)
+        |---${XXXX}.ply # instance point cloud
+        |---${XXXX}.ply
+        |---...
+    |---...
+|---matches # ground-truth instance matches
+|---output # test loop result and mapping result
+```
+
 ## FusionPortable data structure
 Run traditional dense volumetric fusion using Open3d on FusionPortable dataset. 
 

@@ -10,31 +10,27 @@
 #include "tools/Tools.h"
 #include "tools/IO.h"
 #include "tools/Eval.h"
+#include "tools/TicToc.h"
+#include "tools/g3reg_api.h"
 #include "sgloop/Graph.h"
 #include "sgloop/SGNet.h"
 #include "sgloop/ShapeEncoder.h"
 #include "sgloop/LoopDetector.h"
 
 #include "registration/Prune.h"
+#include "communication/Communication.h"
 
 #include "Visualization.h"
-
-struct Publishers{
-    ros::Publisher ref_graph, src_graph;
-    ros::Publisher ref_centroids, src_centroids;
-    ros::Publisher ref_edges, src_edges;
-    ros::Publisher instance_match;
-}mypubs;
 
 struct GraphMsg{
     sensor_msgs::PointCloud2 global_cloud;
 }ref_msgs, src_msgs;
 
-Visualization::VizParam viz_param;
-
 int main(int argc, char **argv)
 {
     using namespace fmfusion;
+    using namespace open3d::utility;
+
     ros::init(argc, argv, "LoopNode");
     ros::NodeHandle n;
     ros::NodeHandle nh_private("~");
@@ -42,31 +38,29 @@ int main(int argc, char **argv)
     // Settings
     std::string config_file, weights_folder;
     std::string ref_scene_dir, src_scene_dir;
+    std::string LOCAL_AGENT, REMOTE_AGENT;
 
     bool set_cfg = nh_private.getParam("cfg_file", config_file);
     bool set_wegith_folder = nh_private.getParam("weights_folder", weights_folder);
     bool set_ref_scene = nh_private.getParam("ref_scene_dir", ref_scene_dir);
     bool set_src_scene = nh_private.getParam("src_scene_dir", src_scene_dir);
+    bool set_local_agent = nh_private.getParam("local_agent", LOCAL_AGENT);
+    bool set_remote_agent = nh_private.getParam("remote_agent", REMOTE_AGENT);
+
     std::string output_folder = nh_private.param("output_folder", std::string(""));
     std::string frame_id = nh_private.param("frame_id", std::string("world"));
     std::string gt_file = nh_private.param("gt_file", std::string(""));
     int visualization = nh_private.param("visualization", 0);
     bool prune_instances = nh_private.param("prune_instances", true);
-
-    viz_param.edge_width = n.param("viz/edge_width", 0.02);
-    viz_param.edge_color[0] = n.param("viz/edge_color/r", 0.0);
-    viz_param.edge_color[1] = n.param("viz/edge_color/g", 0.0);
-    viz_param.edge_color[2] = n.param("viz/edge_color/b", 1.0);
-    viz_param.centroid_size = n.param("viz/centroid_size", 0.1);
+    bool fused = nh_private.param("fused",true);
+    bool test_communication = nh_private.param("test_communication", false);
+    int broadcast_times = nh_private.param("broadcast_times", 2);
 
     // Publisher
-    mypubs.ref_graph = nh_private.advertise<sensor_msgs::PointCloud2>("ref_graph", 1000);
-    mypubs.src_graph = nh_private.advertise<sensor_msgs::PointCloud2>("src_graph", 1000);
-    mypubs.ref_centroids = nh_private.advertise<visualization_msgs::Marker>("ref_centroids", 1000);
-    mypubs.src_centroids = nh_private.advertise<visualization_msgs::Marker>("src_centroids", 1000);
-    mypubs.ref_edges = nh_private.advertise<visualization_msgs::Marker>("ref_edges", 1000);
-    mypubs.src_edges = nh_private.advertise<visualization_msgs::Marker>("src_edges", 1000);
-    mypubs.instance_match = nh_private.advertise<visualization_msgs::Marker>("instance_match", 1000);
+    Visualization::Visualizer viz(n,nh_private);
+    // ros::Subscriber ref_sub = nh_private.subscribe("coarse_graph",1000);
+    std::string src_name = *filesystem::GetPathComponents(src_scene_dir).rbegin();
+    std::string ref_name = *filesystem::GetPathComponents(ref_scene_dir).rbegin();
 
     assert(set_cfg && set_wegith_folder);
     assert(set_ref_scene && set_src_scene);
@@ -80,41 +74,112 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    // Load reconstrcuted maps
-    auto ref_mapping = std::make_shared<SemanticMapping>(SemanticMapping(sg_config->mapping_cfg,sg_config->instance_cfg));
-    auto src_mapping = std::make_shared<SemanticMapping>(SemanticMapping(sg_config->mapping_cfg,sg_config->instance_cfg));
-    ref_mapping->load(ref_scene_dir);
-    src_mapping->load(src_scene_dir);
-    ref_mapping->extract_bounding_boxes();
-    src_mapping->extract_bounding_boxes();
-
+    // Declare reference data
     std::vector<InstanceId> ref_names, src_names;
-    std::vector<InstancePtr> ref_instances, src_instances;
-    ref_mapping->export_instances(ref_names,ref_instances);
+    std::vector<InstancePtr> ref_instances, src_instances;    
+    fmfusion::o3d_utility::Timer timer;
+    std::shared_ptr<SemanticMapping> ref_mapping = std::make_shared<SemanticMapping>(
+        SemanticMapping(sg_config->mapping_cfg,sg_config->instance_cfg));
+    std::shared_ptr<Graph> ref_graph = std::make_shared<Graph>(sg_config->graph);
+
+    ref_mapping->load(ref_scene_dir);
+    
+    // Active graph
+    fmfusion::TicToc tictoc;
+    auto src_mapping = std::make_shared<SemanticMapping>(SemanticMapping(sg_config->mapping_cfg,sg_config->instance_cfg));
+    src_mapping->load(src_scene_dir);
+    src_mapping->extract_bounding_boxes();
     src_mapping->export_instances(src_names,src_instances);
+    std::cout<<"prepare src scene: "<<src_name
+        << ". it takes "<< tictoc.toc()<<"ms \n";
 
-    // Construct explicit graph
-    auto ref_graph = std::make_shared<Graph>(sg_config->graph);
     auto src_graph = std::make_shared<Graph>(sg_config->graph);
-
-    ref_graph->initialize(ref_instances);
     src_graph->initialize(src_instances);
-    ref_graph->construct_edges();
     src_graph->construct_edges();
-    ref_graph->construct_triplets();
     src_graph->construct_triplets();
-    fmfusion::DataDict ref_data_dict = ref_graph->extract_data_dict();
     fmfusion::DataDict src_data_dict = src_graph->extract_data_dict();
 
-    // Encode using SgNet
+    // Encode Src Graph
     auto loop_detector = std::make_shared<fmfusion::LoopDetector>(fmfusion::LoopDetector(
-                        sg_config->shape_encoder, sg_config->sgnet, weights_folder));
-    fmfusion::o3d_utility::Timer timer;
-    timer.Start();                        
-    loop_detector->encode_ref_scene_graph(ref_graph->get_const_nodes(), ref_data_dict);
-    timer.Stop();
+                        sg_config->loop_detector,sg_config->shape_encoder, sg_config->sgnet, weights_folder));
+
     std::cout<<"Encode ref graph takes "<<std::fixed<<std::setprecision(3)<<timer.GetDurationInMillisecond()<<" ms\n";
-    loop_detector->encode_src_scene_graph(src_graph->get_const_nodes(), src_data_dict);
+    loop_detector->encode_src_scene_graph(src_graph->get_const_nodes(), fmfusion::DataDict{});
+    
+    if (test_communication){
+        ROS_WARN("Test communication");
+        fused = false;
+        SgCom::Communication com_server(n, nh_private,LOCAL_AGENT,{REMOTE_AGENT});
+
+        timer.Start();
+        int Ns, Ds;
+        std::vector<std::vector<float>> sent_feats_vec;
+        fmfusion::DataDict sent_coarse_nodes;
+
+        loop_detector->get_active_node_feats(sent_feats_vec, Ns, Ds);
+        sent_coarse_nodes = src_graph->extract_data_dict(true);
+        timer.Stop();
+        std::cout<<"Publish src node features: "<<Ns<<"x"<<Ds<<std::endl;
+        std::cout<<"It takes "<<std::fixed<<std::setprecision(3)<<timer.GetDurationInMillisecond()<<" ms\n";
+
+        for (int k=0;k<broadcast_times;k++){        
+            timer.Start();
+            com_server.broadcast_coarse_graph(30,
+                                                sent_coarse_nodes.instances,
+                                                sent_coarse_nodes.centroids,
+                                                Ns,Ds,
+                                                sent_feats_vec);
+            timer.Stop();
+            // std::cout<<"Broadcast takes "<<std::fixed<<std::setprecision(3)<<timer.GetDurationInMillisecond()<<" ms\n";
+
+            ros::Duration(0.5).sleep();
+            ros::spinOnce();
+
+            // Vec->Tensor
+            const SgCom::AgentDataDict received_coarse_nodes = com_server.get_remote_agent_data(REMOTE_AGENT);
+            if(received_coarse_nodes.frame_id>=0)
+            {
+                int Nr = received_coarse_nodes.N;
+                int Dr = received_coarse_nodes.D;
+ 
+                // update
+                torch::Tensor empty_tensor = torch::empty({0,0});
+                loop_detector->subscribe_ref_coarse_features(received_coarse_nodes.received_timestamp, 
+                                                                received_coarse_nodes.features_vec,
+                                                                empty_tensor);
+                ref_graph->subscribe_coarse_nodes(received_coarse_nodes.received_timestamp,
+                                                    received_coarse_nodes.instances,
+                                                    received_coarse_nodes.centroids);
+                              
+                // Verify
+                if(Ns==Nr){
+                    std::cout<<"Checking pub and received tensor \n";
+                    torch::Tensor raw_features = loop_detector->get_active_node_feats().to(torch::kCPU);
+                    torch::Tensor received_tensor_bk = loop_detector->get_ref_node_feats().to(torch::kCPU);
+
+                    std::cout<<"["<<LOCAL_AGENT<<"] received bk tensor close:"
+                            <<torch::allclose(raw_features, received_tensor_bk , 1e-5)<<std::endl;
+                }
+            }
+        }
+
+        // return 0;
+    }
+    else{// Load and Encode Ref Graph
+        ref_mapping->extract_bounding_boxes();
+        ref_mapping->export_instances(ref_names,ref_instances);        
+        ref_graph->initialize(ref_instances);
+        ref_graph->construct_edges();
+        ref_graph->construct_triplets();
+
+        fmfusion::DataDict ref_data_dict = ref_graph->extract_data_dict();
+
+        timer.Start();                        
+        loop_detector->encode_ref_scene_graph(ref_graph->get_const_nodes(), fmfusion::DataDict{});
+        timer.Stop();
+        loop_detector->encode_concat_sgs(ref_graph->get_const_nodes().size(), ref_data_dict,
+                                        src_graph->get_const_nodes().size(), src_data_dict, fused);
+    }
 
     // Hierachical matching
     std::vector<std::pair<uint32_t,uint32_t>> match_pairs;
@@ -127,7 +192,7 @@ int main(int argc, char **argv)
     std::vector <NodePair> pruned_match_pairs;
     std::vector<float> pruned_match_scores;
 
-    M = loop_detector->match_nodes(match_pairs, match_scores);
+    M = loop_detector->match_nodes(match_pairs, match_scores, fused);
     std::vector<bool> pruned_true_masks(M, false);
     ROS_WARN("Matched nodes: %d", M);
     if(prune_instances && M>0){        
@@ -145,23 +210,47 @@ int main(int argc, char **argv)
     pruned_match_scores = fmfusion::utility::update_masked_vec(match_scores, pruned_true_masks);
     ROS_WARN("Keep %d matched nodes after prune", pruned_match_pairs.size());
 
-
-    if(pruned_match_pairs.size()>0){ // dense match       
+    if(!test_communication && pruned_match_pairs.size()>0){ // dense match       
         C = loop_detector->match_instance_points(pruned_match_pairs, corr_src_points, corr_ref_points, corr_scores_vec);
         ROS_WARN("Matched points: %d", C);
     }
+
+    // Registration
+    fmfusion::O3d_Cloud_Ptr src_cloud_ptr, ref_cloud_ptr;
+    Eigen::Matrix4d pred_pose;
+    pred_pose.setIdentity();
+
+    g3reg::Config config;
+    config.set_noise_bounds({0.1, 0.2, 0.3});
+    config.tf_solver  = "quatro";
+    config.verify_mtd = "plane_based";
+    G3RegAPI g3reg(config);
+
+    if(!test_communication)
+        g3reg.estimate_pose(src_graph->get_const_nodes(),
+                            ref_graph->get_const_nodes(),
+                            pruned_match_pairs,
+                            corr_scores_vec,
+                            corr_src_points,
+                            corr_ref_points,
+                            src_cloud_ptr,
+                            ref_cloud_ptr,
+                            pred_pose);
 
     // Export
     std::vector<std::pair<fmfusion::InstanceId,fmfusion::InstanceId>> pred_instances;
     std::vector<bool> pred_masks;
     std::vector<Eigen::Vector3d> src_centroids, ref_centroids;
-    fmfusion::O3d_Cloud_Ptr src_cloud_ptr, ref_cloud_ptr;
-    Eigen::Matrix4d pred_pose;    
     fmfusion::IO::extract_match_instances(
         pruned_match_pairs, src_graph->get_const_nodes(), ref_graph->get_const_nodes(), pred_instances);
     fmfusion::IO::extract_instance_correspondences(
         src_graph->get_const_nodes(), ref_graph->get_const_nodes(), pruned_match_pairs, pruned_match_scores, src_centroids, ref_centroids);
-
+    fmfusion::IO::save_match_results(pred_pose,
+                                    pred_instances,
+                                    pruned_match_scores,
+                                    output_folder+"/"+src_name+"-"+ref_name+".txt");
+    
+    //
     if(gt_file.size()>0){
         int count_true = fmfusion::maks_true_instance(gt_file, pred_instances, pred_masks);
         std::cout<<"True instance match: "<<count_true<<"/"<<pred_instances.size()<<std::endl;
@@ -169,16 +258,33 @@ int main(int argc, char **argv)
 
     if(visualization>0){
         ROS_WARN("run visualization");
-        Visualization::render_point_cloud(ref_mapping->export_global_pcd(), mypubs.ref_graph,frame_id);
-        ros::Duration(0.5).sleep();
-        Visualization::render_point_cloud(src_mapping->export_global_pcd(), mypubs.src_graph, "local");
-        Visualization::instance_centroids(ref_graph->get_centroids(),mypubs.ref_centroids,frame_id,viz_param.centroid_size,viz_param.centroid_color);
-        Visualization::instance_centroids(src_graph->get_centroids(),mypubs.src_centroids,"local",viz_param.centroid_size,viz_param.centroid_color);
-        Visualization::inter_graph_edges(ref_graph->get_centroids(), ref_graph->get_edges(), mypubs.ref_edges, viz_param.edge_width, viz_param.edge_color , frame_id);
-        Visualization::instance_match(src_centroids, ref_centroids, mypubs.instance_match,"world", pred_masks);
+        Visualization::render_point_cloud(ref_mapping->export_global_pcd(), viz.ref_graph,REMOTE_AGENT);
+        ros::Duration(1.0).sleep();
+        Visualization::instance_centroids(ref_graph->get_centroids(),viz.ref_centroids,REMOTE_AGENT,viz.param.centroid_size,viz.param.centroid_color);
+
+        Visualization::render_point_cloud(src_mapping->export_global_pcd(), viz.src_graph, LOCAL_AGENT);
+        Visualization::instance_centroids(src_graph->get_centroids(),viz.src_centroids,LOCAL_AGENT,viz.param.centroid_size,viz.param.centroid_color);
+        Visualization::inter_graph_edges(src_graph->get_centroids(), src_graph->get_edges(), viz.src_edges, viz.param.edge_width, viz.param.edge_color , LOCAL_AGENT);
+
+        Visualization::correspondences(src_centroids, ref_centroids, viz.instance_match,LOCAL_AGENT, pred_masks, viz.local_frame_offset);
+        Visualization::correspondences(corr_src_points, corr_ref_points, viz.point_match, LOCAL_AGENT, std::vector<bool> {}, viz.local_frame_offset);
+
+        if(viz.src_map_aligned.getNumSubscribers()>0 && !test_communication){
+            ros::Duration(1.0).sleep();
+            auto global_src_cloud_ptr = src_mapping->export_global_pcd();
+            global_src_cloud_ptr->Transform(pred_pose);
+            global_src_cloud_ptr->PaintUniformColor({0.0,0.707,0.707});
+            Visualization::render_point_cloud(global_src_cloud_ptr, viz.src_map_aligned, REMOTE_AGENT);
+            ROS_INFO("Publish aligned source map");
+        }
     }
 
     ros::spinOnce();
+
+    ros::Duration(1.0).sleep();
+    ROS_WARN("Shutting down ros ...");
+    ros::shutdown();
+
     return 0;
 
 }

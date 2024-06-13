@@ -23,7 +23,7 @@ public:
 
     void merge_overlap_instances(std::vector<InstanceId> instance_list=std::vector<InstanceId>());
 
-    void merge_overlap_structural_instances();
+    int merge_overlap_structural_instances(bool merge_all=true);
 
     int merge_other_instances(std::vector<InstancePtr> &instances);
 
@@ -34,7 +34,9 @@ public:
 
     int update_instances(const int &cur_frame_id, const std::vector<InstanceId> &instance_list);
 
-    std::shared_ptr<open3d::geometry::PointCloud> export_global_pcd(bool filter=false);
+    std::shared_ptr<open3d::geometry::PointCloud> export_global_pcd(bool filter=false,float vx_size=-1.0);
+
+    std::vector<Eigen::Vector3d> export_instance_centroids() const;
 
     void remove_invalid_instances();
 
@@ -58,7 +60,9 @@ public:
 protected:
     /// \brief  match vector in [K,1], K is the number of detections;
     /// If detection k is associated, match[k] = matched_instance_id
-    Eigen::VectorXi data_association(const std::vector<DetectionPtr> &detections, const std::vector<InstanceId> &active_instances);
+    int data_association(const std::vector<DetectionPtr> &detections, const std::vector<InstanceId> &active_instances,
+                        Eigen::VectorXi &matches,
+                        std::vector<std::pair<InstanceId,InstanceId>> &ambiguous_pairs);
 
     int create_new_instance(const DetectionPtr &detection,const unsigned int &frame_id,
         const std::shared_ptr<open3d::geometry::RGBDImage> &rgbd_image, const Eigen::Matrix4d &pose);
@@ -66,6 +70,10 @@ protected:
     std::vector<InstanceId> search_active_instances(const O3d_Cloud_Ptr &depth_cloud, const Eigen::Matrix4d &pose, const double search_radius=5.0);
 
     void update_active_instances(const std::vector<InstanceId> &active_instances);
+
+    void update_recent_instances(const int &frame_id,
+                                const std::vector<InstanceId> &active_instances,
+                                const std::vector<InstanceId> &new_instances);
 
     bool IsSemanticSimilar(const std::unordered_map<std::string,float> &measured_labels_a,
         const std::unordered_map<std::string,float> &measured_labels_b);
@@ -78,6 +86,9 @@ protected:
     /// \param cloud_b, point cloud of the smaller instance
     double Compute3DIoU(const O3d_Cloud_Ptr &cloud_a, const O3d_Cloud_Ptr &cloud_b, double inflation=1.0);
 
+    int merge_ambiguous_instances(const std::vector<std::pair<InstanceId,InstanceId>> &ambiguous_pairs);
+
+    // Recent observed instances
     std::unordered_set<InstanceId> recent_instances;
 
 private:
@@ -85,7 +96,7 @@ private:
     MappingConfig mapping_config;
     InstanceConfig instance_config;
     std::unordered_map<InstanceId,InstancePtr> instance_map;
-        std::unordered_map<std::string, std::vector<InstanceId>> label_instance_map;
+    std::unordered_map<std::string, std::vector<InstanceId>> label_instance_map;
     InstanceId latest_created_instance_id;
     int last_cleanup_frame_id;
     int last_update_frame_id;

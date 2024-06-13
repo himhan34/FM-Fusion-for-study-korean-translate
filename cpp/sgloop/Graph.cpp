@@ -9,7 +9,7 @@ namespace fmfusion
         std::stringstream msg;
         msg<<corners.size()<<" corners: ";
         corner_vector.reserve(max_corner_number);
-        Corner padding_corner = {padding_value, padding_value};
+        Corner padding_corner = {(uint32_t)padding_value, (uint32_t)padding_value};
 
         if (corners.size()<max_corner_number){
             corner_vector.insert(corner_vector.end(), corners.begin(), corners.end());
@@ -38,15 +38,17 @@ namespace fmfusion
         // std::cout<<msg.str();
     }
 
-    Graph::Graph(GraphConfig config_):config(config_),max_corner_number(0),max_neighbor_number(0)
+    Graph::Graph(GraphConfig config_):config(config_),max_corner_number(0),max_neighbor_number(0),frame_id(-1),timestamp(-1.0)
     {
         std::cout<<"GNN initialized.\n";
+
     }
 
     void Graph::initialize(const std::vector<InstancePtr> &instances)
     {
         o3d_utility::Timer timer_;
         timer_.Start();
+        frame_id = 1;
         std::cout<<"Constructing GNN...\n";
         for (auto inst:instances){
             NodePtr node = std::make_shared<Node>(nodes.size(), inst->get_id());
@@ -56,7 +58,7 @@ namespace fmfusion
             node->centroid = inst->centroid;
             node->bbox_shape = inst->min_box->extent_;
             node->cloud = std::make_shared<open3d::geometry::PointCloud>(*inst->point_cloud); // deep copy
-            if (config.voxel_size>0.0)
+                        if (config.voxel_size>0.0)
                 node->cloud = node->cloud->VoxelDownSample(config.voxel_size);
             
             nodes.push_back(node);
@@ -67,6 +69,24 @@ namespace fmfusion
                         <<std::fixed<<std::setprecision(3)
                         <<timer_.GetDurationInMillisecond()<< " ms.\n";
 
+    }
+
+    bool Graph::subscribe_coarse_nodes(const float &latest_timestamp,
+                                    const std::vector<uint32_t> &instances,const std::vector<Eigen::Vector3d> &centroids)
+    {
+        if(latest_timestamp - timestamp > 0.01){
+            clear();
+            for (int i=0; i<instances.size(); i++){
+                NodePtr node = std::make_shared<Node>(i, instances[i]);
+                node->centroid = centroids[i];
+                nodes.push_back(node);
+                node_instance_idxs.push_back(instances[i]);
+            }
+            timestamp = latest_timestamp;
+            std::cout<<"Update graph with "<< instances.size() <<" coarse nodes from timestamp "<<timestamp<<".\n";
+            return true;            
+        }
+        else return false;
     }
 
     void Graph::construct_edges()
@@ -211,16 +231,28 @@ namespace fmfusion
 
     }
 
-    DataDict Graph::extract_data_dict()
+    void Graph::clear()
+    {
+        nodes.clear();
+        edges.clear();
+        node_instance_idxs.clear();
+        max_corner_number = 0;
+        max_neighbor_number = 0;
+    }
+
+    DataDict Graph::extract_data_dict(bool coarse)
     {
         DataDict data_dict;
         for (auto node:nodes){
-            data_dict.xyz.insert(data_dict.xyz.end(), node->cloud->points_.begin(), node->cloud->points_.end());
-            data_dict.labels.insert(data_dict.labels.end(), node->cloud->points_.size(), node->id);
             data_dict.centroids.push_back(node->centroid);
             data_dict.nodes.push_back(node->id);
-            data_dict.instances.push_back(node->instance_id);
+            data_dict.instances.push_back(node->instance_id);  
+            if(!coarse){
+                data_dict.xyz.insert(data_dict.xyz.end(), node->cloud->points_.begin(), node->cloud->points_.end());
+                data_dict.labels.insert(data_dict.labels.end(), node->cloud->points_.size(), node->id);
+            }
         }
+        data_dict.length_vec = std::vector<int>(1, data_dict.xyz.size());
         return data_dict;
     }
 

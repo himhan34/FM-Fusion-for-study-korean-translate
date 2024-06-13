@@ -96,23 +96,35 @@ catkin_make
 The ROS node is used to run multi-session SLAM. It is an optional module.
 
 ## Run Loop Detection Node
-
-```bash
-./build/cpp/TestLoop --config config/realsense.yaml --weights_folder ${TORCHSCRIPT_FOLDER} --ref_scene /data2/sgslam/val/uc0107_00a --src_scene /data2/sgslam/val/uc0107_00b --output_folder ${OUTPUT_FOLDER}
-```
-
-The ```ref_scene``` and ```src_scene``` options can be changed to any scene folder directories. The node read scene
-graphs from the two scene, and generate instance-wise association results.
-
 The trained torchscript model can be downloaded from
 the [OneDrive Link](https://hkustconnect-my.sharepoint.com/:f:/g/personal/cliuci_connect_ust_hk/Encm_4ETKV9EiZ2PRlCLVdEBTCiuBYQ4yckF7SzFTDHg6g?e=oDsTHu). Download and unzip the torchscript folder and
 set the ```--weights_folder``` accordingly.
 
-To evaluate the registration results,
+```bash
+./build/cpp/TestLoop --config config/realsense.yaml --weights_folder ${TORCHSCRIPT_FOLDER} --ref_scene /data2/sgslam/val/uc0107_00a --src_scene /data2/sgslam/val/uc0107_00b --output_folder ${OUTPUT_FOLDER}
 ```
-python scripts/eval_loop.py --dataroot ${DATAROOT} --output_folder ${OUTPUT_FOLDER}
+It has optional running options ```--prune_instance```, which prune instance match results by maximum clique. And option ```--dense_match``` enable searching point cloud correspondences.
+In [realsense.yaml](config/realsense.yaml), a few parameters can directly affect the final performance,
+- ```LoopDetector.fuse_shape```: decide fuse shape features or not.
+- ```Graph.ignore_labels```: incorporate "floor" to ignore them.
+
+
+The ```ref_scene``` and ```src_scene``` options can be changed to any scene folder directories. The node read scene graphs from the two scene, and generate instance-wise association results. Match and registration result will be saved at ```OUTPUT_FOLDER```.
+
+## Run all the scan pairs and evaluate
+To run all the 14 scene pairs,
+```bash
+python scripts/run_test_loop.py
 ```
-The latest evaluation result is saved [here](eval/loop_closure.txt).
+Notice to set ```OUTPUT_FOLDER``` before running. 
+
+Then, evaluate the match and registration results,
+```bash
+python scripts/eval_loop.py --dataroot ${DATAROOT} --output_folder ${OUTPUT_FOLDER} --match_folder ${MATCH_FOLDER}
+```
+The ```OUTPUT_FOLDER``` is the same as the option in running ```TestLoop```.
+
+The latest evaluation result is saved [here](eval/v2_dense.txt).
 
 ## Run Loop Detection Node on ROS
 ```

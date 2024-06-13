@@ -11,7 +11,8 @@ Instance::Instance(const InstanceId id, const unsigned int frame_id, const Insta
     // open3d::utility::LogInfo("Initialize Instance");
     volume_ = new open3d::pipelines::integration::InstanceTSDFVolume(
         config_.voxel_length,config_.sdf_trunc,open3d::pipelines::integration::TSDFVolumeColorType::RGB8);
-    point_cloud = nullptr;
+    point_cloud = std::make_shared<open3d::geometry::PointCloud>();
+    merged_cloud = std::make_shared<open3d::geometry::PointCloud>();
     min_box = std::make_shared<open3d::geometry::OrientedBoundingBox>();
     predicted_label = std::make_pair("unknown",0.0);
 
@@ -22,10 +23,12 @@ Instance::Instance(const InstanceId id, const unsigned int frame_id, const Insta
 
 }
 
-void Instance::integrate(const std::shared_ptr<open3d::geometry::RGBDImage> &rgbd_image, const Eigen::Matrix4d &pose)
+void Instance::integrate(const int &frame_id,
+    const std::shared_ptr<open3d::geometry::RGBDImage> &rgbd_image, const Eigen::Matrix4d &pose)
 {
     // open3d::utility::LogInfo("Integrate Instance");
     volume_->Integrate(*rgbd_image,config_.intrinsic,pose);
+    frame_id_ = frame_id;
 }
 
 void Instance::filter_pointcloud_statistic()
@@ -85,13 +88,15 @@ bool Instance::filter_pointcloud_by_cluster()
 
 void Instance::CreateMinimalBoundingBox()
 {
-    if(point_cloud->points_.size()<10){
+    // if(point_cloud->points_.size()<10){
+    if(get_cloud_size()<10){
         return;
     }
+    auto complete_cloud = get_complete_cloud();
 
     using namespace open3d::geometry;
     std::shared_ptr<TriangleMesh> mesh;
-    std::tie(mesh, std::ignore) = point_cloud->ComputeConvexHull(false);
+    std::tie(mesh, std::ignore) = complete_cloud->ComputeConvexHull(false);
     double min_vol = -1;
     min_box->Clear();
     PointCloud hull_pcd;
@@ -133,12 +138,18 @@ void Instance::CreateMinimalBoundingBox()
 void Instance::merge_with(const O3d_Cloud_Ptr &other_cloud, 
     const std::unordered_map<std::string,float> &label_measurements, const int &observations_)
 {
+    // 
+    *merged_cloud += *other_cloud;
+    merged_cloud->VoxelDownSample(config_.voxel_length);
+    merged_cloud->PaintUniformColor(color_);
+
     // integrate point cloud
-    *point_cloud += *other_cloud;
-    auto ds_cloud = point_cloud->VoxelDownSample(config_.voxel_length);
-    point_cloud->Clear();
-    *point_cloud = *ds_cloud;
-    point_cloud->PaintUniformColor(color_);
+    //todo: remove this
+    // *point_cloud += *other_cloud;
+    // auto ds_cloud = point_cloud->VoxelDownSample(config_.voxel_length);
+    // point_cloud->Clear();
+    // *point_cloud = *ds_cloud;
+    // point_cloud->PaintUniformColor(color_);
 
     // update labels
     for(const auto label_score:label_measurements){
@@ -181,14 +192,20 @@ void Instance::update_label(const DetectionPtr &detection)
     observation_count ++;
 }
 
-std::shared_ptr<open3d::geometry::PointCloud> Instance::extract_point_cloud()
+std::shared_ptr<open3d::geometry::PointCloud> Instance::extract_point_cloud()const
+{
+    return volume_->ExtractWeightedPointCloud(config_.min_voxel_weight);
+}
+
+std::shared_ptr<open3d::geometry::PointCloud> Instance::extract_write_point_cloud()
 {
     double voxel_weight_threshold = config_.min_voxel_weight * observation_count;
+    point_cloud->Clear();
     point_cloud = volume_->ExtractWeightedPointCloud(std::min(std::max(voxel_weight_threshold,0.001),4.0));
-    // point_cloud = volume_->ExtractWeightedPointCloud(2.0);
-
-    centroid = point_cloud->GetCenter();
+    
+    point_cl`oud->VoxelDownSample(config_.voxel_length);
     point_cloud->PaintUniformColor(color_);
+    centroid = point_cloud->GetCenter();
 
     return point_cloud;
 }
@@ -199,7 +216,8 @@ bool Instance::update_point_cloud(int cur_frame_id,int min_frame_gap)
         return false;
     }
     else{
-        extract_point_cloud();
+        extract_write_point_cloud();
+        filter_pointcloud_statistic();
         CreateMinimalBoundingBox();
         update_frame_id = cur_frame_id;
         return true;
@@ -226,5 +244,32 @@ void Instance::load_previous_labels(const std::string &labels_str)
     }
     // cout<<"\n";
 }
+
+size_t Instance::get_cloud_size()const
+{
+    if(point_cloud){
+        size_t cloud_size =  point_cloud->points_.size();
+        if(merged_cloud->HasPoints()) cloud_size += merged_cloud->points_.size();
+        return cloud_size;
+    }
+    else
+        return 0;
+}  
+
+std::shared_ptr<open3d::geometry::PointCloud> Instance::get_complete_cloud()const
+{
+    if(merged_cloud->HasPoints()){
+        auto complete_cloud = std::make_shared<open3d::geometry::PointCloud>();
+        *complete_cloud += *point_cloud;
+        *complete_cloud += *merged_cloud;
+        complete_cloud->VoxelDownSample(config_.voxel_length);
+        return complete_cloud;
+    }
+    else{
+        return point_cloud;
+    }    
+}
+
+
 
 }

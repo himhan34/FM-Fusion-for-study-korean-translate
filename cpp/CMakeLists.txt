@@ -39,6 +39,7 @@ set(FMFUSION_HEADER
         tools/Utility.h
         tools/IO.h
         tools/g3reg_api.h
+        tools/TicToc.h
         Common.h
 )
 
@@ -166,6 +167,7 @@ if (INSTALL_FMFUSION)
             tools/Color.h
             tools/IO.h
             tools/g3reg_api.h
+            tools/TicToc.h
             DESTINATION include/fmfusion/tools
     )
     install(FILES

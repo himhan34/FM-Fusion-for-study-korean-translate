@@ -83,6 +83,7 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
         config->mapping_cfg.merge_inflation = mapping_fs["merge_inflation"];
         config->mapping_cfg.cleanup_period = mapping_fs["cleanup_period"];
         config->mapping_cfg.update_period = mapping_fs["update_period"];
+        config->mapping_cfg.recent_window_size = mapping_fs["recent_window_size"];
 
         mapping_fs["save_da_dir"] >> config->mapping_cfg.save_da_dir;
 
@@ -94,9 +95,21 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
         graph_config_fs["ignore_labels"]>>config->graph.ignore_labels;
 
         //
+        auto shape_fs = fs["ShapeEncoder"];
+        config->shape_encoder.init_voxel_size = shape_fs["init_voxel_size"];
+        config->shape_encoder.init_radius = shape_fs["init_radius"];
+        shape_fs["padding"] >> config->shape_encoder.padding;
+
+        //
         auto sgnet_config_fs = fs["SGNet"];
         config->sgnet.triplet_number = sgnet_config_fs["triplet_number"];
         config->sgnet.instance_match_threshold = sgnet_config_fs["instance_match_threshold"];
+
+        //
+        auto lcd_fs = fs["LoopDetector"];
+        config->loop_detector.fuse_shape = int_to_bool(lcd_fs["fuse_shape"]);
+        config->loop_detector.lcd_nodes = lcd_fs["lcd_nodes"];
+        config->loop_detector.recall_nodes = lcd_fs["recall_nodes"];
 
         //
         auto reg_fs = fs["Registration"];
@@ -135,6 +148,7 @@ std::string config_to_message(const fmfusion::Config &config)
     message <<"Graph: \n"<<config.graph.print_msg();
     message <<"SGNet: \n"<<config.sgnet.print_msg();
     message <<"Shape encoder: \n" <<config.shape_encoder.print_msg();
+    message <<"Loop detector: \n" <<config.loop_detector.print_msg();
     message <<"Registration: \n"<<config.reg.print_msg();
 
     return message.str();
@@ -161,7 +175,6 @@ bool LoadPredictions(const std::string &folder_path, const std::string &frame_na
         else return false;
     }
     else return false;
-
 }
 
 
@@ -325,7 +338,30 @@ void random_sample(const std::vector<int> &indices, const int &sample_size, std:
     sampled_indices = std::vector<int>(shuffled_indices.begin(), shuffled_indices.begin()+sample_size);
 }
 
+bool write_config(const std::string &output_dir, const fmfusion::Config &config)
+{
+    std::ofstream file(output_dir);
+
+    if (file.is_open()){
+        file << "Mapping: " << std::endl;
+        file << config.mapping_cfg.print_msg();
+        file << "Graph: " << std::endl;
+        file << config.graph.print_msg();
+        file << "SGNet: " << std::endl;
+        file << config.sgnet.print_msg();
+        file << "Shape encoder: " << std::endl;
+        file << config.shape_encoder.print_msg();
+        file << "Loop detector: " << std::endl;
+        file << config.loop_detector.print_msg();
+        file << "Registration: " << std::endl;
+        file << config.reg.print_msg();
+
+        file.close();
+        return true;
+    }
+    else return false;
 
 }
 
+}
 }

@@ -20,27 +20,21 @@ namespace fmfusion
 
     ShapeEncoder::ShapeEncoder(const ShapeEncoderConfig &config_, const std::string weight_folder) : config(config_)
     {
-        // std::cout << "Init shape encoder\n";
-        // std::cout << "search radius: " << config.init_radius << "\n";
-        // std::cout << "search voxel size: " << config.init_voxel_size << "\n";
-        std::string shape_encoder_dir = weight_folder + "/instance_shape_encoder.pt";
+        // std::string shape_encoder_dir = weight_folder + "/instance_shape_encoder_v1.pt";
 
-        //
-        try
-        {
-            encoder = torch::jit::load(shape_encoder_dir);
-            encoder.to(torch::kCUDA);
-            std::cout << "Load shape encoder from " << shape_encoder_dir << std::endl;
-        }
-        catch (const std::exception &e)
-        {
-            std::cerr << e.what() << '\n';
-        }
+        encoder_v2 = torch::jit::load(weight_folder + "/instance_shape_encoder_v2.pt");
+        encoder_v2.to(torch::kCUDA);
+        std::cout<<"Load shape encoder v2 from "<<weight_folder<<std::endl;
+        assert(config.padding=="zero" || config.padding=="random");
+        // std::cout<<config.print_msg();
+
     };
 
-    void ShapeEncoder::encode(const std::vector<Eigen::Vector3d> &xyz, const std::vector<uint32_t> &labels,
+    void ShapeEncoder::encode(const std::vector<Eigen::Vector3d> &xyz,  const std::vector<int> &length_vec, 
+                              const std::vector<uint32_t> &labels,
                               const std::vector<Eigen::Vector3d> &centroids_, const std::vector<uint32_t> &nodes,
-                              torch::Tensor &node_shape_feats, torch::Tensor &node_knn_points, torch::Tensor &node_knn_feats)
+                              torch::Tensor &node_shape_feats, torch::Tensor &node_knn_points, torch::Tensor &node_knn_feats,
+                              bool use_v2)
     {
         long X = xyz.size();        // point cloud number
         long N = centroids_.size(); // node number
@@ -54,9 +48,18 @@ namespace fmfusion
 
         //
         float xyz_arr[X][3];
-        // at::Tensor points = torch::zeros({xyz.size(), 3}, torch::kFloat32);
-        at::Tensor lengths = torch::zeros({1}, torch::kInt64);
-        lengths[0] = X;
+        int B = length_vec.size();
+        at::Tensor lengths= torch::zeros({B}, torch::kInt64);
+        if(B==1) lengths[0] = length_vec[0];
+        else if(B==2) {
+            float length_arr[] = {length_vec[0], length_vec[1]};
+            lengths = torch::from_blob(length_arr, {B}).to(torch::kInt64);
+        }
+        else{
+            std::cerr<<"Invalid length vector size.\n";
+            assert(false);
+            return;
+        }
 
         for (int i = 0; i < X; i++)
         {
@@ -70,11 +73,9 @@ namespace fmfusion
         timer.Start();
         precompute_data_stack_mode(points, lengths, points_list, lengths_list, neighbors_list, subsampling_list, upsampling_list);
         timer.Stop();
-        // std::cout << "prepare data stack takes " << timer.GetDurationInMillisecond() << " ms\n";
-        // std::cout << "Input points: " << X << ", "
-        //           << "fine-level points:" << points_list[1].size(0) << "\n";
+
         //
-        // at::Tensor points_f = points_list[1].to(torch::kFloat32).to(torch::kCUDA);
+        timer.Start();
         at::Tensor labels_f = torch::zeros({points_list[1].size(0)}, torch::kInt32);
         at::Tensor node_point_indices = torch::zeros({N, config.K_shape_samples}, torch::kInt32);
         at::Tensor node_knn_indices = torch::zeros({N, config.K_match_samples}, torch::kInt32);
@@ -82,34 +83,63 @@ namespace fmfusion
         sample_node_f_points(labels_f, nodes, node_point_indices, config.K_shape_samples);
         sample_node_f_points(labels_f, nodes, node_knn_indices, config.K_match_samples, 1);
 
-        //
+        
         torch::Tensor nodes_feats = torch::ones({N}, torch::kFloat32).to(torch::kCUDA);
         node_point_indices = node_point_indices.to(torch::kCUDA);
         node_knn_indices = node_knn_indices.to(torch::kCUDA);
+        timer.Stop();
+        std::cout<<"Sample points takes "<<timer.GetDurationInMillisecond()<<" ms\n";
 
         //
         timer.Start();
-        auto output = encoder({points_feats,
-                               points_list[0].to(torch::kFloat32).to(torch::kCUDA),
-                               points_list[1].to(torch::kFloat32).to(torch::kCUDA),
-                               points_list[2].to(torch::kFloat32).to(torch::kCUDA),
-                               points_list[3].to(torch::kFloat32).to(torch::kCUDA),
-                               neighbors_list[0].to(torch::kInt64).to(torch::kCUDA),
-                               neighbors_list[1].to(torch::kInt64).to(torch::kCUDA),
-                               neighbors_list[2].to(torch::kInt64).to(torch::kCUDA),
-                               neighbors_list[3].to(torch::kInt64).to(torch::kCUDA),
-                               subsampling_list[0].to(torch::kInt64).to(torch::kCUDA),
-                               subsampling_list[1].to(torch::kInt64).to(torch::kCUDA),
-                               subsampling_list[2].to(torch::kInt64).to(torch::kCUDA),
-                               upsampling_list[0].to(torch::kInt64).to(torch::kCUDA),
-                               upsampling_list[1].to(torch::kInt64).to(torch::kCUDA),
-                               upsampling_list[2].to(torch::kInt64).to(torch::kCUDA),
-                               node_point_indices}).toTuple();
-        node_shape_feats = output->elements()[0].toTensor();
-        torch::Tensor f_points_feats = output->elements()[1].toTensor();
+        torch::Tensor f_points_feats;
+        if(use_v2){
+            auto output = encoder_v2({points_feats,
+                                    points_list[0].to(torch::kFloat32).to(torch::kCUDA),
+                                    points_list[1].to(torch::kFloat32).to(torch::kCUDA),
+                                    points_list[2].to(torch::kFloat32).to(torch::kCUDA),
+                                    points_list[3].to(torch::kFloat32).to(torch::kCUDA),
+                                    neighbors_list[0].to(torch::kInt64).to(torch::kCUDA),
+                                    neighbors_list[1].to(torch::kInt64).to(torch::kCUDA),
+                                    neighbors_list[2].to(torch::kInt64).to(torch::kCUDA),
+                                    neighbors_list[3].to(torch::kInt64).to(torch::kCUDA),
+                                    subsampling_list[0].to(torch::kInt64).to(torch::kCUDA),
+                                    subsampling_list[1].to(torch::kInt64).to(torch::kCUDA),
+                                    subsampling_list[2].to(torch::kInt64).to(torch::kCUDA),
+                                    upsampling_list[0].to(torch::kInt64).to(torch::kCUDA),
+                                    upsampling_list[1].to(torch::kInt64).to(torch::kCUDA),
+                                    upsampling_list[2].to(torch::kInt64).to(torch::kCUDA),
+                                    node_point_indices}).toTuple();
+            node_shape_feats = output->elements()[0].toTensor();
+            f_points_feats = output->elements()[1].toTensor();
+        }
+        else{  // encode single graph
+            auto output = encoder({points_feats,
+                                points_list[0].to(torch::kFloat32).to(torch::kCUDA),
+                                points_list[1].to(torch::kFloat32).to(torch::kCUDA),
+                                points_list[2].to(torch::kFloat32).to(torch::kCUDA),
+                                points_list[3].to(torch::kFloat32).to(torch::kCUDA),
+                                neighbors_list[0].to(torch::kInt64).to(torch::kCUDA),
+                                neighbors_list[1].to(torch::kInt64).to(torch::kCUDA),
+                                neighbors_list[2].to(torch::kInt64).to(torch::kCUDA),
+                                neighbors_list[3].to(torch::kInt64).to(torch::kCUDA),
+                                subsampling_list[0].to(torch::kInt64).to(torch::kCUDA),
+                                subsampling_list[1].to(torch::kInt64).to(torch::kCUDA),
+                                subsampling_list[2].to(torch::kInt64).to(torch::kCUDA),
+                                upsampling_list[0].to(torch::kInt64).to(torch::kCUDA),
+                                upsampling_list[1].to(torch::kInt64).to(torch::kCUDA),
+                                upsampling_list[2].to(torch::kInt64).to(torch::kCUDA),
+                                node_point_indices}).toTuple();
+            node_shape_feats = output->elements()[0].toTensor();
+            f_points_feats = output->elements()[1].toTensor();
+            }
         timer.Stop();
+
         assert(node_shape_feats.sizes()[0] == N);
         assert(f_points_feats.sizes()[0] == points_list[1].size()[0]);
+
+        node_shape_feats = torch::nn::functional::normalize(node_shape_feats, 
+                                                            torch::nn::functional::NormalizeFuncOptions().p(2).dim(1));
 
         // std::cout << "Run point encoder takes " << timer.GetDurationInMillisecond() << " ms\n";
         // std::cout<<points_list[1].size(0)<<","<<points_list[1].size(1)<<"\n";
@@ -130,7 +160,7 @@ namespace fmfusion
                                                   std::vector<at::Tensor> &subsampling_list,
                                                   std::vector<at::Tensor> &upsampling_list)
     {
-        float voxel_size = 2 * config.voxel_size;
+        float voxel_size = 2 * config.init_voxel_size;
 
         points_list.push_back(points);
         lengths_list.push_back(lengths);
@@ -207,6 +237,7 @@ namespace fmfusion
         open3d::geometry::PointCloud pcd(xyz);
         open3d::geometry::KDTreeFlann kdtree(pcd);
         float SEARCH_RADIUS = 0.5;
+        float labels_f_array[Xf];
 
         for (int i = 0; i < Xf; i++)
         {
@@ -220,8 +251,12 @@ namespace fmfusion
             int result = kdtree.SearchKNN(query_point, 1, q_indices, q_distances);
             assert(result > 0);
             assert(q_distances[0] < SEARCH_RADIUS);
-            labels_f[i] = labels[q_indices[0]];
+            // labels_f[i] = labels[q_indices[0]];
+            labels_f_array[i] = labels[q_indices[0]];
         }
+
+        labels_f = torch::from_blob(labels_f_array, {Xf}).to(torch::kInt32);
+
     }
 
     void ShapeEncoder::sample_node_f_points(const at::Tensor &labels_f, const std::vector<uint32_t> &nodes,
@@ -234,11 +269,17 @@ namespace fmfusion
             at::Tensor mask = labels_f.eq(node_id);
             at::Tensor node_points = mask.nonzero().squeeze(1);
             if (node_points.size(0) < K)
-            { // fill with padding value
+            { // padding the small instances
                 int padding = K - node_points.size(0);
                 at::Tensor padding_points = torch::zeros({padding}, torch::kInt32);
-                if (padding_mode == 0)
-                    padding_points.fill_(node_points[0]);
+                if (padding_mode == 0){
+                    if (config.padding=="zero") padding_points.fill_(node_points[0]);
+                    else if(config.padding=="random"){
+                        torch::Tensor node_weights = torch::ones_like(node_points).to(torch::kFloat32) / node_points.size(0);
+                        padding_points = node_points.index_select(0, torch::multinomial(node_weights, padding, true));
+                        // padding_points = torch::multinomial(node_weights, padding, true);
+                    }
+                }
                 else if (padding_mode == 1)
                     padding_points.fill_(Nf);
                 node_points = torch::cat({node_points, padding_points}, 0);

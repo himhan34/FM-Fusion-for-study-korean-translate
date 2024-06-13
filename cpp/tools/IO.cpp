@@ -198,8 +198,10 @@ namespace IO
                             const std::vector<fmfusion::NodePtr> &ref_nodes,
                             std::vector<std::pair<fmfusion::InstanceId,fmfusion::InstanceId>> &match_instances)
     {
-
+        int Ns = src_nodes.size();
+        int Nr = ref_nodes.size();
         for (auto pair: match_pairs){
+            assert(pair.first<Ns && pair.second<Nr), "Matched node index out of range.";
             auto src_node = src_nodes[pair.first];
             auto ref_node = ref_nodes[pair.second];
             match_instances.push_back(std::make_pair(src_node->instance_id, ref_node->instance_id));
@@ -221,8 +223,8 @@ namespace IO
             auto ref_node = ref_nodes[pair.second];
             src_centroids.push_back(src_node->centroid);
             ref_centroids.push_back(ref_node->centroid);
-            msg<<"("<<src_node->instance_id<<","<<ref_node->instance_id<<") "
-            <<"("<<src_node->semantic<<","<<ref_node->semantic<<")\n";
+            // msg<<"("<<src_node->instance_id<<","<<ref_node->instance_id<<") "
+            // <<"("<<src_node->semantic<<","<<ref_node->semantic<<")\n";
         }
 
         // std::cout<<msg.str()<<std::endl;

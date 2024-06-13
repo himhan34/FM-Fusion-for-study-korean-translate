@@ -45,11 +45,15 @@ bool create_masked_rgbd(
     const open3d::geometry::Image &rgb, const open3d::geometry::Image &float_depth, const cv::Mat &mask,
     const int &min_points,
     std::shared_ptr<open3d::geometry::RGBDImage> &masked_rgbd);
+
+bool write_config(const std::string &output_dir, const fmfusion::Config &config);
+ 
 }
 
 O3d_Image_Ptr extract_masked_o3d_image(const O3d_Image &depth, const O3d_Image &mask);
 
 void random_sample(const std::vector<int> &indices, const int &sample_size, std::vector<int> &sampled_indices);
+
 
 }
 

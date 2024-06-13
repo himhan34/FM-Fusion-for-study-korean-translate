@@ -54,6 +54,7 @@ typedef std::shared_ptr<Edge> EdgePtr;
 
 struct DataDict{
     std::vector<Eigen::Vector3d> xyz; // (X,3)
+    std::vector<int> length_vec; // (B,) [|X1|,|X2|,...,|XB|]
     std::vector<uint32_t> labels; // (X,)
     std::vector<Eigen::Vector3d> centroids; // (N,3)
     std::vector<uint32_t> nodes; // (N,)
@@ -69,10 +70,14 @@ struct DataDict{
 
 class Graph
 {
-    /// \brief  Graph neural network(GNN) representations. Constructed from explicit scene graph.
+    /// \brief  Explicit Scene Graph Representations.
     public:
         Graph(GraphConfig config_);
         void initialize(const std::vector<InstancePtr> &instances);
+
+        /// \brief Update the coarse node information received from communication server.
+        bool subscribe_coarse_nodes(const float &latest_timestamp,
+                                    const std::vector<uint32_t> &instances,const std::vector<Eigen::Vector3d> &centroids);
 
         void construct_edges();
 
@@ -91,8 +96,20 @@ class Graph
         /// @param labels Node ids.
         void extract_global_cloud(std::vector<Eigen::Vector3d> &xyz,std::vector<uint32_t> &labels);
 
-        ///
-        DataDict extract_data_dict();
+        /// \brief  Extract data dictionary.
+        /// @param coarse If true, extract only nodes, instances and centroids data.
+        DataDict extract_data_dict(bool coarse=false);
+
+        /// \brief  Extract instances and centroids.
+        DataDict extract_coarse_data_dict();
+
+        std::string print_nodes_names()const{
+            std::stringstream ss;
+            for (auto node: nodes) ss<<node->instance_id<<",";
+            return ss.str();
+        }
+
+        void clear();
 
         ~Graph() {};
 
@@ -102,12 +119,15 @@ class Graph
     public:
         int max_neighbor_number;
         int max_corner_number;        
-
+        
     private:
         GraphConfig config;
         std::vector<InstanceId> node_instance_idxs; // corresponds to original instance ids
         std::vector<NodePtr> nodes;
         std::vector<EdgePtr> edges; // Each edge is a pair of node id
+
+        int frame_id; // The latest received sg frame id
+        float timestamp; // The latest received sg timestamp
 
 
 };

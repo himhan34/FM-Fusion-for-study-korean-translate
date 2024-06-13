@@ -51,6 +51,8 @@ public:
     int match_points(const torch::Tensor &src_guided_knn_feats, const torch::Tensor &ref_guided_knn_feats,
         torch::Tensor &corr_points, std::vector<float> &corr_scores_vec);
 
+    bool load_bert(const std::string weight_folder);
+
 private:
 
     std::shared_ptr<radish::TextTokenizer> tokenizer;
@@ -59,8 +61,7 @@ private:
     torch::jit::script::Module light_match_layer;
     torch::jit::script::Module fused_match_layer;
     torch::jit::script::Module point_match_layer;
-    // int token_padding;
-    // int triplet_number;
+
     SgNetConfig config;
 
 };

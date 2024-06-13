@@ -1,11 +1,13 @@
 <launch>
 
-  <!-- <arg name="dataroot" value="/data2/sgslam"/>
-  <arg name="ref_scene" value="uc0110_00a"/>
-  <arg name="src_scene" value="uc0110_00c"/> -->
-  <arg name="dataroot" value="/data2/ScanNetGraph"/>
-  <arg name="ref_scene" value="scene0025_00c"/>
-  <arg name="src_scene" value="scene0025_00a"/>
+  <arg name="dataroot" value="/data2/sgslam"/>
+  <arg name="agentA_scene" value="uc0110_00a"/>
+  <arg name="agentB_scene" value="uc0110_00b"/>
+  <arg name="test_communication" value="false"/>
+
+  <arg name="offset_x" value="0.0"/>
+  <arg name="offset_y" value="0.0"/>
+  <arg name="offset_z" value="3.0"/>
 
   <group ns="viz">
     <param name="edge_width" value="0.03"/>
@@ -15,17 +17,42 @@
     <param name="centroid_size" value="0.3"/>
   </group>
 
-  <node pkg="sgloop_ros" name="OfflineLoop" type="OfflineLoop" output="screen">
+  <node pkg="sgloop_ros" name="agentA" type="OfflineLoop" output="screen">
     <param name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/realsense.yaml"/>
     <param name="weights_folder" value="/home/cliuci/code_ws/OpensetFusion/torchscript"/>
     <param name="prune_instances" value="true"/>
+    <param name="fused" value="false"/>
     <param name="output_folder" value="$(arg dataroot)/output/sgloop"/>
-    <param name="ref_scene_dir" value="$(arg dataroot)/val/$(arg ref_scene)"/>
-    <param name="src_scene_dir" value="$(arg dataroot)/val/$(arg src_scene)"/>
-    <param name="gt_file" value="$(arg dataroot)/matches_text/$(arg src_scene)-$(arg ref_scene).txt"/>
+    <param name="ref_scene_dir" value="$(arg dataroot)/val/$(arg agentB_scene)"/>
+    <param name="src_scene_dir" value="$(arg dataroot)/val/$(arg agentA_scene)"/>
+    <param name="gt_file" value="$(arg dataroot)/matches_text/$(arg agentA_scene)-$(arg agentB_scene).txt"/>
+    <param name="local_agent" value="agentA"/>
+    <param name="remote_agent" value="agentB"/>    
     <param name="visualization" value="1"/>
+    <param name="test_communication" value="$(arg test_communication)"/>
+    <param name="broadcast_times" value="2"/>
+
+    <param name="viz/local_frame_offset/x" value="$(arg offset_x)"/>
+    <param name="viz/local_frame_offset/y" value="$(arg offset_y)"/>
+    <param name="viz/local_frame_offset/z" value="$(arg offset_z)"/>
+
   </node>
 
-  <node pkg="tf" type="static_transform_publisher" name="link_before_loop" args="0 0 3 0 0 0 1 world local 100" />
+  <!-- <node pkg="sgloop_ros" name="agentB" type="OfflineLoop" output="screen">
+    <param name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/realsense.yaml"/>
+    <param name="weights_folder" value="/home/cliuci/code_ws/OpensetFusion/torchscript"/>
+    <param name="prune_instances" value="true"/>
+    <param name="fused" value="false"/>
+    <param name="output_folder" value="$(arg dataroot)/output/sgloop"/>
+    <param name="ref_scene_dir" value="$(arg dataroot)/val/$(arg agentA_scene)"/>
+    <param name="src_scene_dir" value="$(arg dataroot)/val/$(arg agentB_scene)"/>
+    <param name="local_agent" value="agentB"/>
+    <param name="remote_agent" value="agentA"/>    
+    <param name="visualization" value="1"/>
+    <param name="test_communication" value="$(arg test_communication)"/>
+    <param name="broadcast_times" value="2"/>
+  </node> -->
+
+  <node pkg="tf" type="static_transform_publisher" name="link_before_loop" args="$(arg offset_x) $(arg offset_y) $(arg offset_z) 0 0 0 1 agentA agentB 100" />
 
 </launch>

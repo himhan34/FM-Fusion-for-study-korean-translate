@@ -13,16 +13,15 @@ def read_scan_pairs(dir):
     return pairs
 
 if __name__ == '__main__':
-    exe_dir = '/home/cliuci/code_ws/OpensetFusion/build/cpp/TestLoop'
-    
     # args
-    config_file = '/home/cliuci/code_ws/OpensetFusion/config/realsense.yaml'
+    exe_dir = 'build/cpp/TestLoop'
+    config_file = 'config/realsense.yaml'
     dataroot = '/data2/sgslam'
     split = 'val'
     split_file = 'val_bk.txt'
-    
+    output_folder = os.path.join(dataroot,'output','v2_fused_prune')
+
     # 
-    output_folder = os.path.join(dataroot,'output','coarse_register2')
     if os.path.exists(output_folder)==False:
         os.makedirs(output_folder)
     scan_pairs = read_scan_pairs(os.path.join(dataroot, 'splits', split_file))
@@ -41,10 +40,10 @@ if __name__ == '__main__':
             src_folder,
             output_folder)
         cmd += " --prune_instance"
-        # cmd += " --dense_match"
+        cmd += " --dense_match"
         
         ret = subprocess.run(cmd,
                             stdin=subprocess.PIPE,shell=True)
     
-        # break
+        break
 

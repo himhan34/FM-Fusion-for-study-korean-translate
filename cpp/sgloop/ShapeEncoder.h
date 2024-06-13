@@ -32,11 +32,12 @@ namespace fmfusion
         /// \param  labels_     (X,), The node indices of each point.
         /// \param  centroids_  (N,3), The centroid of each node.
         /// \param  nodes       (N,), The index of each node.
-        void encode(const std::vector<Eigen::Vector3d> &xyz, const std::vector<uint32_t> &labels, 
+        void encode(const std::vector<Eigen::Vector3d> &xyz, const std::vector<int> &length_vec, const std::vector<uint32_t> &labels, 
                     const std::vector<Eigen::Vector3d> &centroids_, const std::vector<uint32_t> &nodes,
                     torch::Tensor &node_shape_feats, 
                     torch::Tensor &node_knn_points,
-                    torch::Tensor &node_knn_feats);
+                    torch::Tensor &node_knn_feats,
+                    bool use_v2=true);
 
     private:
         void precompute_data_stack_mode(at::Tensor points, at::Tensor lengths,
@@ -54,7 +55,8 @@ namespace fmfusion
     
     private:
         ShapeEncoderConfig config;
-        torch::jit::script::Module encoder;
+        torch::jit::script::Module encoder; // abandoned
+        torch::jit::script::Module encoder_v2;
 
     };
     

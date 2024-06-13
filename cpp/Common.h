@@ -54,6 +54,7 @@ struct MappingConfig{
     double merge_iou;
     double merge_inflation;
     int cleanup_period=20; // in frames
+    int recent_window_size = 200; // in frames
 
     //
     int update_period=20; // in frames
@@ -78,6 +79,8 @@ struct MappingConfig{
         msg<<" - merge_inflation: "<<merge_inflation<<std::endl;
         msg<<" - cleanup_period: "<<cleanup_period<<std::endl;
         msg<<" - update_period: "<<update_period<<std::endl;
+        msg<<" - recent_window_size: "<<recent_window_size<<std::endl;
+
         msg<<" - save_da_dir: "<<save_da_dir<<std::endl;
         return msg.str();
     }
@@ -105,7 +108,7 @@ struct SgNetConfig
     int token_padding=8;
     int triplet_number=20; // number of triplets for each node
     float instance_match_threshold=0.1;
-
+    
     const std::string print_msg()const{
         std::stringstream msg;
         msg<<" - token_padding: "<<token_padding<<std::endl;
@@ -118,28 +121,39 @@ struct SgNetConfig
 struct ShapeEncoderConfig
 {
     int num_stages = 4;
-    float voxel_size = 0.05;
-    int neighbor_limits[4] = {32, 9, 9, 9};
-    float init_voxel_size = 2.5 * voxel_size;
-    float init_radius = 2.0 * voxel_size;
+    float init_voxel_size = 0.05;
+    int neighbor_limits[4] = {33, 9, 9, 9};
+    float init_radius = 2.0 * init_voxel_size;
     int K_shape_samples = 1024;
     int K_match_samples = 512;
+    std::string padding = "zero"; // zero, random
+
     const std::string print_msg()const{
         std::stringstream msg;
         msg<<" - num_stages: "<<num_stages<<std::endl;
-        msg<<" - voxel_size: "<<voxel_size<<std::endl;
+        msg<<" - voxel_size: "<<init_voxel_size<<std::endl;
         msg<<" - neighbor_limits: "<<neighbor_limits[0]<<", "<<neighbor_limits[1]<<", "<<neighbor_limits[2]<<", "<<neighbor_limits[3]<<std::endl;
-        msg<<" - init_voxel_size: "<<init_voxel_size<<std::endl;
         msg<<" - init_radius: "<<init_radius<<std::endl;
         msg<<" - K_shape_samples: "<<K_shape_samples<<std::endl;
         msg<<" - K_match_samples: "<<K_match_samples<<std::endl;
+        msg<<" - padding: "<<padding<<std::endl;
         return msg.str();
     }
 };
 
 struct LoopDetectorConfig
 {
-    bool fuse_features = false;
+    bool fuse_shape = false;
+    int lcd_nodes = 12;
+    int recall_nodes = 8;
+
+    const std::string print_msg()const{
+        std::stringstream msg;
+        msg<<" - fuse_shape: "<<fuse_shape<<std::endl;
+        msg<<" - lcd_nodes: "<<lcd_nodes<<std::endl;
+        msg<<" - recall_nodes: "<<recall_nodes<<std::endl;
+        return msg.str();
+    }
 };
 
 struct RegistrationConfig
@@ -176,6 +190,7 @@ struct Config
     //
     GraphConfig graph;
     SgNetConfig sgnet;
+    LoopDetectorConfig loop_detector;
     ShapeEncoderConfig shape_encoder;
 
     //

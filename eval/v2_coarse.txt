@@ -1,0 +1,48 @@
+Evaluate results in v2_coarse
+--- processing uc0107_00b uc0107_00a ---
+Instance match, tp: 7, fp:13
+PIR: 0.000, registration rmse:0.203
+--- processing uc0110_00b uc0110_00a ---
+Instance match, tp: 22, fp:26
+PIR: 0.000, registration rmse:0.078
+--- processing uc0110_00c uc0110_00a ---
+WARNING: 125 150 not in gt
+Instance match, tp: 10, fp:34
+PIR: 0.000, registration rmse:0.383
+--- processing uc0110_00e uc0110_00a ---
+Instance match, tp: 14, fp:26
+PIR: 0.000, registration rmse:0.206
+--- processing uc0110_00f uc0110_00a ---
+Instance match, tp: 6, fp:31
+PIR: 0.000, registration rmse:0.636
+--- processing uc0110_00g uc0110_00a ---
+Instance match, tp: 11, fp:26
+PIR: 0.000, registration rmse:0.263
+--- processing uc0111_00b uc0111_00a ---
+Instance match, tp: 12, fp:6
+PIR: 0.000, registration rmse:0.084
+--- processing uc0115_00b uc0115_00a ---
+Instance match, tp: 7, fp:16
+PIR: 0.000, registration rmse:0.113
+--- processing uc0115_00c uc0115_00a ---
+Instance match, tp: 9, fp:13
+PIR: 0.000, registration rmse:0.211
+--- processing uc0115_00d uc0115_00a ---
+Instance match, tp: 7, fp:10
+PIR: 0.000, registration rmse:0.145
+--- processing uc0115_00e uc0115_00a ---
+Instance match, tp: 6, fp:13
+PIR: 0.000, registration rmse:0.744
+--- processing uc0204_00b uc0204_00a ---
+Instance match, tp: 9, fp:28
+PIR: 0.000, registration rmse:0.131
+--- processing uc0204_00c uc0204_00a ---
+Instance match, tp: 13, fp:18
+PIR: 0.000, registration rmse:0.066
+--- processing uc0110_00h uc0110_00a ---
+Instance match, tp: 4, fp:30
+PIR: 0.000, registration rmse:0.565
+---------- Summary 14 pairs ---------
+instance recall: 0.749(137/183), instance precision: 0.321(137/427)
+points inliner rate: 0.000
+registration recall:6/14

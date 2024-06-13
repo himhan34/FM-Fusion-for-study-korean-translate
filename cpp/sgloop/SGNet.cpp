@@ -37,9 +37,6 @@ int check_nan_features(const torch::Tensor &features)
 
 SgNet::SgNet(const SgNetConfig &config_, const std::string weight_folder):config(config_)
 {
-    // std::cout << "LibTorch version: " << TORCH_VERSION_MAJOR<<"."
-    //                                 << TORCH_VERSION_MINOR<<"."
-    //                                 <<TORCH_VERSION_PATCH<< std::endl;
     std::cout<<"Initializing loop detector\n";
     std::string sgnet_path = weight_folder + "/sgnet.pt";
     std::string bert_path = weight_folder + "/bert_script.pt";
@@ -109,7 +106,29 @@ SgNet::SgNet(const SgNetConfig &config_, const std::string weight_folder):config
     tokenizer->Init(vocab_path);
     std::cout<<"Tokenizer loaded and initialized\n";
 
+}
 
+bool SgNet::load_bert(const std::string weight_folder)
+{
+    std::string bert_path = weight_folder + "/bert_script.pt";
+    o3d_utility::Timer timer;
+    timer.Start();
+
+    try
+    {
+        bert_encoder = torch::jit::load(bert_path);
+        bert_encoder.to(torch::kCUDA);
+        std::cout << "Load bert from "<< bert_path << std::endl;
+    }
+    catch(const std::exception& e)
+    {
+        std::cerr << e.what() << '\n';
+        return false;
+    }
+    timer.Stop();
+    std::cout<<"Load bert time cost (ms): "<<timer.GetDurationInMillisecond()<<"\n";
+
+    return true;
 }
 
 
@@ -125,8 +144,11 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
     float tokens_attention_mask[N][config.token_padding]={};
     std::vector<int> triplet_anchors; // (N',)
     std::vector<std::vector<Corner>> triplet_corners; // (N', triplet_number, 2)
-    
+    float timer_array[5];
+    open3d::utility::Timer timer;
+
     // Extract node information
+    timer.Start();
     for (int i=0;i<N;i++)
     {
         // Geometry
@@ -165,8 +187,11 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
             triplet_corners.push_back(corner_vector);
         }
     }
+    timer.Stop();
+    timer_array[0] = timer.GetDurationInMillisecond();
 
     // Pack triplets
+    timer.Start();
     int N_valid = triplet_anchors.size(); // Node with at least one valid triplet
     float triplet_anchors_arr[N_valid];
     float triplet_corners_arr[N_valid][config.triplet_number][2];
@@ -189,17 +214,39 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
     torch::Tensor anchors = torch::from_blob(triplet_anchors_arr,{N_valid}).to(torch::kInt32).to(torch::kCUDA); //torch::zeros({30, 1}).to(torch::kCUDA);
     torch::Tensor corners = torch::from_blob(triplet_corners_arr, {N_valid, config.triplet_number, 2}).to(torch::kInt32).to(torch::kCUDA);
     torch::Tensor corners_mask = torch::from_blob(triplet_corners_masks, {N_valid, config.triplet_number}).to(torch::kInt32).to(torch::kCUDA);
+    timer.Stop();
+    timer_array[1] = timer.GetDurationInMillisecond();
+    std::cout<<"Encoding "<<N<<" node features, with "<<N_valid<<" nodes have valid triplets\n";
+
+    //
+    // std::stringstream debug_msg;
+    // for(int i=0;i<N;i++){
+    //     debug_msg<<labels[i]<<",";
+    // }
+    // std::cout<<"labels: "<<debug_msg.str()<<"\n";
+
+    // produce a large input by stacking the same input multiple times
+    // int B = 5;
+    // for(int k=0;k<B;k++){
+    //     input_ids = torch::cat({input_ids, input_ids}, 0);
+    //     attention_mask = torch::cat({attention_mask, attention_mask}, 0);
+    //     token_type_ids = torch::cat({token_type_ids, token_type_ids}, 0);
+    // }
+    // std::cout<<"Passing labels at batch size "<<input_ids.size(0)<<"\n";
 
     // Graph encoding
-    std::cout<<"Encoding "<<N<<" node features, with "<<N_valid<<" nodes have valid triplets\n";
+    timer.Start();
     torch::Tensor semantic_embeddings = bert_encoder.forward({input_ids, attention_mask, token_type_ids}).toTensor();
+    // torch::cuda::synchronize();
+    std::cout<<"Bert output correct\n";
+
     int semantic_nan = check_nan_features(semantic_embeddings);
     if(semantic_nan>0)
         open3d::utility::LogWarning("Found {:d} nan semantic embeddings", semantic_nan);
-    
+    timer.Stop();
+    timer_array[2] = timer.GetDurationInMillisecond();
 
-    // std::cout<<"Anchor shape: "<<anchors.sizes()<<std::endl;
-    // std::cout<<"Corner shape: "<<corners.sizes()<<std::endl;
+    timer.Start();
     auto output = sgnet_lt.forward({semantic_embeddings, boxes, centroids, anchors, corners, corners_mask}).toTuple();
     node_features = output->elements()[0].toTensor();
     torch::Tensor triplet_verify_mask = output->elements()[1].toTensor();
@@ -215,6 +262,14 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
         open3d::utility::LogWarning("Set nan node features to 0");
 
     }
+    timer.Stop();
+    timer_array[3] = timer.GetDurationInMillisecond();
+
+    std::cout<<"graph encode time cost (ms): "
+            <<timer_array[0]<<", "
+            <<timer_array[1]<<", "
+            <<timer_array[2]<<", "
+            <<timer_array[3]<<std::endl;
 
     return true;
 }
@@ -225,8 +280,7 @@ void SgNet::match_nodes(const torch::Tensor &src_node_features, const torch::Ten
     // Match layer
     int Ns = src_node_features.size(0);
     int Nr = ref_node_features.size(0);
-    std::cout<<"Matching "<< Ns << " src nodes and "
-                        << Nr << " ref nodes\n";
+    std::cout<<"Matching "<< Ns << " src nodes and "<< Nr << " ref nodes\n";
     // std::cout<<"src shape: "<<src_node_features.sizes()<<std::endl; // (X,C)
     // std::cout<<"ref shape: "<<ref_node_features.sizes()<<std::endl; // (Y,C)
     c10::intrusive_ptr<torch::ivalue::Tuple> match_output;

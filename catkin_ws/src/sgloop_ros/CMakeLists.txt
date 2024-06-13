@@ -11,9 +11,11 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   geometry_msgs
   sensor_msgs
+  nav_msgs
   visualization_msgs
   open3d_conversions
   cv_bridge
+  message_generation
 )
 
 set(FMFUSION_LIBRARIES ${CMAKE_CURRENT_SOURCE_DIR}/../../../build/cpp/libfmfusion.so)
@@ -30,9 +32,21 @@ message(STATUS "TORCH_INCLUDE_DIRS: ${TORCH_INCLUDE_DIRS}")
 message(STATUS "FMFUSION LIBRARIES: ${FMFUSION_LIBRARIES}")
 message(STATUS "FMFUSION INCLUDE DIR: ${FMFUSION_INCLUDE_DIR}")
 
+## Catkin specific ##
+add_message_files(
+  FILES
+  CoarseGraph.msg
+)
+
+generate_messages(
+  DEPENDENCIES
+  std_msgs
+  geometry_msgs
+)
+
 catkin_package(
- INCLUDE_DIRS include
-  CATKIN_DEPENDS roscpp std_msgs sensor_msgs open3d_conversions cv_bridge
+  INCLUDE_DIRS include
+  CATKIN_DEPENDS roscpp std_msgs sensor_msgs open3d_conversions cv_bridge message_runtime
   DEPENDS Open3D
 )
 
@@ -61,6 +75,7 @@ set(ALL_TARGET_LINK_LIBARIES
 
 add_library(sgloop_ros SHARED
           src/registration/Prune.cpp
+          src/communication/Communication.cpp
           src/Visualization.cpp)
 target_link_libraries(sgloop_ros ${ALL_TARGET_LINK_LIBARIES})
 

@@ -9,6 +9,7 @@
 #include "tools/Utility.h"
 #include "tools/IO.h"
 #include "mapping/SemanticMapping.h"
+#include "tools/TicToc.h"
 
 typedef fmfusion::IO::RGBDFrameDirs RGBDFrameDirs;
 
@@ -101,9 +102,11 @@ int main(int argc, char *argv[])
     pipelines::integration::InstanceTSDFVolume global_volume(global_config->instance_cfg.voxel_length,
                                                             global_config->instance_cfg.sdf_trunc, 
                                                             open3d::pipelines::integration::TSDFVolumeColorType::RGB8);
+    
     geometry::Image depth, color;
-
     int prev_frame_id = -100;
+    fmfusion::TicTocSequence tic_toc_seq("# Load Integration Export", 3);
+
     for(int k=0;k<rgbd_table.size();k++){
         RGBDFrameDirs frame_dirs = rgbd_table[k];
         std::string frame_name = frame_dirs.first.substr(frame_dirs.first.find_last_of("/")+1); // eg. frame-000000.png
@@ -123,6 +126,7 @@ int main(int argc, char *argv[])
 
         if(frame_id>max_frames) break;
         if((frame_id-prev_frame_id)<frame_gap) continue;
+        tic_toc_seq.tic();
 
         utility::LogInfo("Processing frame {:s} ...", frame_name);
 
@@ -135,13 +139,21 @@ int main(int argc, char *argv[])
         bool loaded = fmfusion::utility::LoadPredictions(root_dir+'/'+prediction_folder, frame_name, 
                                                         global_config->mapping_cfg, global_config->instance_cfg.intrinsic.width_, global_config->instance_cfg.intrinsic.height_,
                                                         detections);
+        tic_toc_seq.toc();
         if(!loaded) continue; 
         
         semantic_mapping.integrate(frame_id,rgbd, pose_table[k], detections);
         if(global_tsdf)
             global_volume.Integrate(*rgbd, global_config->instance_cfg.intrinsic, pose_table[k].inverse().cast<double>());
-
+        tic_toc_seq.toc();
         prev_frame_id = frame_id;
+        {
+            std::vector<fmfusion::InstanceId> active_names;
+            std::vector<fmfusion::InstancePtr> active_instances;
+            semantic_mapping.export_instances(active_names, active_instances);
+            utility::LogWarning("Active instances: {:d}",active_names.size());
+        }
+        tic_toc_seq.toc();
 
         if(save_gap>0 && frame_id>0 && frame_id%save_gap==0){
             semantic_mapping.extract_point_cloud();
@@ -158,7 +170,7 @@ int main(int argc, char *argv[])
     // Post-process
     semantic_mapping.extract_point_cloud();
     semantic_mapping.merge_overlap_instances();
-    semantic_mapping.merge_overlap_structural_instances();
+    semantic_mapping.merge_overlap_structural_instances(true);
     semantic_mapping.extract_bounding_boxes();
 
     // Visualize
@@ -172,7 +184,8 @@ int main(int argc, char *argv[])
         io::WriteTriangleMesh(output_folder+"/"+sequence_name+output_subseq+"/mesh_o3d.ply",*global_mesh);
         utility::LogWarning("Save global TSDF volume");
     }
-
+    tic_toc_seq.export_data(output_folder+"/"+sequence_name+output_subseq+"/time_records.txt");
+    fmfusion::utility::write_config(output_folder+"/"+sequence_name+output_subseq+"/config.txt",*global_config);
 
     return 0;
 }

@@ -30,8 +30,11 @@ void SemanticMapping::integrate(const int &frame_id,
         timer_query.Stop();
 
         timer_da.Start();
-        auto matches = data_association(detections, active_instances);
+        Eigen::VectorXi matches;
+        std::vector<std::pair<InstanceId,InstanceId>> ambiguous_pairs;
+        int count_m = data_association(detections, active_instances, matches, ambiguous_pairs); // (n_det,)
         timer_da.Stop();
+        std::cout<<count_m<<" matches and "<<ambiguous_pairs.size()<<" ambiguous pairs\n";
         // std::cout<<"matches: "<<matches.transpose()<<std::endl;
 
         timer_integrate.Start();
@@ -47,7 +50,7 @@ void SemanticMapping::integrate(const int &frame_id,
 
             if (matches(k_)>0){
                 auto matched_instance = instance_map[matches(k_)];
-                matched_instance->integrate(masked_rgbd,pose.inverse());
+                matched_instance->integrate(frame_id,masked_rgbd,pose.inverse());
                 matched_instance->update_label(detections[k_]);
                 matched_instance->update_point_cloud(frame_id,mapping_config.update_period);
             }
@@ -86,18 +89,7 @@ void SemanticMapping::integrate(const int &frame_id,
 
         // Active and recent instances
         update_active_instances(active_instances);
-        for(InstanceId j_:active_instances) recent_instances.emplace(j_);
-        for(InstanceId j_:new_instances) recent_instances.emplace(j_);
-
-        if(frame_id-last_cleanup_frame_id>mapping_config.cleanup_period){
-            std::vector<InstanceId> recent_instance_vec(recent_instances.begin(),recent_instances.end());
-            extract_point_cloud(recent_instance_vec);
-            merge_overlap_instances(recent_instance_vec);
-            merge_overlap_structural_instances();
-            last_cleanup_frame_id = frame_id;
-            recent_instances.clear();
-            o3d_utility::LogWarning("Clean up recent instances");
-        }
+        update_recent_instances(frame_id,active_instances,new_instances);
         
         o3d_utility::LogWarning("## {}/{} instances",active_instances.size(),instance_map.size());
         o3d_utility::LogInfo("Time record (ms): query {:f}, da {:f}, integrate {:f}",
@@ -113,30 +105,31 @@ std::vector<InstanceId> SemanticMapping::search_active_instances(
     const size_t MIN_UNITS= 1;
     if (instance_map.empty()) return active_instances;
     open3d::utility::Timer timer;
-    float query_time_ms = 0.0;
-    float projection_time_msg = 0.0;
+    // float query_time_ms = 0.0;
+    // float projection_time_ms = 0.0;
+    Eigen::Vector3d depth_cloud_center = depth_cloud->GetCenter();
 
+    std::vector<InstanceId> target_instances;
     for(auto &instance_j:instance_map){
+        double dist = (depth_cloud_center   - instance_j.second->centroid).norm();
+        if(dist<search_radius) target_instances.emplace_back(instance_j.first);
+    }
+#pragma omp parallel for default(none) shared(depth_cloud, pose, target_instances, active_instances)
+    for(const auto &idx:target_instances){
+        InstancePtr instance_j = instance_map[idx];
         auto observed_cloud = std::make_shared<O3d_Cloud>();
-        double dist = (depth_cloud->GetCenter() - instance_j.second->centroid).norm();
-        if (dist>search_radius) continue;
 
-        timer.Start();
-        instance_j.second->get_volume()->query_observed_points(depth_cloud,observed_cloud);
-        timer.Stop();
-        query_time_ms += timer.GetDurationInMillisecond();
+        instance_j->get_volume()->query_observed_points(depth_cloud,observed_cloud);
         if(observed_cloud->points_.size()>mapping_config.min_active_points){
-            timer.Start();
-            std::shared_ptr<cv::Mat> instance_img_mask = utility::PrjectionCloudToDepth(
+#pragma omp critical
+            instance_j->observed_image_mask = utility::PrjectionCloudToDepth(
                 *observed_cloud,pose.inverse(),instance_config.intrinsic,mapping_config.dilation_size);
-            instance_j.second->observed_image_mask = instance_img_mask;
-            active_instances.emplace_back(instance_j.first);
-            timer.Stop();
-            projection_time_msg += timer.GetDurationInMillisecond();
+            // instance_j->observed_image_mask = instance_img_mask;
+            active_instances.emplace_back(idx);
         }
     }
-
-    open3d::utility::LogInfo("Query time: {:.2f} ms, Projection time: {:.2f} ms",query_time_ms,projection_time_msg);
+    
+    // open3d::utility::LogInfo("Query time: {:.2f} ms, Projection time: {:.2f} ms",query_time_ms,projection_time_ms);
 
     return active_instances;
 }
@@ -150,14 +143,48 @@ void SemanticMapping::update_active_instances(const std::vector<InstanceId> &act
     }
 }
 
-Eigen::VectorXi SemanticMapping::data_association(const std::vector<DetectionPtr> &detections,
-    const std::vector<InstanceId> &active_instances)
+void SemanticMapping::update_recent_instances(const int &frame_id,
+                                            const std::vector<InstanceId> &active_instances,
+                                            const std::vector<InstanceId> &new_instances)
+{
+    std::vector<InstanceId> invalid_instances; // remove from recent instances
+    
+    //
+    for(InstanceId j_:active_instances) recent_instances.emplace(j_);
+    for(InstanceId j_:new_instances) recent_instances.emplace(j_);
+    
+    //!debug: some instances should not be cleared
+    for(auto idx:recent_instances){
+        auto inst = instance_map.find(idx);
+        if(inst==instance_map.end()) continue;
+
+        if((frame_id-inst->second->frame_id_) > mapping_config.recent_window_size){
+            if(!inst->second->point_cloud->HasPoints()){ // remove instances has not been re-observed for long time
+                instance_map.erase(inst);
+            }
+
+        }
+    }
+
+    // Clean up
+    for(auto idx:invalid_instances){
+        recent_instances.erase(idx);
+    }
+
+
+
+}
+
+int SemanticMapping::data_association(const std::vector<DetectionPtr> &detections, const std::vector<InstanceId> &active_instances,
+                                    Eigen::VectorXi &matches,
+                                    std::vector<std::pair<InstanceId,InstanceId>> &ambiguous_pairs)
 {
     int K = detections.size();
     int M = active_instances.size();
 
-    Eigen::VectorXi matches = Eigen::VectorXi::Zero(K);
-    if (M<1) return matches;
+    // Eigen::VectorXi 
+    matches = Eigen::VectorXi::Zero(K);
+    if (M<1) return 0;
 
     Eigen::MatrixXd iou = Eigen::MatrixXd::Zero(K,M);
     Eigen::MatrixXi assignment = Eigen::MatrixXi::Zero(K,M);
@@ -173,7 +200,6 @@ Eigen::VectorXi SemanticMapping::data_association(const std::vector<DetectionPtr
             double overlap_area = double(cv::countNonZero(overlap));
             double instance_area = double(cv::countNonZero(*instance_m->observed_image_mask));
             iou(k_,m_) = overlap_area/(zk_area+instance_area-overlap_area);
-            // iou(k_,m_) = double(cv::countNonZero(overlap))/double(cv::countNonZero(*instance_m->observed_image_mask));   // overlap/r_m
         }
     } 
 
@@ -185,31 +211,50 @@ Eigen::VectorXi SemanticMapping::data_association(const std::vector<DetectionPtr
     }
 
     // Find the maximum match for each row
+    // std::vector<std::pair<InstanceId,InstanceId>> ambiguous_pairs;
     for (int k_=0;k_<K;k_++){
         int max_col;
         double max_iou = iou.row(k_).maxCoeff(&max_col);
         if (max_iou>mapping_config.min_iou)assignment_rowise(k_,max_col) = 1;
+
+        // Find ambiguous pairs and search their 3D overlap later
+        Eigen::ArrayXd row_correlated = iou.row(k_).array(); //- mapping_config.min_iou * Eigen::ArrayXd::Ones(K);
+        int row_correlated_num = (row_correlated>0).count();
+        if(row_correlated_num>1){
+            row_correlated[max_col] = 0.0;
+            int second_max_col;
+            row_correlated.maxCoeff(&second_max_col);
+            ambiguous_pairs.emplace_back(std::make_pair(active_instances[max_col],active_instances[second_max_col]));
+        }
     }
 
     assignment = assignment_colwise + assignment_rowise;
 
     // export matches
     int count= 0;
+    std::vector<InstanceId> matched_instances;
+    std::vector<InstanceId> unmatched_instances;    
     for (int k_=0;k_<K;k_++){
         for (int m_=0;m_<M;m_++){
             if (assignment(k_,m_)==2){
                 matches(k_) = active_instances[m_];
+                matched_instances.emplace_back(active_instances[m_]);
                 count ++;
                 break;
             }
         }
     }
 
+    //
+    for(int m_=0;m_<M;m_++){
+        if(assignment.col(m_).sum()<2) unmatched_instances.emplace_back(active_instances[m_]);
+    }
+
     // std::cout<<iou<<std::endl;   
     // std::cout<<assignment<<std::endl;
     o3d_utility::LogInfo("{}/({},{}) associations out of detections and active instances.",count,K,M);
 
-    return matches;
+    return count;
 }
 
 int SemanticMapping::create_new_instance(const DetectionPtr &detection, const unsigned int &frame_id,
@@ -217,12 +262,11 @@ int SemanticMapping::create_new_instance(const DetectionPtr &detection, const un
 {
     // open3d::utility::LogInfo("Create new instance");
     auto instance = std::make_shared<Instance>(latest_created_instance_id+1,frame_id,instance_config);
-    instance->integrate(rgbd_image,pose.inverse());
+    instance->integrate(frame_id,rgbd_image,pose.inverse());
     instance->update_label(detection);
     instance->fast_update_centroid();
     instance->color_ = InstanceColorBar20[instance->get_id()%InstanceColorBar20.size()];
 
-    // std::cout<<"Init instance with "<<instance->point_cloud->points_.size()<<" points\n"; // EXTRACT POINT FIRST
     instance_map.emplace(instance->get_id(),instance);
     latest_created_instance_id = instance->get_id();
     return instance->get_id();
@@ -285,11 +329,10 @@ double SemanticMapping::Compute3DIoU (const O3d_Cloud_Ptr &cloud_a, const O3d_Cl
 void SemanticMapping::merge_overlap_instances(std::vector<InstanceId> instance_list)
 {
     double SEARCH_DISTANCE = 3.0; // in meters
-
     std::vector<InstanceId> target_instances;
-    if(instance_list.size()<1){
-        for(auto &instance_j:instance_map)
-            target_instances.emplace_back(instance_j.first);
+    if(instance_list.empty()){
+        for(const auto &instance_j:instance_map) target_instances.emplace_back(instance_j.first);
+        // std::cout<<target_instances.size()<<" target instances \n";
     }
     else{
         target_instances = instance_list;
@@ -305,22 +348,19 @@ void SemanticMapping::merge_overlap_instances(std::vector<InstanceId> instance_l
         auto instance_i = instance_map[target_instances[i]];
         if (!instance_i->point_cloud)
             o3d_utility::LogWarning("Instance {:d} has no point cloud",instance_i->get_id());
-        std::string label_i = instance_i->get_predicted_class().first;
+        // std::cout<<"instance "<<target_instances[i]<<": ";
+        // std::string label_i = instance_i->get_predicted_class().first;
         if (instance_i->point_cloud->points_.size()<30) continue;
-
         for(int j=i+1;j<target_instances.size();j++){
             if(remove_instances.find(target_instances[j])!=remove_instances.end()) 
                 continue;
-            
             auto instance_j = instance_map[target_instances[j]];
             if (!instance_j->point_cloud)
                 o3d_utility::LogWarning("Instance {:d} has no point cloud",instance_j->get_id());
-            // std::cout<<instance_j->id_<<":"<<instance_j->get_predicted_class().first<<";  "
-            //     <<instance_j->point_cloud->points_.size()<<"\n";
+            // std::cout<<target_instances[j] <<":"<<instance_j->get_predicted_class().first<<", "
             if (instance_j->point_cloud->points_.size()<30) continue;
 
             double dist = (instance_i->centroid-instance_j->centroid).norm();
-            
             if(!IsSemanticSimilar(instance_i->get_measured_labels(),instance_j->get_measured_labels())||
                 dist>SEARCH_DISTANCE) continue;
 
@@ -334,9 +374,8 @@ void SemanticMapping::merge_overlap_instances(std::vector<InstanceId> instance_l
                 large_instance = instance_j;
                 small_instance = instance_i;
             }
-
             double iou = Compute3DIoU(large_instance->point_cloud,small_instance->point_cloud,mapping_config.merge_inflation);
-            
+
             // Merge
             if(iou>mapping_config.merge_iou){
                 large_instance->merge_with(
@@ -359,18 +398,41 @@ void SemanticMapping::merge_overlap_instances(std::vector<InstanceId> instance_l
 
 }
 
-void SemanticMapping::merge_overlap_structural_instances()
+int SemanticMapping::merge_overlap_structural_instances(bool merge_all)
 {
     std::vector<InstanceId> target_instances;
-    std::string structural_categories = "floor,ceiling";
+    // std::string structural_categories = "floor,ceiling";
     for(auto &instance_j:instance_map){
         if(instance_j.second->get_predicted_class().first=="floor")
-        // if(structural_categories.find(instance_j.second->get_predicted_class().first)!=std::string::npos)
             target_instances.emplace_back(instance_j.first);
     }
+    if(target_instances.size()<2) return 0;
 
-    if(target_instances.size()<2) return;
+    if(merge_all){
+        InstancePtr largest_floor;
+        size_t larget_floor_size=0;
 
+        for(auto idx:target_instances){
+            auto instance = instance_map[idx];
+            if(instance->point_cloud->points_.size()>larget_floor_size){
+                largest_floor = instance;
+                larget_floor_size = instance->point_cloud->points_.size();
+            }
+        }
+
+        for(auto idx:target_instances){
+            if(idx==largest_floor->get_id()) continue;
+            auto instance = instance_map[idx];
+            largest_floor->merge_with(
+                instance->point_cloud,instance->get_measured_labels(),instance->get_observation_count());
+            instance_map.erase(idx);
+        }
+
+        o3d_utility::LogInfo("Merged {:d} floor instances in one floor.",target_instances.size());
+        return target_instances.size()-1;
+    }
+
+    //todo:remove
     int old_instance_number = target_instances.size();
     std::unordered_set<InstanceId> remove_instances;
     for(int i=0;i<target_instances.size();i++){
@@ -408,8 +470,38 @@ void SemanticMapping::merge_overlap_structural_instances()
         instance_map.erase(instance_id);
     }
 
-    o3d_utility::LogInfo("Merged {:d}/{:d} floor instances by 2D IoU.",remove_instances.size(),old_instance_number);
 
+}
+
+int SemanticMapping::merge_ambiguous_instances(const std::vector<std::pair<InstanceId,InstanceId>> &ambiguous_pairs)
+{
+    int count = 0;
+    for(const auto &pair:ambiguous_pairs){
+        auto instance_i = instance_map[pair.first];
+        auto instance_j = instance_map[pair.second];
+        if(instance_i->point_cloud && instance_j->point_cloud){        
+            continue;
+            double iou = Compute3DIoU(instance_i->point_cloud,instance_j->point_cloud);
+        }
+        else{
+            open3d::pipelines::integration::InstanceTSDFVolume *vol_ptr;
+            O3d_Cloud_Ptr cloud_ptr;
+
+            if(instance_i->point_cloud){
+                vol_ptr = instance_j->get_volume();
+                cloud_ptr = instance_i->point_cloud;
+            }
+            else if(instance_j->point_cloud){
+                vol_ptr = instance_i->get_volume();
+                cloud_ptr = instance_j->point_cloud;
+            }
+            else continue;
+
+        }
+
+    }
+    o3d_utility::LogInfo("Merged {:d} ambiguous instances by 3D IoU.",count);
+    return count;
 }
 
 void SemanticMapping::extract_bounding_boxes()
@@ -421,9 +513,8 @@ void SemanticMapping::extract_bounding_boxes()
 
     for (const auto &instance: instance_map){
         instance.second->filter_pointcloud_statistic();
-        // std::cout<<instance.second->point_cloud->points_.size()<<" points\n";
-        // instance.second->filter_pointcloud_by_cluster();
-        if (instance.second->point_cloud->points_.size()>mapping_config.shape_min_points){
+
+        if(instance.second->get_cloud_size()>mapping_config.shape_min_points){
             instance.second->CreateMinimalBoundingBox();
             count++;
             // if(instance.second->min_box->IsEmpty()) count++;
@@ -433,26 +524,40 @@ void SemanticMapping::extract_bounding_boxes()
     o3d_utility::LogInfo("Extract {:d} valid bounding box in {:f} ms",count,timer.GetDurationInMillisecond());
 }
 
-std::shared_ptr<open3d::geometry::PointCloud> SemanticMapping::export_global_pcd(bool filter)
+std::shared_ptr<open3d::geometry::PointCloud> SemanticMapping::export_global_pcd(bool filter, float vx_size)
 {
     auto global_pcd = std::make_shared<open3d::geometry::PointCloud>();
+    // std::cout<<"aa\n";
     for(const auto &inst:instance_map){
-        if(filter && inst.second->point_cloud->points_.size()<mapping_config.shape_min_points) continue;
+        // if(inst.second->point_cloud==nullptr) continue;
+        if(!inst.second->point_cloud->HasPoints()) continue;
+        if(filter && inst.second->get_cloud_size()<mapping_config.shape_min_points) continue;
+        // std::cout<<inst.first<<":"<<inst.second->point_cloud->points_.size()<<"\n";
         *global_pcd += *inst.second->point_cloud;
     }
+    if(vx_size>0.0) global_pcd->VoxelDownSample(vx_size);
 
     return global_pcd;
 }
 
+std::vector<Eigen::Vector3d> SemanticMapping::export_instance_centroids()const
+{
+    std::vector<Eigen::Vector3d> centroids;
+    for(const auto &inst:instance_map){
+        // if(inst.second->point_cloud==nullptr) continue;
+        // if(inst.second->point_cloud->HasPoints()) continue;
+        if(inst.second->get_cloud_size()>mapping_config.shape_min_points)
+            centroids.emplace_back(inst.second->centroid);
+    }
+    return centroids;
+}
 
 std::vector<std::shared_ptr<const open3d::geometry::Geometry>> SemanticMapping::get_geometries(bool point_cloud, bool bbox)
 {
     std::vector<std::shared_ptr<const open3d::geometry::Geometry>> viz_geometries;
     for (const auto &instance: instance_map){
-        if(instance.second->point_cloud->points_.size()<mapping_config.shape_min_points) continue;
-        if(point_cloud){
-            viz_geometries.emplace_back(instance.second->point_cloud);
-        }
+        if(instance.second->get_cloud_size()<mapping_config.shape_min_points) continue;
+        viz_geometries.emplace_back(instance.second->point_cloud);
         if(bbox&&!instance.second->min_box->IsEmpty()){ 
             viz_geometries.emplace_back(instance.second->min_box);
         }
@@ -480,49 +585,50 @@ void SemanticMapping::extract_point_cloud(const std::vector<InstanceId> instance
     
     for(const InstanceId idx:target_instances){
         if(instance_map.find(idx)==instance_map.end()) continue; //
-        instance_map[idx]->extract_point_cloud();
+        instance_map[idx]->extract_write_point_cloud();
     }
     o3d_utility::LogInfo("Extract point cloud for {:d} instances",target_instances.size());
 }
 
-int SemanticMapping::update_instances(const int &cur_frame_id, 
-                                        const std::vector<InstanceId> &instance_list)
-{
-    std::vector<InstanceId> target_instances;
-    int count=0;
-    std::cout<<"Updating instances at frame "<<cur_frame_id<<"\n";
-    if(instance_list.empty()){
-        for(auto &instance:instance_map){
-            target_instances.emplace_back(instance.first);
-        }
-    }
-    else
-        target_instances = instance_list;
+// int SemanticMapping::update_instances(const int &cur_frame_id, 
+//                                         const std::vector<InstanceId> &instance_list)
+// {
+//     std::vector<InstanceId> target_instances;
+//     int count=0;
+//     std::cout<<"Updating instances at frame "<<cur_frame_id<<"\n";
+//     if(instance_list.empty()){
+//         for(auto &instance:instance_map){
+//             target_instances.emplace_back(instance.first);
+//         }
+//     }
+//     else
+//         target_instances = instance_list;
 
-    //
-    for(const InstanceId &idx:target_instances){
-        if(instance_map.find(idx)==instance_map.end()) continue;
-        instance_map[idx]->update_point_cloud(cur_frame_id,mapping_config.update_period);
-        count ++;
-    }
+//     //
+//     for(const InstanceId &idx:target_instances){
+//         if(instance_map.find(idx)==instance_map.end()) continue;
+//         instance_map[idx]->update_point_cloud(cur_frame_id,mapping_config.update_period);
+//         count ++;
+//     }
 
-    return count;
-}
-void SemanticMapping::remove_invalid_instances()
-{
-    std::vector<InstanceId> remove_instances;
-    for(auto &instance:instance_map){
-        // instance.second->point_cloud = instance.second->extract_point_cloud();
-        if(instance.second->point_cloud->points_.size()<mapping_config.shape_min_points)
-            remove_instances.emplace_back(instance.first);
-    }
+//     return count;
+// }
 
-    for(auto &instance_id:remove_instances){
-        instance_map.erase(instance_id);
-    }
-    o3d_utility::LogInfo("Remove {:d} invalid instances",remove_instances.size());
+// void SemanticMapping::remove_invalid_instances()
+// {
+//     std::vector<InstanceId> remove_instances;
+//     for(auto &instance:instance_map){
+//         // instance.second->point_cloud = instance.second->extract_point_cloud();
+//         if(instance.second->point_cloud->points_.size()<mapping_config.shape_min_points)
+//             remove_instances.emplace_back(instance.first);
+//     }
 
-}
+//     for(auto &instance_id:remove_instances){
+//         instance_map.erase(instance_id);
+//     }
+//     o3d_utility::LogInfo("Remove {:d} invalid instances",remove_instances.size());
+
+// }
 
 bool SemanticMapping::Save(const std::string &path)
 {
@@ -536,10 +642,10 @@ bool SemanticMapping::Save(const std::string &path)
     std::vector<std::string> instance_box_info; // id:x,y,z;qw,qx,qy,qz;sx,sy,sz
 
     for (const auto &instance: instance_map){
-        LabelScore semantic_class_score = instance.second->get_predicted_class();
-        auto instance_cloud = instance.second->point_cloud;
         if(!instance.second->point_cloud) continue;
-        if(instance_cloud->points_.size()<mapping_config.shape_min_points) continue;
+        LabelScore semantic_class_score = instance.second->get_predicted_class();
+        auto instance_cloud = instance.second->get_complete_cloud(); //instance.second->point_cloud;
+        if(instance.second->get_cloud_size()<mapping_config.shape_min_points) continue;
 
         global_instances_pcd += *instance_cloud;
         stringstream ss; // instance info string
@@ -645,13 +751,12 @@ void SemanticMapping::export_instances(
     std::vector<InstanceId> &names, std::vector<InstancePtr> &instances)
 {
     for(auto &instance:instance_map){
-        auto point_size = instance.second->point_cloud->points_.size();
-        if (point_size>mapping_config.shape_min_points){
+        if(!instance.second->point_cloud) continue;
+        if (instance.second->get_cloud_size() >mapping_config.shape_min_points){
             names.emplace_back(instance.first);
             instances.emplace_back(instance.second);
         }
     }
-    // return instances;
 }
 
 int SemanticMapping::merge_other_instances(std::vector<InstancePtr> &instances)

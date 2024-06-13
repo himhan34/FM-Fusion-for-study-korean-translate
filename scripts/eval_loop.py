@@ -33,16 +33,22 @@ def read_match_result(dir):
 
         return pose, pred_nodes, pred_scores
 
+def read_instance_match_result(dir):
+    pred_nodes = np.loadtxt(dir, dtype=int)
+    pred_scores = np.ones_like(pred_nodes[:,0])
+    pose = np.eye(4)
+    
+    return pose, pred_nodes, pred_scores
 
 def eval_instance_match(pred_nodes, iou_map, min_iou=0.2):
     # print('pred_nodes\n', pred_nodes)
     # print('gt src names\n', iou_map['src_names'])
     # print('gt ref names\n', iou_map['tar_names'])
-    iou_mat = iou_map["iou"].numpy()
-
-    pred_mask = np.zeros_like(pred_scores).astype(bool)
-
-    i = 0
+    iou_mat = iou_map['iou'].numpy()
+    M = pred_nodes.shape[0]
+    pred_mask = np.zeros(M, dtype=bool)
+    
+    i=0
     for pair in pred_nodes:
         if pair[0] in iou_map["src_names"] and pair[1] in iou_map["tar_names"]:
             src_node_id = iou_map["src_names"].index(pair[0])
@@ -146,6 +152,7 @@ def evaluate_fine(src_corr_points, ref_corr_points, transform, acceptance_radius
 
     src_corr_points = apply_transform(src_corr_points, transform)
     corr_distances = torch.linalg.norm(ref_corr_points - src_corr_points, dim=1)
+    # print('dist range: [{:.3f}, {:.3f}]'.format(corr_distances.min(), corr_distances.max()))
     corr_true_mask = torch.lt(corr_distances, acceptance_radius)
     precision = torch.lt(corr_distances, acceptance_radius).float().mean()
     return precision, corr_true_mask
@@ -154,7 +161,7 @@ def evaluate_fine(src_corr_points, ref_corr_points, transform, acceptance_radius
 def rerun_registration(config_file, dataroot, output_folder, scan_pairs):
     exec_file = os.path.join(ROOT_DIR, "build/cpp/TestLoop")
     for (ref_scene, src_scene) in scan_pairs:
-        cmd = "{} --config {} --weights_folder {} --src_scene {} --ref_scene {} --output_folder {} --dense_match  --prune_instance ".format(
+        cmd = "{} --config {} --weights_folder {} --src_scene {} --ref_scene {} --output_folder {} --prune_instance --dense_match".format(
             exec_file,
             config_file,
             "./torchscript",
@@ -169,19 +176,13 @@ if __name__ == "__main__":
 
     # args
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_file", type=str, default="config/realsense.yaml")
-    parser.add_argument("--dataroot", type=str, default="/data2/sgslam")
-    parser.add_argument(
-        "--output_folder", type=str, default="/data2/sgslam/output/coarse_register2"
-    )
-    parser.add_argument("--split", type=str, default="val")
-    parser.add_argument("--split_file", type=str, default="val_bk.txt")
-    parser.add_argument(
-        "--rerun",
-        action="store_true",
-        default=False,
-        help="whether to rerun the registration",
-    )
+    parser.add_argument('--config_file', type=str, default='config/realsense.yaml')
+    parser.add_argument('--dataroot', type=str, default='/data2/sgslam')
+    parser.add_argument('--match_folder',type=str, default='/data2/sgslam/matches')
+    parser.add_argument('--output_folder', type=str, default='/data2/sgslam/output/v2_coarse')
+    parser.add_argument('--split', type=str, default='val')
+    parser.add_argument('--split_file', type=str, default='val_bk.txt')
+    parser.add_argument('--dense', type=bool, default=False, help='evaluate point inliner rate if turned on')
     args = parser.parse_args()
 
     config_file = args.config_file
@@ -209,39 +210,35 @@ if __name__ == "__main__":
         ref_subid = pair[1][-1]
         src_folder = os.path.join(dataroot, split, pair[0])
         ref_folder = os.path.join(dataroot, split, pair[1])
-        gt_match_file = os.path.join(
-            dataroot,
-            "matches",
-            scene_name,
-            "matches_{}{}.pth".format(src_subid, ref_subid),
-        )
-
+        gt_match_file = os.path.join(args.match_folder, scene_name, 'matches_{}{}.pth'.format(src_subid, ref_subid))
+        
         if os.path.exists(gt_match_file):
-            gt_pairs, iou_map, _ = torch.load(gt_match_file)  # gt data
-            pred_pose, pred_nodes, pred_scores = read_match_result(
-                os.path.join(output_folder, "{}-{}.txt".format(pair[0], pair[1]))
-            )
+            gt_pairs, iou_map, _ = torch.load(gt_match_file) # gt data
+            # pred_pose, pred_nodes, pred_scores = read_instance_match_result(os.path.join(output_folder,'{}-{}.txt'.format(pair[0], pair[1])))  
+            pred_pose, pred_nodes, pred_scores = read_match_result(os.path.join(output_folder,'{}-{}.txt'.format(pair[0], pair[1])))
             pred_tp_mask = eval_instance_match(pred_nodes, iou_map)
             inst_evaluator.update(pred_tp_mask, gt_pairs.numpy())
-            gt_tf = np.loadtxt(
-                os.path.join(dataroot, split, pair[0], "transform.txt")
-            )  # src to ref
-
-            src_pcd_dir = os.path.join(output_folder, "{}.ply".format(pair[0]))
-            if os.path.exists(src_pcd_dir):  # instance matched
+            gt_tf = np.loadtxt(os.path.join(dataroot, split, pair[0], 'transform.txt')) # src to ref
+            
+            src_pcd_dir = os.path.join(output_folder, '{}.ply'.format(pair[0]))
+            # if os.path.exists(src_pcd_dir): # instance matched
+            if True:
                 src_pcd = o3d.io.read_point_cloud(src_pcd_dir)
                 rmse = eval_registration_error(src_pcd, pred_pose, gt_tf)
-                inliner_rate = 0.0
 
-                # corr_src_pcd = o3d.io.read_point_cloud(os.path.join(output_folder, '{}-{}_csrc.ply'.format(pair[0],pair[1])))
-                # corr_ref_pcd = o3d.io.read_point_cloud(os.path.join(output_folder, '{}-{}_cref.ply'.format(pair[0],pair[1])))
+                if args.dense:
+                    corr_src_pcd = o3d.io.read_point_cloud(os.path.join(output_folder, '{}-{}_csrc.ply'.format(pair[0],pair[1])))
+                    corr_ref_pcd = o3d.io.read_point_cloud(os.path.join(output_folder, '{}-{}_cref.ply'.format(pair[0],pair[1])))
+                
+                    inliner_rate, corr_true_mask = evaluate_fine(np.asarray(corr_src_pcd.points), 
+                                                            np.asarray(corr_ref_pcd.points), 
+                                                            gt_tf, 
+                                                            acceptance_radius=INLINER_RADIUS)
+                    inliner_count += corr_true_mask.sum()
+                    corr_count += corr_true_mask.shape[0]
+                else:
+                    inliner_rate = 0.0
 
-                # inliner_rate, corr_true_mask = evaluate_fine(np.asarray(corr_src_pcd.points),
-                #                                           np.asarray(corr_ref_pcd.points),
-                #                                           pred_pose,
-                #                                           acceptance_radius=INLINER_RADIUS)
-                # inliner_count += corr_true_mask.sum()
-                # corr_count += corr_true_mask.shape[0]
             else:
                 rmse = 10.0
                 inliner_rate = 0.0
@@ -253,7 +250,11 @@ if __name__ == "__main__":
                     pred_tp_mask.sum(), (~pred_tp_mask).sum()
                 )
             )
-            print("PIR: {:.3f}, registration rmse:{:.3f}".format(inliner_rate, rmse))
+            print(
+                "PIR: {:.3f}, registration rmse:{:.3f}, {}".format(
+                    inliner_rate, rmse, "success" if rmse < RMSE_THRESHOLD else "fail"
+                )
+            )
         else:
             print("WARNING: {} does not exist".format(gt_match_file))
 

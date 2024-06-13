@@ -145,11 +145,10 @@ int main(int argc, char *argv[]) {
     std::string src_map_dir = utility::GetProgramOptionAsString(argc, argv, "--src_scene");
     std::string weights_folder = utility::GetProgramOptionAsString(argc, argv, "--weights_folder");
     std::string output_folder = utility::GetProgramOptionAsString(argc, argv, "--output_folder");
-    std::string gt_file = utility::GetProgramOptionAsString(argc, argv, "--gt_file");
-    bool fused = utility::ProgramOptionExists(argc, argv, "--fusion");
     bool dense_match = utility::ProgramOptionExists(argc, argv, "--dense_match");
     bool prune_instance = utility::ProgramOptionExists(argc, argv, "--prune_instance");
     int viz_mode = utility::GetProgramOptionAsInt(argc, argv, "--viz_mode", 0);
+    bool fused = true;
 
     // init
     auto sg_config = fmfusion::utility::create_scene_graph_config(config_file, true);
@@ -169,6 +168,7 @@ int main(int argc, char *argv[]) {
     src_map->extract_bounding_boxes();
 
     // Export instances
+    fmfusion::o3d_utility::Timer timer;
     ExplicitInstances ref_instances, src_instances;
     ref_map->export_instances(ref_instances.names, ref_instances.instances);
     src_map->export_instances(src_instances.names, src_instances.instances);
@@ -181,39 +181,49 @@ int main(int argc, char *argv[]) {
     src_graph->initialize(src_instances.instances);
     ref_graph->construct_edges();
     src_graph->construct_edges();
+    timer.Start();
     ref_graph->construct_triplets();
+    timer.Stop();
     src_graph->construct_triplets();
+    std::cout << "construct triplets takes " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond()
+              << " ms\n";
     fmfusion::DataDict ref_data_dict = ref_graph->extract_data_dict();
     fmfusion::DataDict src_data_dict = src_graph->extract_data_dict();
-    std::cout<<"ref instance names: "<<ref_data_dict.print_instances()<<std::endl;
+    // std::cout<<"ref instance names: "<<ref_data_dict.print_instances()<<std::endl;
 
     // Encode using SgNet
-    auto loop_detector = std::make_shared<fmfusion::LoopDetector>(fmfusion::LoopDetector(
-            sg_config->shape_encoder, sg_config->sgnet, weights_folder));
-    fmfusion::o3d_utility::Timer timer;
-
-    auto sgnet = std::make_shared<fmfusion::SgNet>(fmfusion::SgNet(sg_config->sgnet, weights_folder));
-    fmfusion::ShapeEncoderPtr shape_encoder = std::make_shared<fmfusion::ShapeEncoder>(sg_config->shape_encoder,
-                                                                                       weights_folder);
+    auto loop_detector = std::make_shared<fmfusion::LoopDetector>(fmfusion::LoopDetector(sg_config->loop_detector,
+                                                                                         sg_config->shape_encoder,
+                                                                                         sg_config->sgnet,
+                                                                                         weights_folder));
 
     timer.Start();
-    loop_detector->encode_ref_scene_graph(ref_graph->get_const_nodes(), ref_data_dict);
+    loop_detector->encode_ref_scene_graph(ref_graph->get_const_nodes(), fmfusion::DataDict{});
+    loop_detector->encode_src_scene_graph(src_graph->get_const_nodes(), fmfusion::DataDict{});
+    // std::cout << "Encode ref scene graph takes " << std::fixed << std::setprecision(3)
+    //           << timer.GetDurationInMillisecond() << " ms\n";
+
+    loop_detector->encode_concat_sgs(ref_graph->get_const_nodes().size(), ref_data_dict,
+                                     src_graph->get_const_nodes().size(), src_data_dict);
     timer.Stop();
-    std::cout << "Encode ref scene graph takes " << std::fixed << std::setprecision(3)
-              << timer.GetDurationInMillisecond() << " ms\n";
-    loop_detector->encode_src_scene_graph(src_graph->get_const_nodes(), src_data_dict);
+    std::cout << "Encode stacked graph takes " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond()
+              << " ms\n";
 
     // Hierachical matching
-    std::vector<NodePair> match_pairs;
+    std::vector <NodePair> match_pairs;
     std::vector<float> match_scores;
-    std::vector<Eigen::Vector3d> corr_src_points, corr_ref_points; // (C,3),(C,3)
+    std::vector <Eigen::Vector3d> corr_src_points, corr_ref_points; // (C,3),(C,3)
     std::vector<float> corr_scores_vec; // (C,)
 
     int M; // number of matched nodes
     int C = 0; // number of matched points
-    M = loop_detector->match_nodes(match_pairs, match_scores);
+    timer.Start();
+    M = loop_detector->match_nodes(match_pairs, match_scores, fused);
+    timer.Stop();
+    std::cout << "Find " << M << " match. It takes " << std::fixed << std::setprecision(3)
+              << timer.GetDurationInMillisecond() << " ms\n";
 
-    std::vector<NodePair> pruned_match_pairs;
+    std::vector <NodePair> pruned_match_pairs;
     std::vector<float> pruned_match_scores;
     if (prune_instance) {
         std::vector<bool> pruned_true_masks(M, false);
@@ -231,9 +241,8 @@ int main(int argc, char *argv[]) {
         pruned_match_scores = match_scores;
     }
 
-    std::cout << "Prune nodes outliers takes " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond()
-              << " ms\n";
-    std::cout << "Find " << M << " matched nodes\n";
+    std::cout << "Prune nodes outliers takes "
+              << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond() << " ms\n";
     std::cout << "Keep " << pruned_match_pairs.size() << " consistent matched nodes\n";
 
     if (dense_match && M > 0) { // Dense match
@@ -247,7 +256,7 @@ int main(int argc, char *argv[]) {
     // Estimate pose
     std::vector<std::pair<fmfusion::InstanceId, fmfusion::InstanceId>> match_instances;
     std::vector<Eigen::Vector3d> src_centroids, ref_centroids;
-    fmfusion::O3d_Cloud_Ptr src_cloud_ptr, ref_cloud_ptr;
+    fmfusion::O3d_Cloud_Ptr src_cloud_ptr(new fmfusion::O3d_Cloud()), ref_cloud_ptr(new fmfusion::O3d_Cloud());
     Eigen::Matrix4d pred_pose;
     fmfusion::IO::extract_match_instances(
             pruned_match_pairs, src_graph->get_const_nodes(), ref_graph->get_const_nodes(), match_instances);
@@ -260,7 +269,7 @@ int main(int argc, char *argv[]) {
 
     g3reg::Config config;
 //    noise bound的取值
-    config.set_noise_bounds({0.1, 0.2, 0.3});
+    config.set_noise_bounds({0.2, 0.3});
 //    位姿求解优化器的类型
     config.tf_solver = "quatro";
 //    基于点到平面的距离做验证
@@ -276,15 +285,21 @@ int main(int argc, char *argv[]) {
                         ref_cloud_ptr,
                         pred_pose);
     timer.Stop();
-    std::cout << "Estimate pose takes " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond()
-              << " ms\n";
+    double g3reg_time = timer.GetDurationInMillisecond();
+    timer.Start();
+    std::cout << "Continue to use ICP to refine the pose\n";
+    pred_pose = g3reg.icp_refine(src_cloud_ptr, ref_cloud_ptr, pred_pose);
+    timer.Stop();
+    std::cout << "Total time: " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond() + g3reg_time
+              << " ms, G3Reg time: " << std::fixed << std::setprecision(3) << g3reg_time << " ms, ICP time: "
+              << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond() << " ms\n";
 
     // Eval
     std::vector<bool> matches_true_masks;
-    if (gt_file.size() > 0) {
-        int true_instance_match = fmfusion::maks_true_instance(gt_file, match_instances, matches_true_masks);
-        std::cout << "True instance match: " << true_instance_match << "/" << match_instances.size() << std::endl;
-    }
+    // if (gt_file.size() > 0) {
+    //     int true_instance_match = fmfusion::maks_true_instance(gt_file, match_instances, matches_true_masks);
+    //     std::cout << "True instance match: " << true_instance_match << "/" << match_instances.size() << std::endl;
+    // }
 
     // visualization
     if (viz_mode == 1) { // instance match
@@ -292,7 +307,7 @@ int main(int argc, char *argv[]) {
         auto instance_match_lineset = fmfusion::visualization::draw_instance_correspondences(src_centroids,
                                                                                              ref_centroids);
 
-        std::vector<fmfusion::O3d_Geometry_Ptr> viz_geometries;
+        std::vector <fmfusion::O3d_Geometry_Ptr> viz_geometries;
         viz_geometries.insert(viz_geometries.end(), ref_geometries.begin(), ref_geometries.end());
         // viz_geometries.emplace_back(ref_edge_lineset);
         viz_geometries.emplace_back(instance_match_lineset);
@@ -300,9 +315,7 @@ int main(int argc, char *argv[]) {
         open3d::visualization::DrawGeometries(viz_geometries, "UST_RI", 1920, 1080);
     } else if (viz_mode == 2) {   // registration result
         src_cloud_ptr->Transform(pred_pose);
-        src_cloud_ptr->PaintUniformColor(Eigen::Vector3d(0, 0.651, 0.929));
-        ref_cloud_ptr->PaintUniformColor(Eigen::Vector3d(1, 0.706, 0));
-        std::vector<fmfusion::O3d_Geometry_Ptr> viz_geometries = {src_cloud_ptr, ref_cloud_ptr};
+        std::vector <fmfusion::O3d_Geometry_Ptr> viz_geometries = {src_cloud_ptr, ref_cloud_ptr};
         open3d::visualization::DrawGeometries(viz_geometries, "UST_RI", 1920, 1080);
     }
 
@@ -324,6 +337,8 @@ int main(int argc, char *argv[]) {
 
         std::cout << "Save output result to " << output_folder << std::endl;
     }
+
+    fmfusion::utility::write_config(output_folder + "/config.txt", *sg_config);
 
     return 0;
 }

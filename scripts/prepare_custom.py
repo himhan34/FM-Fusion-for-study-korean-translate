@@ -103,7 +103,8 @@ def transform_instance_boxes(T, instance_box_file, out_file):
 
 def transform_scan_maps(dataroot, scene_name, T_ref_src, augment_drift=True, infolder='val_swap',outfolder='val'):
     '''
-    Read the rescontruction in infolder. 
+    Read the rescontruction in scans folder.
+    Incorporate a random drift to the reconstruction. 
     Save the transformed reconstruction to the outfolder.
     '''
     print('Transform {} with augment drift {}'.format(scene_name,augment_drift))
@@ -138,6 +139,30 @@ def transform_scan_maps(dataroot, scene_name, T_ref_src, augment_drift=True, inf
                                 os.path.join(out_scene_dir,'instance_info.txt')))
     
     np.savetxt(os.path.join(out_scene_dir,'transform.txt'),T_gt,fmt='%.6f')
+
+def transform_global_pcd(dataroot, scene_name, transform=True):
+    '''
+    post-process.
+    A val folder is generated earlier, including the ground-truth transformation.
+    Read the global pcd and align it with generated instance map in `val` folder.
+    '''
+    print('----------- Transform {} ----------'.format(scene_name))
+    
+    scans_scene = os.path.join(dataroot,'scans',scene_name)
+    val_scene = os.path.join(dataroot,'val',scene_name)
+    
+    # load
+    global_pcd = o3d.io.read_point_cloud(os.path.join(scans_scene,'mesh_o3d.ply'))
+    
+    if transform:
+        T_ref_src = np.loadtxt(os.path.join(scans_scene,'T_ref_src.txt'))
+        T_gt = np.loadtxt(os.path.join(val_scene,'transform.txt'))
+        T_drift = transform_coordinate(np.linalg.inv(T_ref_src),T_gt)
+        T_drift = np.linalg.inv(T_drift)
+        global_pcd.transform(T_drift)
+    
+    # export
+    o3d.io.write_point_cloud(os.path.join(val_scene,'global_pcd.ply'),global_pcd)
     
 
 if __name__ == '__main__':
@@ -148,7 +173,7 @@ if __name__ == '__main__':
     
     #
     scans = read_scans(os.path.join(root_dir,'splits',split_file))
-    scan_pairs = read_scan_pairs(os.path.join(root_dir,'splits','val.txt'))
+    scan_pairs = read_scan_pairs(os.path.join(root_dir,'splits','val_bk.txt'))
     
     ref_scans = []
     for pair in scan_pairs:
@@ -161,24 +186,31 @@ if __name__ == '__main__':
         os.environ.setdefault('WEBRTC_PORT', '8020')
         o3d.visualization.webrtc_server.enable_webrtc()
 
-
-    # for scan in scans:
-    #     print('---------- processing {} -------------'.format(scan))
-    #     T_ref_src = np.loadtxt(os.path.join(root_dir,'scans',scan,'T_ref_src.txt'))
-    #     if scan in ref_scans:
-    #         augment_drift = False
-    #     else:
-    #         augment_drift = True
-        
-    #     transform_scan_maps(root_dir,scan,T_ref_src,augment_drift)
-        
-    #     break
-        # move_dense_map(os.path.join(root_dir,'scans',scan),
-        #                os.path.join(root_dir,'val',scan))
-        # write_intrinsic(os.path.join(root_dir,split,scan))
+    for pair in scan_pairs:
+        transform_global_pcd(root_dir,pair[0],True)
+        transform_global_pcd(root_dir,pair[1],False)
         # break
+
+
+    exit(0)
+    for scan in scans:
+        print('---------- processing {} -------------'.format(scan))
+
+        T_ref_src = np.loadtxt(os.path.join(root_dir,'scans',scan,'T_ref_src.txt'))
+        if scan in ref_scans:
+            augment_drift = False
+        else:
+            augment_drift = True
+        
+        transform_scan_maps(root_dir,scan,T_ref_src,augment_drift)
+        
+        break
+        move_dense_map(os.path.join(root_dir,'scans',scan),
+                       os.path.join(root_dir,'val',scan))
+        write_intrinsic(os.path.join(root_dir,split,scan))
+        break
     
-    # exit(0)
+    exit(0)
     # Visualize the maps after augment with pose drift
     permute_indices = np.random.permutation(len(scan_pairs))
     scan_pairs = [scan_pairs[i] for i in permute_indices]
