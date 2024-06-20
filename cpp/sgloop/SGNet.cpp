@@ -280,9 +280,14 @@ void SgNet::match_nodes(const torch::Tensor &src_node_features, const torch::Ten
     // Match layer
     int Ns = src_node_features.size(0);
     int Nr = ref_node_features.size(0);
-    std::cout<<"Matching "<< Ns << " src nodes and "<< Nr << " ref nodes\n";
-    // std::cout<<"src shape: "<<src_node_features.sizes()<<std::endl; // (X,C)
-    // std::cout<<"ref shape: "<<ref_node_features.sizes()<<std::endl; // (Y,C)
+    int Ds = src_node_features.size(1);
+    int Dr = ref_node_features.size(1);
+    std::cout<<"Matching "<< Ns << " src nodes and "<< Nr << " ref nodes in fused mode:"<<fused<<"\n";
+    assert(Ds==Dr);
+    int src_nan_sum = torch::isnan(src_node_features).sum().item<int>();
+    int ref_nan_sum = torch::isnan(ref_node_features).sum().item<int>();
+    assert(src_nan_sum==0 && ref_nan_sum==0);
+    std::cout<<"ref shape: "<<ref_node_features.sizes()<<std::endl; // (Y,C)
     c10::intrusive_ptr<torch::ivalue::Tuple> match_output;
 
     if(fused)
@@ -295,9 +300,7 @@ void SgNet::match_nodes(const torch::Tensor &src_node_features, const torch::Ten
     torch::Tensor Kn = match_output->elements()[2].toTensor(); // (X,Y)
 
     int M = matches.size(0);
-    // std::cout<<"Find "<<M<<" matched pairs\n";
-    // std::cout<<"matches: "<<matches<<std::endl;
-    // std::cout<<"matching scores: "<<matches_scores<<std::endl;
+    std::cout<<"Find "<<M<<" matched pairs\n";
 
     for (int i=0;i<M;i++){
         float score = matches_scores[i].item<float>();

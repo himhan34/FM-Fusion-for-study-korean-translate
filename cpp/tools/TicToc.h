@@ -17,9 +17,10 @@ namespace fmfusion
                 start = std::chrono::system_clock::now();
             }
 
-            double toc() {
+            double toc(bool restart = false) {
                 end = std::chrono::system_clock::now();
                 std::chrono::duration<double> elapsed_seconds = end - start;
+                if(restart) tic();
                 return elapsed_seconds.count() * 1000;
             }
 
@@ -128,5 +129,54 @@ namespace fmfusion
 
     };
     
+    class TimingSequence
+    {
+        public:
+            TimingSequence(std::string header_):header(header_) {
+
+            }
+
+            void create_frame(int frame_id){
+                frame_idxs.push_back(cur_frame_id);
+                timings.push_back(cur_frame);
+                cur_frame_id = frame_id;
+                cur_frame.clear();           
+            }
+
+            void record(double duration){
+                cur_frame.push_back(duration);
+            }
+
+            bool write_log(std::string output_dir)
+            {
+                std::ofstream file;
+                file.open(output_dir);
+                if (!file.is_open()){
+                    std::cout<<"Failed to open file: "<<output_dir<<std::endl;
+                    return false;
+                }
+                file<<header<<std::endl;
+                file<<std::fixed<<std::setprecision(1);
+                for (int i=0;i<frame_idxs.size();i++){
+                    file<<frame_idxs[i]<<" ";
+                    for (int j=0;j<timings[i].size();j++){
+                        file<<timings[i][j]<<" ";
+                    }
+                    file<<std::endl;
+                }
+                file.close();
+                std::cout<<"Write "<<frame_idxs.size()<<" frames to "<<output_dir<<std::endl;
+                return true;
+            
+            }
+
+        private:
+            std::string header;
+            int cur_frame_id;
+            std::vector<float> cur_frame;
+
+            std::vector<int> frame_idxs;
+            std::vector<std::vector<float>> timings;
+    };
 
 }

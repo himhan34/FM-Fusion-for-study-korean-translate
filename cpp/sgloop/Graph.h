@@ -75,9 +75,18 @@ class Graph
         Graph(GraphConfig config_);
         void initialize(const std::vector<InstancePtr> &instances);
 
-        /// \brief Update the coarse node information received from communication server.
-        bool subscribe_coarse_nodes(const float &latest_timestamp,
-                                    const std::vector<uint32_t> &instances,const std::vector<Eigen::Vector3d> &centroids);
+        /// \brief Update the node information received from communication server.
+        ///        It cleared the graph and insert.
+        int subscribe_coarse_nodes(const float &latest_timestamp,
+                                    const std::vector<uint32_t> &node_indices,
+                                    const std::vector<uint32_t> &instances,
+                                    const std::vector<Eigen::Vector3d> &centroids);
+
+        /// \brief Update the dense point cloud information received from communication server.
+        ///        It should be updated after the coarse nodes are updated.
+        int subscribde_dense_points(const float &sub_timestamp,
+                                    const std::vector<Eigen::Vector3d> &xyz,
+                                    const std::vector<uint32_t> &labels);
 
         void construct_edges();
 
@@ -99,6 +108,8 @@ class Graph
         /// \brief  Extract data dictionary.
         /// @param coarse If true, extract only nodes, instances and centroids data.
         DataDict extract_data_dict(bool coarse=false);
+
+        O3d_Cloud_Ptr extract_global_cloud(float vx_size=-1.0)const;
 
         /// \brief  Extract instances and centroids.
         DataDict extract_coarse_data_dict();
@@ -122,6 +133,7 @@ class Graph
         
     private:
         GraphConfig config;
+        std::map<InstanceId, int> instance2node_idx; // instance id to node idx
         std::vector<InstanceId> node_instance_idxs; // corresponds to original instance ids
         std::vector<NodePtr> nodes;
         std::vector<EdgePtr> edges; // Each edge is a pair of node id

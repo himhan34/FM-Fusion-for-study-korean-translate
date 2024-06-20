@@ -1,13 +1,16 @@
 <launch>
 
+  <!-- global config -->
   <arg name="dataroot" value="/data2/sgslam"/>
-  <arg name="agentA_scene" value="uc0110_00a"/>
-  <arg name="agentB_scene" value="uc0110_00b"/>
+  <arg name="agentA_scene" value="uc0115_00b"/>
+  <arg name="agentB_scene" value="uc0115_00a"/>
   <arg name="test_communication" value="false"/>
+  <arg name="fused" value="true"/>
+  <arg name="visualization" value="1"/>
 
   <arg name="offset_x" value="0.0"/>
   <arg name="offset_y" value="0.0"/>
-  <arg name="offset_z" value="3.0"/>
+  <arg name="offset_z" value="0.0"/>
 
   <group ns="viz">
     <param name="edge_width" value="0.03"/>
@@ -21,34 +24,33 @@
     <param name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/realsense.yaml"/>
     <param name="weights_folder" value="/home/cliuci/code_ws/OpensetFusion/torchscript"/>
     <param name="prune_instances" value="true"/>
-    <param name="fused" value="false"/>
+    <param name="fused" value="$(arg fused)"/>
     <param name="output_folder" value="$(arg dataroot)/output/sgloop"/>
     <param name="ref_scene_dir" value="$(arg dataroot)/val/$(arg agentB_scene)"/>
     <param name="src_scene_dir" value="$(arg dataroot)/val/$(arg agentA_scene)"/>
     <param name="gt_file" value="$(arg dataroot)/matches_text/$(arg agentA_scene)-$(arg agentB_scene).txt"/>
     <param name="local_agent" value="agentA"/>
     <param name="remote_agent" value="agentB"/>    
-    <param name="visualization" value="1"/>
+    <param name="visualization" value="$(arg visualization)"/>
     <param name="test_communication" value="$(arg test_communication)"/>
     <param name="broadcast_times" value="2"/>
 
     <param name="viz/local_frame_offset/x" value="$(arg offset_x)"/>
     <param name="viz/local_frame_offset/y" value="$(arg offset_y)"/>
     <param name="viz/local_frame_offset/z" value="$(arg offset_z)"/>
-
   </node>
 
   <!-- <node pkg="sgloop_ros" name="agentB" type="OfflineLoop" output="screen">
     <param name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/realsense.yaml"/>
     <param name="weights_folder" value="/home/cliuci/code_ws/OpensetFusion/torchscript"/>
-    <param name="prune_instances" value="true"/>
-    <param name="fused" value="false"/>
+    <param name="fused" value="($arg fused)"/>
     <param name="output_folder" value="$(arg dataroot)/output/sgloop"/>
     <param name="ref_scene_dir" value="$(arg dataroot)/val/$(arg agentA_scene)"/>
     <param name="src_scene_dir" value="$(arg dataroot)/val/$(arg agentB_scene)"/>
     <param name="local_agent" value="agentB"/>
     <param name="remote_agent" value="agentA"/>    
-    <param name="visualization" value="1"/>
+    <param name="visualization" value="$(arg visualization)"/>
+
     <param name="test_communication" value="$(arg test_communication)"/>
     <param name="broadcast_times" value="2"/>
   </node> -->

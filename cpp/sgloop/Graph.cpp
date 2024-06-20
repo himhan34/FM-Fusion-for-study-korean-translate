@@ -63,6 +63,7 @@ namespace fmfusion
             
             nodes.push_back(node);
             node_instance_idxs.push_back(inst->get_id());
+            instance2node_idx[inst->get_id()] = node->id;
         }
         timer_.Stop();
         std::cout<<"Constructed "<<nodes.size()<<" nodes in "
@@ -71,22 +72,53 @@ namespace fmfusion
 
     }
 
-    bool Graph::subscribe_coarse_nodes(const float &latest_timestamp,
-                                    const std::vector<uint32_t> &instances,const std::vector<Eigen::Vector3d> &centroids)
+    int Graph::subscribe_coarse_nodes(const float &latest_timestamp,
+                                        const std::vector<uint32_t> &node_indices,
+                                        const std::vector<uint32_t> &instances,
+                                        const std::vector<Eigen::Vector3d> &centroids)
     {
         if(latest_timestamp - timestamp > 0.01){
             clear();
+            std::stringstream msg;
             for (int i=0; i<instances.size(); i++){
-                NodePtr node = std::make_shared<Node>(i, instances[i]);
+                NodePtr node = std::make_shared<Node>(node_indices[i], instances[i]);
                 node->centroid = centroids[i];
                 nodes.push_back(node);
                 node_instance_idxs.push_back(instances[i]);
+                instance2node_idx[instances[i]] = i;
+                msg<<instances[i]<<",";
             }
             timestamp = latest_timestamp;
-            std::cout<<"Update graph with "<< instances.size() <<" coarse nodes from timestamp "<<timestamp<<".\n";
-            return true;            
+
+            return instances.size();          
         }
-        else return false;
+        else return 0;
+    }
+
+    int Graph::subscribde_dense_points(const float &sub_timestamp,
+                                        const std::vector<Eigen::Vector3d> &xyz,
+                                        const std::vector<uint32_t> &labels)
+    {
+        int count = 0; // count the points been updated
+        int N = nodes.size();
+        int X = xyz.size();
+        std::vector<std::vector<Eigen::Vector3d>> nodes_points(N, std::vector<Eigen::Vector3d>());
+        std::stringstream msg;
+        for(int k=0;k<X;k++){
+            if (labels[k]>=N){
+                std::cout<<"Node "<<labels[k]<<" not found in the graph.\n";
+                continue;
+            }
+            nodes_points[labels[k]].push_back(xyz[k]);
+        }
+
+        for(int i=0;i<N;i++){
+            if (nodes_points[i].empty()) continue;
+            nodes[i]->cloud = std::make_shared<open3d::geometry::PointCloud>(nodes_points[i]);
+            count += nodes_points[i].size();
+        }
+
+        return count;
     }
 
     void Graph::construct_edges()
@@ -229,6 +261,17 @@ namespace fmfusion
         msg<<"\n";
         // std::cout<<msg.str();
 
+    }
+
+    O3d_Cloud_Ptr Graph::extract_global_cloud(float vx_size)const 
+    {
+        O3d_Cloud_Ptr out_cloud_ptr = std::make_shared<open3d::geometry::PointCloud>();
+        for(auto node:nodes){
+            *out_cloud_ptr += *(node->cloud);
+        }
+        if(vx_size>0.0) out_cloud_ptr->VoxelDownSample(vx_size);
+
+        return out_cloud_ptr;
     }
 
     void Graph::clear()

@@ -5,6 +5,7 @@
   <arg name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/realsense.yaml"/>
   <arg name="weights_folder" value="/home/cliuci/code_ws/OpensetFusion/torchscript"/>
   <arg name="loop_duration" value="25"/>
+  <arg name="coarse_mode" value="false"/>
   <group ns="viz"> 
       <param name="edge_width" value="0.03"/>
       <param name="edge_color/r" value="0.0"/>
@@ -29,6 +30,7 @@
     <param name="local_agent" value="agentA"/>
     <param name="remote_agent" value="agentB"/>    
     <param name="frame_gap" value="2"/>
+    <param name="coarse_mode" value="$(arg coarse_mode)"/>
     <param name="loop_duration" value="$(arg loop_duration)"/>
     <param name="visualization" value="1"/>
     <!-- set to 0 to load reconstruted ref map, 1 to pub and subscribe ref map online -->
@@ -47,8 +49,9 @@
     <param name="output_folder" value="$(arg dataroot)/output/online_loop"/>
     <param name="active_sequence_dir" value="$(arg dataroot)/scans/$(arg agentB_scene)"/>
     <param name="local_agent" value="agentB"/>
-    <param name="remote_agent" value="agentA"/>    
+    <param name="remote_agent" value="agentC"/>    
     <param name="frame_gap" value="2"/>
+    <param name="coarse_mode" value="$(arg coarse_mode)"/>
     <param name="loop_duration" value="$(arg loop_duration)"/>
     <param name="visualization" value="1"/>
     <param name="mode" value="1"/>

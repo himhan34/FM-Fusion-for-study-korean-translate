@@ -74,14 +74,14 @@ namespace fmfusion
         // Concatenate data
         std::vector<Eigen::Vector3d> xyz;
         std::vector<int> length_vec;
-        std::vector<uint32_t> labels;
+        std::vector<uint32_t> labels; // dense point instances
         std::vector<Eigen::Vector3d> centroids;
         std::vector<uint32_t> nodes;
 
         int Xr=ref_data_dict.xyz.size(), Xs=src_data_dict.xyz.size();
-        // int Nr=ref_nodes.size(), Ns=src_nodes.size();
         if(Xr<1||Xs<1||Nr<1||Ns<1) return false;
-        
+        assert(Ns==src_features.node_features.size(0) && Nr==ref_features.node_features.size(0));
+
         xyz.insert(xyz.end(), ref_data_dict.xyz.begin(), ref_data_dict.xyz.end());
         xyz.insert(xyz.end(), src_data_dict.xyz.begin(), src_data_dict.xyz.end());
         length_vec = {Xr, Xs};
@@ -136,7 +136,14 @@ namespace fmfusion
         bool check_ref_nodes = torch::isnan(ref_features.node_features).sum().item<int>()==0;
         assert (check_ref_nodes);
 
-        sgnet->match_nodes(src_features.node_features, ref_features.node_features, match_pairs, match_scores,fused);
+        int Ds = src_features.node_features.size(1);
+        int Dr = ref_features.node_features.size(1);
+        bool check_fused = false;
+        if(Ds>256 && Dr>256){
+            check_fused = true;
+        }
+
+        sgnet->match_nodes(src_features.node_features, ref_features.node_features, match_pairs, match_scores,check_fused);
         return match_pairs.size();
     }
 

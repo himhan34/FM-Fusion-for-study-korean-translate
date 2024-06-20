@@ -18,18 +18,23 @@ namespace SgCom
     }   
 
     Communication::Communication(ros::NodeHandle &nh, ros::NodeHandle &nh_private,
-                                std::string master_agent, std::vector<std::string> other_agents)
+                                std::string master_agent, std::vector<std::string> other_agents):local_agent(master_agent)
     {
-        std::string pub_topic = master_agent + "/coarse_graph";
-        pub_coarse_sg = nh.advertise<sgloop_ros::CoarseGraph>(pub_topic, 1000);
-        std::cout<<"Init com for master agent: "<<master_agent<<"\n";
+        // std::string pub_topic = master_agent + "/coarse_graph";
+        pub_coarse_sg = nh.advertise<sgloop_ros::CoarseGraph>(local_agent + "/coarse_graph", 1000);
+        pub_dense_sg = nh.advertise<sgloop_ros::DenseGraph>(local_agent + "/dense_graph", 1000);
+        std::cout<<"Init com for master agent: "<<local_agent<<"\n";
+
+        typedef const boost::function<void(const sgloop_ros::CoarseGraphConstPtr &)>  callback;
+        typedef const boost::function<void(const sgloop_ros::DenseGraphConstPtr &)>  dense_callback;
 
         for(const std::string &agent: other_agents){
-            std::string sub_topic = agent + "/coarse_graph";
             callback bounded_callback = boost::bind(&Communication::coarse_graph_callback, this, _1, agent);
-            ros::Subscriber listener = nh.subscribe(sub_topic, 1000, bounded_callback);
-                // sub_topic, 1000, &Communication::coarse_graph_callback, this);
+            dense_callback bounded_dense_callback = boost::bind(&Communication::dense_graph_callback, this, _1, agent);
+            ros::Subscriber listener = nh.subscribe(agent + "/coarse_graph", 1000, bounded_callback);
+            ros::Subscriber dense_listener = nh.subscribe(agent + "/dense_graph", 1000, bounded_dense_callback);
             agents_subscriber.push_back(listener);
+            agents_dense_subscriber.push_back(dense_listener);
             agents_data_dict[agent] = AgentDataDict{};
             std::cout<<"Init com with "<<agent<<"\n";
         }
@@ -55,7 +60,7 @@ namespace SgCom
         graph_msg.header.seq = frame_id;
         double timestamp = time_offset + frame_id * frame_duration;
         graph_msg.header.stamp = ros::Time(timestamp);
-        graph_msg.header.frame_id = "none";
+        graph_msg.header.frame_id = local_agent;
 
         // write instances into coarse graph msg
         graph_msg.instances.reserve(instances.size());
@@ -93,6 +98,94 @@ namespace SgCom
         Log log;
         log.direction="pub";
         log.msg_type="CoarseGraph";
+        log.frame_id = frame_id;
+        log.timestamp = timestamp;
+        log.checksum = true;
+        pub_logs.push_back(log);
+
+        return true;
+    }
+
+    bool Communication::broadcast_dense_graph(int frame_id,
+                                const std::vector<uint32_t> &nodes,
+                                const std::vector<uint32_t> &instances,
+                                const std::vector<Eigen::Vector3d> &centroids,
+                                const std::vector<std::vector<float>> &features,
+                                const std::vector<Eigen::Vector3d> &xyz,
+                                const std::vector<uint32_t> &labels)
+    {
+        sgloop_ros::DenseGraph graph_msg;
+        int N = instances.size();
+        int X = xyz.size();
+        int D = features[0].size(); // coarse feature dimension
+        assert(N == centroids.size() && N == nodes.size() && N == features.size());
+        assert(X == labels.size());
+        if(N<1||X<1) {
+            ROS_WARN("Error: empty nodes or points in publishing dense graph. Drop it.\n");
+            return false;
+        }
+
+        graph_msg.header.seq = frame_id;
+        double timestamp = time_offset + frame_id * frame_duration;
+        graph_msg.header.stamp = ros::Time(timestamp);
+        graph_msg.header.frame_id = local_agent;
+        graph_msg.nodes_number = N;
+        graph_msg.points_number = X;
+
+        // write nodes info
+        graph_msg.nodes.reserve(N);
+        graph_msg.instances.reserve(N);
+        graph_msg.centroids.reserve(N);
+        std::stringstream msg;
+        for(int i=0;i<N;i++){
+            graph_msg.nodes.push_back(nodes[i]);
+            graph_msg.instances.push_back(instances[i]);
+            geometry_msgs::Point pt;
+            pt.x = centroids[i](0);
+            pt.y = centroids[i](1);
+            pt.z = centroids[i](2);
+            graph_msg.centroids.push_back(pt);
+            msg<<"node: "<<nodes[i]<<" instance: "<<instances[i]<<"\n";
+        }
+        // std::cout<<msg.str();
+
+        // write nodes features
+        graph_msg.features.layout.dim.resize(2, std_msgs::MultiArrayDimension());
+        graph_msg.features.layout.dim[0].label = 'N';
+        graph_msg.features.layout.dim[0].size = N;
+        graph_msg.features.layout.dim[0].stride = N * D;
+        graph_msg.features.layout.dim[1].label = 'D';
+        graph_msg.features.layout.dim[1].size = D;
+        graph_msg.features.layout.dim[1].stride = D;
+        graph_msg.features.layout.data_offset = 0;
+        graph_msg.features.data.reserve(N*D);
+
+        for(const auto &feat_vec: features){
+            for(const auto &ele: feat_vec){
+                graph_msg.features.data.push_back(ele);
+            }
+        }
+
+        // write dense xyz and labels
+        graph_msg.points.reserve(X);
+        graph_msg.labels.reserve(X);
+        for(int k=0;k<X;k++){
+            geometry_msgs::Point pt;
+            pt.x = xyz[k](0);
+            pt.y = xyz[k](1);
+            pt.z = xyz[k](2);
+            graph_msg.points.push_back(pt);
+            graph_msg.labels.push_back(labels[k]);
+        }
+
+        //
+        pub_dense_sg.publish(graph_msg);
+        ROS_WARN("Publish dense graph msg %d nodes and %d point\n",N,X);
+
+        //
+        Log log;
+        log.direction="pub";
+        log.msg_type="DenseGraph";
         log.frame_id = frame_id;
         log.timestamp = timestamp;
         log.checksum = true;
@@ -139,6 +232,7 @@ namespace SgCom
         data_dict.features_vec.reserve(N);
 
         for(int i=0;i<N;i++){
+            data_dict.nodes.emplace_back((uint32_t)i);
             data_dict.instances.emplace_back((uint32_t)msg->instances[i]);
             Eigen::Vector3d pt(msg->centroids[i].x,msg->centroids[i].y,msg->centroids[i].z);
             data_dict.centroids.emplace_back(pt);
@@ -154,6 +248,74 @@ namespace SgCom
         sub_logs.push_back(log);
     }
 
+    
+    void Communication::dense_graph_callback(const sgloop_ros::DenseGraph::ConstPtr &msg, std::string agent_name)
+    {
+        int N = msg->nodes_number;
+        int X = msg->points_number;
+        int D = msg->features.layout.dim[1].size;        
+        ROS_WARN("Received dense graph msg from agent %s. %d nodes and %d points \n",
+                agent_name.c_str(), N, X);
+
+
+        int recv_frame_id = msg->header.seq;
+        float rece_timestamp = msg->header.stamp.toSec();
+        Log log;
+        log.direction="sub";
+        log.msg_type="DenseGraph";
+        log.frame_id = msg->header.seq;
+        log.timestamp = rece_timestamp;
+
+        // Check
+        if(msg->instances.size() != msg->centroids.size() 
+            || msg->instances.size()!=N 
+            ||msg->features.data.size()!=N*D){
+            ROS_WARN("Error: inconsistent instance and centroid size. Drop it.\n");
+            log.checksum = false;
+            sub_logs.push_back(log);
+            return;
+        }
+
+        // Read
+        assert(agents_data_dict.find(agent_name) != agents_data_dict.end());
+        AgentDataDict &data_dict = agents_data_dict[agent_name];
+        data_dict.clear();
+        data_dict.frame_id = recv_frame_id;
+        data_dict.received_timestamp = rece_timestamp;
+        data_dict.N = N;
+        data_dict.X = X;
+        data_dict.D = D;
+        data_dict.nodes.reserve(N);
+        data_dict.instances.reserve(N);
+        data_dict.centroids.reserve(N);
+        data_dict.features_vec.reserve(N);
+        data_dict.xyz.reserve(X);
+        data_dict.labels.reserve(X);
+
+        for(int i=0;i<N;i++){ // nodes
+            data_dict.nodes.emplace_back((uint32_t)msg->nodes[i]);
+            data_dict.instances.emplace_back((uint32_t)msg->instances[i]);
+            Eigen::Vector3d pt(msg->centroids[i].x,msg->centroids[i].y,msg->centroids[i].z);
+            data_dict.centroids.emplace_back(pt);
+            std::vector<float> feat_vec(msg->features.data.begin()+i*D,msg->features.data.begin()+(i+1)*D);
+            data_dict.features_vec.emplace_back(feat_vec);
+        }
+        
+        std::cout<<"receive feature array length "<<N<<" x "<<D <<" at timestamp "<<rece_timestamp<<"\n";
+
+        for(int k=0;k<X;k++){
+            Eigen::Vector3d pt(msg->points[k].x,msg->points[k].y,msg->points[k].z);
+            data_dict.xyz.emplace_back(pt);
+            data_dict.labels.emplace_back((uint32_t)msg->labels[k]);
+        }
+        std::cout<<"Receive "<< X<<" xyzi\n";
+
+        // Log
+        log.checksum = true;
+        sub_logs.push_back(log);
+
+    }
+    
     const AgentDataDict& Communication::get_remote_agent_data(const std::string agent_name)const
     {
         if(agents_data_dict.find(agent_name) == agents_data_dict.end()){
@@ -163,10 +325,6 @@ namespace SgCom
         else{
             return agents_data_dict.at(agent_name);
         } 
-        
-
-        // queried_data_dict = agents_data_dict.at(agent_name);
-        // return queried_data_dict.frame_id;
     }
 
     bool Communication::write_logs(const std::string &out_dir)

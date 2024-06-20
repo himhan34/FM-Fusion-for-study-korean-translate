@@ -1,0 +1,9 @@
+std_msgs/Header header
+int32 nodes_number
+int32 points_number
+int16[] nodes
+int16[] instances
+geometry_msgs/Point[] centroids
+std_msgs/Float32MultiArray features
+geometry_msgs/Point[] points
+int16[] labels

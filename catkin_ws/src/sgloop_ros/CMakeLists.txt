@@ -36,6 +36,7 @@ message(STATUS "FMFUSION INCLUDE DIR: ${FMFUSION_INCLUDE_DIR}")
 add_message_files(
   FILES
   CoarseGraph.msg
+  DenseGraph.msg
 )
 
 generate_messages(

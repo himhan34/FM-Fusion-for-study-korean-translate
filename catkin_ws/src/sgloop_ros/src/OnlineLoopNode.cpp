@@ -73,6 +73,11 @@ int main(int argc, char **argv)
     float loop_duration = nh_private.param("loop_duration", 20.0);
     int mode = nh_private.param("mode", 0); // mode 0: load ref map, 1: real-time subscribe ref map
     bool debug_mode = nh_private.param("debug_mode", false);
+    bool coarse_mode = nh_private.param("coarse_mode",true);
+    bool fused = !coarse_mode;
+
+    if(coarse_mode) ROS_WARN("Coarse mode");
+    else ROS_WARN("Dense mode");
 
     SetVerbosityLevel((VerbosityLevel)5);
     LogInfo("Read configuration from {:s}",config_file);
@@ -156,7 +161,11 @@ int main(int argc, char **argv)
     int loop_count = 0;
 
     // Running sequence
-    fmfusion::TicTocSequence tic_toc_seq("# Load Mapping SgCreate SgCoarse Boadcast Prune Viz");
+    fmfusion::TicTocSequence tic_toc_seq("# Load Mapping SgCreate SgCoarse Pub&Sub Match Prune Viz");
+    fmfusion::TimingSequence timing_seq("#FrameID, Load Mapping; SgCreate SgCoarse Pub&Sub; Match Prune Viz");
+    TicToc tic_toc;
+    TicToc tictoc_bk;
+
     ROS_WARN("[%s] Read to run sequence", LOCAL_AGENT.c_str());
     ros::Duration(1.0).sleep();
 
@@ -167,7 +176,9 @@ int main(int argc, char **argv)
         int seq_id = stoi(frame_name.substr(frame_name.find_last_of("-")+1));
 
         if((seq_id-prev_frame_id)<frame_gap) continue;
+        timing_seq.create_frame(seq_id);
         tic_toc_seq.tic();
+        tic_toc.tic();
         LogInfo("Processing frame {:s} ...", frame_name);
 
         ReadImage(frame_dirs.second, depth);
@@ -179,12 +190,13 @@ int main(int argc, char **argv)
         bool loaded = fmfusion::utility::LoadPredictions(root_dir+'/'+prediction_folder, frame_name, 
                                                         global_config->mapping_cfg, global_config->instance_cfg.intrinsic.width_, global_config->instance_cfg.intrinsic.height_,
                                                         detections);
-        tic_toc_seq.toc();
+        timing_seq.record(tic_toc.toc(true)); // load
+        
         if(loaded){
             semantic_mapping.integrate(seq_id,rgbd, pose_table[k], detections);
             prev_frame_id = seq_id;
         }
-        tic_toc_seq.toc();
+        timing_seq.record(tic_toc.toc(true)); // mapping
 
         if(seq_id-loop_frame_id > loop_duration){
             std::vector<fmfusion::InstanceId> valid_names;
@@ -204,33 +216,63 @@ int main(int argc, char **argv)
                 src_graph->initialize(valid_instances);
                 src_graph->construct_edges();
                 src_graph->construct_triplets();
-                fmfusion::DataDict src_node_coarse_dict = src_graph->extract_data_dict(true);
-                tic_toc_seq.toc();
+                fmfusion::DataDict src_explicit_nodes = src_graph->extract_data_dict();
+                timing_seq.record(tic_toc.toc(true));// construct sg
 
                 // Implicit local
+                tictoc_bk.tic();
                 loop_detector->encode_src_scene_graph(src_graph->get_const_nodes(), DataDict {});
-                tic_toc_seq.toc();
+                ROS_WARN("Encode %d nodes takes %.3f ms", src_graph->get_const_nodes().size(), tictoc_bk.toc());
+                timing_seq.record(tic_toc.toc(true));// coarse encode
 
                 // 
                 int Ns, Ds;
                 int Nr;
                 std::vector<std::vector<float>> src_node_feats_vec;
+                tictoc_bk.tic();
                 if(mode==1){ // Broadcast and update subscribed ref map
                     loop_detector->get_active_node_feats(src_node_feats_vec, Ns, Ds);
-                    comm->broadcast_coarse_graph(seq_id,
-                                                src_node_coarse_dict.instances,
-                                                src_node_coarse_dict.centroids,
-                                                Ns, Ds,
-                                                src_node_feats_vec);
+                    if(coarse_mode)
+                        comm->broadcast_coarse_graph(seq_id,
+                                                    src_explicit_nodes.instances,
+                                                    src_explicit_nodes.centroids,
+                                                    Ns, Ds,
+                                                    src_node_feats_vec);
+                    else
+                        comm->broadcast_dense_graph(seq_id,
+                                                    src_explicit_nodes.nodes,
+                                                    src_explicit_nodes.instances,
+                                                    src_explicit_nodes.centroids,
+                                                    src_node_feats_vec,
+                                                    src_explicit_nodes.xyz,
+                                                    src_explicit_nodes.labels);
+                                                
 
                     const SgCom::AgentDataDict received_data = comm->get_remote_agent_data(REMOTE_AGENT);
                     if(received_data.frame_id>=0){
-                        bool exp_update_flag = ref_graph->subscribe_coarse_nodes(received_data.received_timestamp,
-                                                                                received_data.instances,
-                                                                                received_data.centroids);
                         bool imp_update_flag = loop_detector->subscribe_ref_coarse_features(received_data.received_timestamp,
                                                                                         received_data.features_vec,
-                                                                                        torch::empty({0,0}));
+                                                                                        torch::empty({0,0}));                        
+                        int update_nodes_count  = ref_graph->subscribe_coarse_nodes(received_data.received_timestamp,
+                                                                                received_data.nodes,
+                                                                                received_data.instances,
+                                                                                received_data.centroids);
+                        if(!coarse_mode){
+                            int update_points_count = 0;
+                            if(update_nodes_count>0)
+                                update_points_count = ref_graph->subscribde_dense_points(received_data.received_timestamp,
+                                                                                            received_data.xyz,
+                                                                                            received_data.labels);
+                            std::cout<<"update "<< update_nodes_count<<" ref nodes and "
+                                    << update_points_count<<" ref points \n";
+                            tictoc_bk.tic();
+                            if (imp_update_flag) // confirm raw node feats updated
+                                loop_detector->encode_concat_sgs(ref_graph->get_const_nodes().size(), ref_graph->extract_data_dict(),
+                                                                src_graph->get_const_nodes().size(), src_explicit_nodes,fused);
+                            tictoc_bk.toc();
+                            ROS_WARN("Encoded dense points. It takes %.3f ms", tictoc_bk.toc());
+                        }
+
                         Nr = received_data.N;
                         if(debug_mode){ // visualize the updated ref graph
                             std::cout<<"Nr: "<<Nr
@@ -264,53 +306,63 @@ int main(int argc, char **argv)
                     else Nr = 0;
                 }
                 else Nr = ref_data_dict.instances.size();
+                ROS_WARN("Comm takes %.3f ms", tictoc_bk.toc());
+                timing_seq.record(tic_toc.toc(true)); // broadcast & subscribe
 
                 // Loop closure
                 int M=0;
                 if(Nr>global_config->loop_detector.lcd_nodes){
-                    M = loop_detector->match_nodes(match_pairs, match_scores, false);
+                    tictoc_bk.tic();
+                    M = loop_detector->match_nodes(match_pairs, match_scores, fused);
                     std::cout<<"Find "<<M<<" matched nodes\n";
+                    ROS_WARN("Match takes %.3f ms", tictoc_bk.toc());
                 }
-
-                tic_toc_seq.toc();
+                timing_seq.record(tic_toc.toc(true));// match
 
                 //
-                if(M>0){
+                if(M>0){ // prune
                     std::vector<bool> pruned_true_masks(M, false);
                     std::vector<NodePair> pruned_match_pairs;
                     std::vector<float> pruned_match_scores;
                     std::vector <std::pair<fmfusion::InstanceId, fmfusion::InstanceId>> match_instances;
 
+                    tictoc_bk.tic();
                     Registration::pruneInsOutliers(global_config->reg, 
                                             src_graph->get_const_nodes(), ref_graph->get_const_nodes(), 
                                             match_pairs, pruned_true_masks);
                     pruned_match_pairs = fmfusion::utility::update_masked_vec(match_pairs, pruned_true_masks);
                     pruned_match_scores = fmfusion::utility::update_masked_vec(match_scores, pruned_true_masks);
                     std::cout<<"Keep "<<pruned_match_pairs.size()<<" consistent matched nodes\n";
-                    tic_toc_seq.toc();
+                    ROS_WARN("Prune takes %.3f ms", tictoc_bk.toc());
+                    timing_seq.record(tic_toc.toc(true));// prune
 
+                    // Dense match
+                    std::vector<Eigen::Vector3d> corr_src_points, corr_ref_points;
+                    std::vector<float> corr_scores_vec;
+                    fmfusion::O3d_Cloud_Ptr src_cloud_ptr(new fmfusion::O3d_Cloud()), ref_cloud_ptr(new fmfusion::O3d_Cloud());
+                    Eigen::Matrix4d pred_pose;
+                    pred_pose.setIdentity();
+                    // int C = loop_detector->match_instance_points(pruned_match_pairs, corr_src_points, corr_ref_points, corr_scores_vec);
+                    // ROS_WARN("Matched points: %d", C);
+
+
+                    // IO
                     fmfusion::IO::extract_match_instances(pruned_match_pairs, src_graph->get_const_nodes(), ref_graph->get_const_nodes(), match_instances);
                     fmfusion::IO::extract_instance_correspondences(src_graph->get_const_nodes(), ref_graph->get_const_nodes(), 
                                                                 pruned_match_pairs, pruned_match_scores, src_centroids, ref_centroids);                    
                     Visualization::correspondences(src_centroids, ref_centroids, viz.instance_match,LOCAL_AGENT,{},viz.local_frame_offset);
                 
-                    Eigen::Matrix4d pred_pose;
-                    pred_pose.setIdentity();
                     std::cout<<"Write "<<match_instances.size()<<" matched instances\n";
                     fmfusion::IO::save_match_results(pred_pose, match_instances, pruned_match_scores, loop_result_dir+"/"+frame_name+".txt");
+                    timing_seq.record(tic_toc.toc(true));// viz
                 }
-                else tic_toc_seq.fill_zeros();
 
                 loop_count ++;
             }
-            else{
-                tic_toc_seq.fill_zeros(4);
-            }
-
+            
             //
             Visualization::instance_centroids(semantic_mapping.export_instance_centroids(),viz.src_centroids,LOCAL_AGENT,viz.param.centroid_size);
             Visualization::render_point_cloud(semantic_mapping.export_global_pcd(true,0.05), viz.src_graph, LOCAL_AGENT);
-            tic_toc_seq.toc();
             loop_frame_id = seq_id;
         }   
 
@@ -325,7 +377,7 @@ int main(int argc, char **argv)
 
         ros::spinOnce();
     }
-    LogWarning("Finished sequence");
+    ROS_WARN("%s Finished sequence", LOCAL_AGENT.c_str());
     ros::shutdown();
 
     // Post-process
@@ -336,7 +388,7 @@ int main(int argc, char **argv)
 
     // Save
     semantic_mapping.Save(output_folder+"/"+sequence_name);
-    tic_toc_seq.export_data(output_folder+"/"+sequence_name+"/timing.txt");
+    timing_seq.write_log(output_folder+"/"+sequence_name+"/timing.txt");
     if(mode==1) comm->write_logs(output_folder+"/"+sequence_name);
     LogInfo("Save sequence to {:s}", output_folder+"/"+sequence_name);
     LogInfo("Loop results saved to {:s}", loop_result_dir);
