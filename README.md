@@ -20,6 +20,17 @@ make -j12
 make install
 ```
 
+Install GTSAM,
+
+```bash
+git clone https://github.com/borglab/gtsam.git
+cd gtsam
+mkdir build
+cd build
+cmake .. -DGTSAM_POSE3_EXPMAP=ON -DGTSAM_ROT3_EXPMAP=ON
+sudo make install
+```
+
 If loop closured module is not needed, the following the dependencies can be skipped.
 Install glog,
 
@@ -80,58 +91,59 @@ Set the ```${LIBTORCH_DIR}``` to the unzipped libtorch directory. If the ```Open
 Depends on your computer environment, you may comment or adjust ```set(CMAKE_CXX_STANDARD 17)``` in ```CMakeLists.txt```.
 
 ### Compile ROS Node (Optional)
-Generate the ```lib_fmfusion``` as a shared library.
-```
-mkdir install
-cd build
-cmake -DINSTALL_FMFUSION=ON ..
-make -j12 & make install
-```
-The library should be installed at ```install``` folder of the  current project.
-Then, compile the ros nodes,
-```bash
-cd ../catkin_ws
-catkin_make
-```
-The ROS node is used to run multi-session SLAM. It is an optional module.
+
+refer to [MultiAgentExperiment](MultiAgent.md).
 
 ## Run Loop Detection Node
+
 The trained torchscript model can be downloaded from
-the [OneDrive Link](https://hkustconnect-my.sharepoint.com/:f:/g/personal/cliuci_connect_ust_hk/Encm_4ETKV9EiZ2PRlCLVdEBTCiuBYQ4yckF7SzFTDHg6g?e=oDsTHu). Download and unzip the torchscript folder and
+the [OneDrive Link](https://hkustconnect-my.sharepoint.com/:f:/g/personal/cliuci_connect_ust_hk/Encm_4ETKV9EiZ2PRlCLVdEBTCiuBYQ4yckF7SzFTDHg6g?e=oDsTHu).
+Download and unzip the torchscript folder and
 set the ```--weights_folder``` accordingly.
 
 ```bash
 ./build/cpp/TestLoop --config config/realsense.yaml --weights_folder ${TORCHSCRIPT_FOLDER} --ref_scene /data2/sgslam/val/uc0107_00a --src_scene /data2/sgslam/val/uc0107_00b --output_folder ${OUTPUT_FOLDER}
 ```
-It has optional running options ```--prune_instance```, which prune instance match results by maximum clique. And option ```--dense_match``` enable searching point cloud correspondences.
+
+It has optional running options ```--prune_instance```, which prune instance match results by maximum clique. And
+option ```--dense_match``` enable searching point cloud correspondences.
 In [realsense.yaml](config/realsense.yaml), a few parameters can directly affect the final performance,
+
 - ```LoopDetector.fuse_shape```: decide fuse shape features or not.
 - ```Graph.ignore_labels```: incorporate "floor" to ignore them.
 
-
-The ```ref_scene``` and ```src_scene``` options can be changed to any scene folder directories. The node read scene graphs from the two scene, and generate instance-wise association results. Match and registration result will be saved at ```OUTPUT_FOLDER```.
+The ```ref_scene``` and ```src_scene``` options can be changed to any scene folder directories. The node read scene
+graphs from the two scene, and generate instance-wise association results. Match and registration result will be saved
+at ```OUTPUT_FOLDER```.
 
 ## Run all the scan pairs and evaluate
+
 To run all the 14 scene pairs,
+
 ```bash
 python scripts/run_test_loop.py
 ```
-Notice to set ```OUTPUT_FOLDER``` before running. 
+
+Notice to set ```OUTPUT_FOLDER``` before running.
 
 Then, evaluate the match and registration results,
+
 ```bash
 python scripts/eval_loop.py --dataroot ${DATAROOT} --output_folder ${OUTPUT_FOLDER} --match_folder ${MATCH_FOLDER}
 ```
+
 The ```OUTPUT_FOLDER``` is the same as the option in running ```TestLoop```.
 
 The latest evaluation result is saved [here](eval/v2_dense.txt).
 
 ## Run Loop Detection Node on ROS
+
 ```
 source catkin_ws/devel/setup.bash
 roslaunch sgloop_ros testloop.launch
 roslaunch sgloop_ros visualize.launch
 ```
+
 Currently, it is similar to the ```TestLoop``` program in the last step.
 It read a pair of scene graph and register them. The result is visualized on Rviz.
 

@@ -18,13 +18,15 @@ namespace fmfusion
         return neighbor_indices;
     }
 
-    ShapeEncoder::ShapeEncoder(const ShapeEncoderConfig &config_, const std::string weight_folder) : config(config_)
+    ShapeEncoder::ShapeEncoder(const ShapeEncoderConfig &config_, const std::string weight_folder, int cuda_number) : 
+        config(config_)
     {
         // std::string shape_encoder_dir = weight_folder + "/instance_shape_encoder_v1.pt";
-
+        cuda_device_string = "cuda:" + std::to_string(cuda_number);
         encoder_v2 = torch::jit::load(weight_folder + "/instance_shape_encoder_v2.pt");
-        encoder_v2.to(torch::kCUDA);
-        std::cout<<"Load shape encoder v2 from "<<weight_folder<<std::endl;
+        encoder_v2.to(cuda_device_string);
+        std::cout<<"Load shape encoder v2 from "<<weight_folder
+                <<" on cuda:"<<cuda_number<<std::endl;
         assert(config.padding=="zero" || config.padding=="random");
         // std::cout<<config.print_msg();
 
@@ -38,13 +40,16 @@ namespace fmfusion
     {
         long X = xyz.size();        // point cloud number
         long N = centroids_.size(); // node number
+        open3d::utility::Timer timer;
+        std::stringstream msg;
 
+        timer.Start();
         std::vector<at::Tensor> points_list;
         std::vector<at::Tensor> lengths_list;
         std::vector<at::Tensor> neighbors_list;
         std::vector<at::Tensor> subsampling_list;
         std::vector<at::Tensor> upsampling_list;
-        at::Tensor points_feats = torch::ones({X, 1}, torch::kFloat32).to(torch::kCUDA);
+        at::Tensor points_feats = torch::ones({X, 1}, torch::kFloat32).to(cuda_device_string);
 
         //
         float xyz_arr[X][3];
@@ -68,11 +73,15 @@ namespace fmfusion
             xyz_arr[i][2] = xyz[i][2];
         }
         at::Tensor points = torch::from_blob(xyz_arr, {X, 3}).to(torch::kFloat32);
+        timer.Stop();
+        msg<<"concat: "
+            <<std::fixed<<std::setprecision(1)
+            <<timer.GetDurationInMillisecond()<<" ms, ";
 
-        open3d::utility::Timer timer;
         timer.Start();
         precompute_data_stack_mode(points, lengths, points_list, lengths_list, neighbors_list, subsampling_list, upsampling_list);
         timer.Stop();
+        msg<<"precompute: "<<timer.GetDurationInMillisecond()<<" ms, ";
 
         //
         timer.Start();
@@ -80,76 +89,62 @@ namespace fmfusion
         at::Tensor node_point_indices = torch::zeros({N, config.K_shape_samples}, torch::kInt32);
         at::Tensor node_knn_indices = torch::zeros({N, config.K_match_samples}, torch::kInt32);
         associate_f_points(xyz, labels, points_list[1], labels_f);
+        timer.Stop();
+        msg<<"associate: "<<timer.GetDurationInMillisecond()<<" ms, ";
+
+        timer.Start();
         sample_node_f_points(labels_f, nodes, node_point_indices, config.K_shape_samples);
         sample_node_f_points(labels_f, nodes, node_knn_indices, config.K_match_samples, 1);
 
         
-        torch::Tensor nodes_feats = torch::ones({N}, torch::kFloat32).to(torch::kCUDA);
-        node_point_indices = node_point_indices.to(torch::kCUDA);
-        node_knn_indices = node_knn_indices.to(torch::kCUDA);
+        torch::Tensor nodes_feats = torch::ones({N}, torch::kFloat32).to(cuda_device_string);
+        node_point_indices = node_point_indices.to(cuda_device_string);
+        node_knn_indices = node_knn_indices.to(cuda_device_string);
         timer.Stop();
-        std::cout<<"Sample points takes "<<timer.GetDurationInMillisecond()<<" ms\n";
+        msg<<"sampling: "<<timer.GetDurationInMillisecond()<<" ms, ";
 
         //
         timer.Start();
         torch::Tensor f_points_feats;
-        if(use_v2){
-            auto output = encoder_v2({points_feats,
-                                    points_list[0].to(torch::kFloat32).to(torch::kCUDA),
-                                    points_list[1].to(torch::kFloat32).to(torch::kCUDA),
-                                    points_list[2].to(torch::kFloat32).to(torch::kCUDA),
-                                    points_list[3].to(torch::kFloat32).to(torch::kCUDA),
-                                    neighbors_list[0].to(torch::kInt64).to(torch::kCUDA),
-                                    neighbors_list[1].to(torch::kInt64).to(torch::kCUDA),
-                                    neighbors_list[2].to(torch::kInt64).to(torch::kCUDA),
-                                    neighbors_list[3].to(torch::kInt64).to(torch::kCUDA),
-                                    subsampling_list[0].to(torch::kInt64).to(torch::kCUDA),
-                                    subsampling_list[1].to(torch::kInt64).to(torch::kCUDA),
-                                    subsampling_list[2].to(torch::kInt64).to(torch::kCUDA),
-                                    upsampling_list[0].to(torch::kInt64).to(torch::kCUDA),
-                                    upsampling_list[1].to(torch::kInt64).to(torch::kCUDA),
-                                    upsampling_list[2].to(torch::kInt64).to(torch::kCUDA),
-                                    node_point_indices}).toTuple();
-            node_shape_feats = output->elements()[0].toTensor();
-            f_points_feats = output->elements()[1].toTensor();
-        }
-        else{  // encode single graph
-            auto output = encoder({points_feats,
-                                points_list[0].to(torch::kFloat32).to(torch::kCUDA),
-                                points_list[1].to(torch::kFloat32).to(torch::kCUDA),
-                                points_list[2].to(torch::kFloat32).to(torch::kCUDA),
-                                points_list[3].to(torch::kFloat32).to(torch::kCUDA),
-                                neighbors_list[0].to(torch::kInt64).to(torch::kCUDA),
-                                neighbors_list[1].to(torch::kInt64).to(torch::kCUDA),
-                                neighbors_list[2].to(torch::kInt64).to(torch::kCUDA),
-                                neighbors_list[3].to(torch::kInt64).to(torch::kCUDA),
-                                subsampling_list[0].to(torch::kInt64).to(torch::kCUDA),
-                                subsampling_list[1].to(torch::kInt64).to(torch::kCUDA),
-                                subsampling_list[2].to(torch::kInt64).to(torch::kCUDA),
-                                upsampling_list[0].to(torch::kInt64).to(torch::kCUDA),
-                                upsampling_list[1].to(torch::kInt64).to(torch::kCUDA),
-                                upsampling_list[2].to(torch::kInt64).to(torch::kCUDA),
+        auto output = encoder_v2({points_feats,
+                                points_list[0].to(torch::kFloat32).to(cuda_device_string),
+                                points_list[1].to(torch::kFloat32).to(cuda_device_string),
+                                points_list[2].to(torch::kFloat32).to(cuda_device_string),
+                                points_list[3].to(torch::kFloat32).to(cuda_device_string),
+                                neighbors_list[0].to(torch::kInt64).to(cuda_device_string),
+                                neighbors_list[1].to(torch::kInt64).to(cuda_device_string),
+                                neighbors_list[2].to(torch::kInt64).to(cuda_device_string),
+                                neighbors_list[3].to(torch::kInt64).to(cuda_device_string),
+                                subsampling_list[0].to(torch::kInt64).to(cuda_device_string),
+                                subsampling_list[1].to(torch::kInt64).to(cuda_device_string),
+                                subsampling_list[2].to(torch::kInt64).to(cuda_device_string),
+                                upsampling_list[0].to(torch::kInt64).to(cuda_device_string),
+                                upsampling_list[1].to(torch::kInt64).to(cuda_device_string),
+                                upsampling_list[2].to(torch::kInt64).to(cuda_device_string),
                                 node_point_indices}).toTuple();
-            node_shape_feats = output->elements()[0].toTensor();
-            f_points_feats = output->elements()[1].toTensor();
-            }
-        timer.Stop();
+        node_shape_feats = output->elements()[0].toTensor();
+        f_points_feats = output->elements()[1].toTensor();
+        
 
         assert(node_shape_feats.sizes()[0] == N);
         assert(f_points_feats.sizes()[0] == points_list[1].size()[0]);
 
         node_shape_feats = torch::nn::functional::normalize(node_shape_feats, 
                                                             torch::nn::functional::NormalizeFuncOptions().p(2).dim(1));
-
-        // std::cout << "Run point encoder takes " << timer.GetDurationInMillisecond() << " ms\n";
-        // std::cout<<points_list[1].size(0)<<","<<points_list[1].size(1)<<"\n";
+        timer.Stop();
+        msg << "encode: " << timer.GetDurationInMillisecond() << " ms, ";
 
         //
-        torch::Tensor padded_points_f = torch::cat({points_list[1], torch::zeros({1, 3}, torch::kFloat32)}, 0).to(torch::kCUDA);
-        torch::Tensor padded_feats_f = torch::cat({f_points_feats, torch::zeros({1, f_points_feats.size(1)}, torch::kFloat32).to(torch::kCUDA)}, 0);
+        timer.Start();
+        torch::Tensor padded_points_f = torch::cat({points_list[1], torch::zeros({1, 3}, torch::kFloat32)}, 0).to(cuda_device_string);
+        torch::Tensor padded_feats_f = torch::cat({f_points_feats, torch::zeros({1, f_points_feats.size(1)}, torch::kFloat32).to(cuda_device_string)}, 0);
         node_knn_points = torch::index_select(padded_points_f, 0, node_knn_indices.view(-1)).view({N, config.K_match_samples, -1});
         node_knn_feats = torch::index_select(padded_feats_f, 0, node_knn_indices.view(-1)).view({N, config.K_match_samples, -1});
+        timer.Stop();
+        msg << "knn: " << timer.GetDurationInMillisecond() << " ms";
         // std::cout<<"node knn shape: "<<node_knn_feats.sizes()<<std::endl;
+
+        std::cout<<msg.str()<<std::endl;
 
     };
 

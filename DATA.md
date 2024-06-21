@@ -4,6 +4,22 @@ Construt the dataset folder as follows,
 sgslam
 |---splits
     |---val.txt
+|---scans
+    |---uc0110_00a
+        |---rgb
+        |---depth
+        |---pose
+        |---prediction
+        |---intrinsic
+|---output
+    |---online_coarse # coarse scene graph registration results
+    |---${SRC_SCENE}
+        |---${REF_SCENE}
+            |--- FRAME_XXXX.txt # loop results at the corresponding frame. Estimated pose is T_ref_src.
+            |--- FRAME_XXXX_src.ply # local instance point cloud at the frame.
+        |--- *.ply # Reconstucted instances of the source scene.
+|---gt # 
+    |---${SRC_SCENE}-${REF_SCENE}.txt # T_ref_src
 |---val
     |---uc0110_00a
         |---instance_info.txt

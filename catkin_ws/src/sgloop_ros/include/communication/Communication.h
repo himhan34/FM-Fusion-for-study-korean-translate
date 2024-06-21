@@ -6,6 +6,7 @@
 #include <torch/torch.h>
 
 #include <ros/ros.h>
+#include <std_msgs/Int32.h>
 #include <std_msgs/String.h>
 #include <sgloop_ros/CoarseGraph.h>
 #include <sgloop_ros/DenseGraph.h>
@@ -17,6 +18,7 @@ namespace SgCom
     {
         int frame_id;
         float timestamp;
+        int N;
         std::string direction; // "pub" or "sub"
         std::string msg_type; // "CoarseGraph", "DenseGraph"
         bool checksum;
@@ -74,14 +76,15 @@ namespace SgCom
                         std::string master_agent="agent_a", std::vector<std::string> other_agents={});
             ~Communication(){};
 
-            bool broadcast_coarse_graph(int frame_id,
-                                const std::vector<uint32_t> &instances,
-                                const std::vector<Eigen::Vector3d> &centroids,
-                                const int& N, const int &D,
-                                const std::vector<std::vector<float>> &features);
+            // bool broadcast_coarse_graph(int frame_id,
+            //                     const std::vector<uint32_t> &instances,
+            //                     const std::vector<Eigen::Vector3d> &centroids,
+            //                     const int& N, const int &D,
+            //                     const std::vector<std::vector<float>> &features);
 
 
             /// @brief  Broadcast dense graph to other agents.
+            ///         If X<1, broadcast the coarse graph.
             /// @param frame_id
             /// @param nodes (N,)
             /// @param instances (N,)
@@ -97,29 +100,46 @@ namespace SgCom
                                     const std::vector<Eigen::Vector3d> &xyz,
                                     const std::vector<uint32_t> &labels);
 
-            void coarse_graph_callback(const sgloop_ros::CoarseGraph::ConstPtr &msg,std::string agent_name);
+            /// @brief Publish request message to the target agent.
+            /// @param target_agent_name 
+            /// @return 
+            bool send_request_dense(const std::string &target_agent_name);
+
+            // void coarse_graph_callback(const sgloop_ros::CoarseGraph::ConstPtr &msg,std::string agent_name);
 
             void dense_graph_callback(const sgloop_ros::DenseGraph::ConstPtr &msg,std::string agent_name);
+            
+            void request_dense_callback(const std_msgs::Int32::ConstPtr &msg);
 
             const AgentDataDict& get_remote_agent_data(const std::string agent_name)const;
-            // AgentDataDict &queried_data_dict)const;
 
             bool write_logs(const std::string &out_dir);
 
-        private:
+            bool get_pub_dense_msg()const{return pub_dense_msg;};
 
+            void reset_pub_dense_msg(){pub_dense_msg=false;};
+
+        public:
+            int pub_dense_frame_id; // master publish dense graph message     
+
+        private:
             float frame_duration; // in seconds
             float time_offset; // in seconds
 
-            ros::Publisher pub_coarse_sg, pub_dense_sg;
-            std::vector<ros::Subscriber> agents_subscriber;
-            std::vector<ros::Subscriber> agents_dense_subscriber;
-
+            // In masterAgent
+            ros::Publisher pub_dense_sg;
+            ros::Subscriber sub_request_dense;
             std::string local_agent;
+
+            // In otherAgents
+            std::vector<ros::Subscriber> agents_dense_subscriber;
+            std::map<std::string,ros::Publisher> pub_agents_request_dense;
             std::map<std::string,AgentDataDict> agents_data_dict;
 
             std::vector<Log> pub_logs;
             std::vector<Log> sub_logs;
+
+            bool pub_dense_msg; 
 
             int last_exchange_frame_id; // At an exchange frame, the latest agent data dict is exported.
 

@@ -5,51 +5,92 @@ namespace fmfusion
 {
     LoopDetector::LoopDetector(LoopDetectorConfig &lcd_config,
                                 ShapeEncoderConfig &shape_encoder_config, 
-                                SgNetConfig &sgnet_config, const std::string weight_folder):weight_folder_dir(weight_folder)
+                                SgNetConfig &sgnet_config, 
+                                const std::string weight_folder,
+                                int cuda_number,
+                                std::vector<std::string> ref_graph_names):weight_folder_dir(weight_folder)
     {
-        shape_encoder = std::make_shared<ShapeEncoder>(shape_encoder_config, weight_folder);
-        sgnet = std::make_shared<SgNet>(sgnet_config, weight_folder);
+        shape_encoder = std::make_shared<ShapeEncoder>(shape_encoder_config, weight_folder, cuda_number);
+        sgnet = std::make_shared<SgNet>(sgnet_config, weight_folder, cuda_number);
         config = lcd_config;
-        ref_sg_timestamp = -1.0;
+        cuda_device_string = "cuda:"+std::to_string(cuda_number);
+
+        for(const auto &name: ref_graph_names){
+            ref_graphs[name] = ImplicitGraph {};
+            ref_sg_timestamps[name] = -1.0;
+        }
+
+        initialize_graph_features();
     }
 
-    bool LoopDetector::encode_scene_graph(const std::vector<NodePtr> &nodes,const DataDict &data_dict, ImplicitGraph &graph_features)
+    void LoopDetector::initialize_graph_features()
+    {
+        int max_n = 120;
+        int D0 = 128;
+
+        src_features.node_features = torch::zeros({max_n, D0}, torch::kFloat32).to(cuda_device_string);
+
+        // ref_features.node_features = torch::zeros({max_n, D0}, torch::kFloat32).to(cuda_device_string);
+
+        for(auto &kv: ref_graphs){
+            kv.second.node_features = torch::zeros({max_n, D0}, torch::kFloat32).to(cuda_device_string);
+        }
+
+        std::cout<<"Initialize graph node features\n";
+    }
+
+    bool LoopDetector::encode_scene_graph(const std::vector<NodePtr> &nodes, ImplicitGraph &graph_features)
     {
         open3d::utility::Timer timer;
         timer.Start();
         sgnet->graph_encoder(nodes, graph_features.node_features);
         timer.Stop();
-        std::cout<<"Graph encoder takes "<<std::fixed<<std::setprecision(3)<<timer.GetDurationInMillisecond()<<" ms\n";
-        if(!data_dict.nodes.empty()){ // Encode single graph shapes
-            shape_encoder->encode(data_dict.xyz,data_dict.length_vec,data_dict.labels,data_dict.centroids,data_dict.nodes,
-                                    graph_features.shape_features, graph_features.node_knn_points, graph_features.node_knn_features);
-            graph_features.shape_embedded = true;        
-            if(config.fuse_shape){
-                graph_features.node_features = torch::cat({graph_features.node_features, graph_features.shape_features}, 1);
-            }
-            std::cout<<"Encode single graph shapes\n";
-        }
+        // if(!data_dict.nodes.empty()){ // Encode single graph shapes
+        //     shape_encoder->encode(data_dict.xyz,data_dict.length_vec,data_dict.labels,data_dict.centroids,data_dict.nodes,
+        //                             graph_features.shape_features, graph_features.node_knn_points, graph_features.node_knn_features);
+        //     graph_features.shape_embedded = true;        
+        //     if(config.fuse_shape){
+        //         graph_features.node_features = torch::cat({graph_features.node_features, graph_features.shape_features}, 1);
+        //     }
+        //     std::cout<<"Encode single graph shapes\n";
+        // }
 
         return true;
     }
 
-    bool LoopDetector::encode_ref_scene_graph(const std::vector<NodePtr> &nodes,const DataDict &data_dict)
+    bool LoopDetector::encode_ref_scene_graph(const std::string &ref_name,
+                                            const std::vector<NodePtr> &nodes)
     {
-        return encode_scene_graph(nodes, DataDict {}, ref_features);
+        if(ref_graphs.find(ref_name)==ref_graphs.end()){
+            open3d::utility::LogWarning("Reference graph name not found. Skip encoding");
+            return false;
+        }
+        ref_graphs[ref_name].shape_embedded = false;
+        return encode_scene_graph(nodes, ref_graphs[ref_name]);
+
+        // ref_features.shape_embedded = false;
+        // return encode_scene_graph(nodes, ref_features);
     }
 
-    bool LoopDetector::encode_src_scene_graph(const std::vector<NodePtr> &nodes,const DataDict &data_dict)
+    bool LoopDetector::encode_src_scene_graph(const std::vector<NodePtr> &nodes)
     {
-        sgnet->load_bert(weight_folder_dir);
-        bool ret = encode_scene_graph(nodes, DataDict {}, src_features);
+        if(sgnet->is_online_bert()) sgnet->load_bert(weight_folder_dir);
+        bool ret = encode_scene_graph(nodes, src_features);
+        src_features.shape_embedded = false;
         return ret;
     }
 
-    bool LoopDetector::subscribe_ref_coarse_features(const float &latest_timestamp, 
+    bool LoopDetector::subscribe_ref_coarse_features(const std::string &ref_name,
+                                                    const float &cur_timestamp, 
                                                     const std::vector<std::vector<float>> &coarse_features_vec,
                                                     torch::Tensor coarse_features)
     {
-        if(latest_timestamp - ref_sg_timestamp > 0.01){
+        if(ref_graphs.find(ref_name)==ref_graphs.end()){
+            open3d::utility::LogWarning("Reference graph name not found. Skip subscribing");
+            return false;
+        }
+
+        if(cur_timestamp - ref_sg_timestamps[ref_name] > 0.01){
             int N = coarse_features_vec.size();
             int D = coarse_features_vec[0].size();
             std::cout<<"Update subscribed node features "<<N <<" x "<<D<<"\n";
@@ -57,10 +98,10 @@ namespace fmfusion
             for(int i=0;i<N;i++){
                 std::copy(coarse_features_vec[i].begin(), coarse_features_vec[i].end(), features_array[i]);
             }
-            ref_features.node_features = torch::from_blob(features_array, {N,D}).to(torch::kFloat32).to(torch::kCUDA);
-            ref_sg_timestamp = latest_timestamp;
+            ref_graphs[ref_name].node_features = torch::from_blob(features_array, {N,D}).to(torch::kFloat32).to(cuda_device_string);
+            ref_sg_timestamps[ref_name] = cur_timestamp;
 
-            assert(torch::isnan(ref_features.node_features).sum().item<int>()==0);
+            assert(torch::isnan(ref_graphs[ref_name].node_features).sum().item<int>()==0);
             return true;
         }
         else{
@@ -68,9 +109,15 @@ namespace fmfusion
         }
     }
 
-    bool LoopDetector::encode_concat_sgs(const int& Nr, const DataDict& ref_data_dict,
+    bool LoopDetector::encode_concat_sgs(const std::string &ref_name,
+                                        const int& Nr, const DataDict& ref_data_dict,
                                         const int& Ns, const DataDict& src_data_dict,bool fused)
     {
+        if(ref_graphs.find(ref_name)==ref_graphs.end()){
+            open3d::utility::LogWarning("Reference graph name not found. Skip encoding");
+            return false;
+        }
+
         // Concatenate data
         std::vector<Eigen::Vector3d> xyz;
         std::vector<int> length_vec;
@@ -78,9 +125,13 @@ namespace fmfusion
         std::vector<Eigen::Vector3d> centroids;
         std::vector<uint32_t> nodes;
 
+        o3d_utility::Timer timer;
+        std::stringstream msg;
+
+        timer.Start();
         int Xr=ref_data_dict.xyz.size(), Xs=src_data_dict.xyz.size();
         if(Xr<1||Xs<1||Nr<1||Ns<1) return false;
-        assert(Ns==src_features.node_features.size(0) && Nr==ref_features.node_features.size(0));
+        assert(Ns==src_features.node_features.size(0) && Nr==ref_graphs[ref_name].node_features.size(0));
 
         xyz.insert(xyz.end(), ref_data_dict.xyz.begin(), ref_data_dict.xyz.end());
         xyz.insert(xyz.end(), src_data_dict.xyz.begin(), src_data_dict.xyz.end());
@@ -112,46 +163,65 @@ namespace fmfusion
         assert(stack_shape_features.size(0)==Nr+Ns);
         assert(stack_node_knn_points.size(0)==Nr+Ns);
 
-        ref_features.shape_embedded = true;
-        ref_features.shape_features = stack_shape_features.index({torch::arange(0,Nr).to(torch::kInt64).to(torch::kCUDA)});
-        ref_features.node_knn_points = stack_node_knn_points.index({torch::arange(0,Nr).to(torch::kInt64).to(torch::kCUDA)});
-        ref_features.node_knn_features = stack_node_knn_features.index({torch::arange(0,Nr).to(torch::kInt64).to(torch::kCUDA)});
-
         src_features.shape_embedded = true;
-        src_features.shape_features = stack_shape_features.index({torch::arange(Nr,Nr+Ns).to(torch::kInt64).to(torch::kCUDA)});
-        src_features.node_knn_points = stack_node_knn_points.index({torch::arange(Nr,Nr+Ns).to(torch::kInt64).to(torch::kCUDA)});
-        src_features.node_knn_features = stack_node_knn_features.index({torch::arange(Nr,Nr+Ns).to(torch::kInt64).to(torch::kCUDA)});
+        src_features.shape_features = stack_shape_features.index({torch::arange(Nr,Nr+Ns).to(torch::kInt64).to(cuda_device_string)});
+        src_features.node_knn_points = stack_node_knn_points.index({torch::arange(Nr,Nr+Ns).to(torch::kInt64).to(cuda_device_string)});
+        src_features.node_knn_features = stack_node_knn_features.index({torch::arange(Nr,Nr+Ns).to(torch::kInt64).to(cuda_device_string)});
 
-        if(fused){
-            src_features.node_features = torch::cat({src_features.node_features, src_features.shape_features}, 1);
-            ref_features.node_features = torch::cat({ref_features.node_features, ref_features.shape_features}, 1);
-        }
+        ref_graphs[ref_name].shape_embedded = true;
+        ref_graphs[ref_name].shape_features = stack_shape_features.index({torch::arange(0,Nr).to(torch::kInt64).to(cuda_device_string)});
+        ref_graphs[ref_name].node_knn_points = stack_node_knn_points.index({torch::arange(0,Nr).to(torch::kInt64).to(cuda_device_string)});
+        ref_graphs[ref_name].node_knn_features = stack_node_knn_features.index({torch::arange(0,Nr).to(torch::kInt64).to(cuda_device_string)});
 
         return true;
     }
 
-    int LoopDetector::match_nodes(std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
-                                    std::vector<float> &match_scores,bool fused)
+    int LoopDetector::match_nodes(const std::string &ref_name,
+                                std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
+                                std::vector<float> &match_scores,bool fused)
     {   
-        bool check_ref_nodes = torch::isnan(ref_features.node_features).sum().item<int>()==0;
+        if(ref_graphs.find(ref_name)==ref_graphs.end()){
+            open3d::utility::LogWarning("Reference graph name not found. Skip matching");
+            return 0;
+        }
+        bool ref_shape_embedded = ref_graphs[ref_name].shape_embedded;
+        torch::Tensor ref_gnn_features = ref_graphs[ref_name].node_features.clone();
+
+        bool check_ref_nodes = torch::isnan(ref_gnn_features).sum().item<int>()==0;
         assert (check_ref_nodes);
 
-        int Ds = src_features.node_features.size(1);
-        int Dr = ref_features.node_features.size(1);
+        torch::Tensor src_node_features , ref_node_features;
         bool check_fused = false;
-        if(Ds>256 && Dr>256){
+        if(src_features.shape_embedded && ref_shape_embedded){
+            torch::Tensor ref_shape_features = ref_graphs[ref_name].shape_features.clone();
+            src_node_features = torch::cat({src_features.node_features.clone(), src_features.shape_features.clone()}, 1);
+            ref_node_features = torch::cat({ref_gnn_features, ref_shape_features}, 1);
             check_fused = true;
         }
-
-        sgnet->match_nodes(src_features.node_features, ref_features.node_features, match_pairs, match_scores,check_fused);
+        else{
+            src_node_features = src_features.node_features;
+            ref_node_features = ref_gnn_features; //ref_features.node_features;
+        }
+        
+        sgnet->match_nodes(src_node_features, ref_node_features, match_pairs, match_scores,check_fused);
         return match_pairs.size();
     }
 
-    int LoopDetector::match_instance_points(const std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
+    int LoopDetector::match_instance_points(const std::string &ref_name,
+                                            const std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
                                             std::vector<Eigen::Vector3d> &corr_src_points,
                                             std::vector<Eigen::Vector3d> &corr_ref_points,
                                             std::vector<float> &corr_scores_vec)
     {
+        if(ref_graphs.find(ref_name)==ref_graphs.end()){
+            open3d::utility::LogWarning("Reference graph name not found. Skip matching");
+            return 0;
+        }
+        if(!src_features.shape_embedded || !ref_graphs[ref_name].shape_embedded){
+            open3d::utility::LogWarning("Shape features or one of them are not embedded. Skip point matching");
+            return 0;
+        }
+
         torch::Tensor corr_points;
         int M = match_pairs.size();
         float match_pairs_array[2][M]; //
@@ -160,13 +230,19 @@ namespace fmfusion
             match_pairs_array[1][i] = int(match_pairs[i].second); // ref_node
         }
 
-        torch::Tensor src_corr_nodes = torch::from_blob(match_pairs_array[0], {M}).to(torch::kInt64).to(torch::kCUDA);
-        torch::Tensor ref_corr_nodes = torch::from_blob(match_pairs_array[1], {M}).to(torch::kInt64).to(torch::kCUDA);
+        torch::Tensor src_corr_nodes = torch::from_blob(match_pairs_array[0], {M}).to(torch::kInt64).to(cuda_device_string);
+        torch::Tensor ref_corr_nodes = torch::from_blob(match_pairs_array[1], {M}).to(torch::kInt64).to(cuda_device_string);
+
+        //
+        if(!src_features.shape_embedded || !ref_graphs[ref_name].shape_embedded){
+            open3d::utility::LogWarning("No node knn points. Skip point matching");
+            return 0;
+        }
 
         torch::Tensor src_guided_knn_points = src_features.node_knn_points.index_select(0, src_corr_nodes);
         torch::Tensor src_guided_knn_feats = src_features.node_knn_features.index_select(0, src_corr_nodes);
-        torch::Tensor ref_guided_knn_points = ref_features.node_knn_points.index_select(0, ref_corr_nodes);
-        torch::Tensor ref_guided_knn_feats = ref_features.node_knn_features.index_select(0, ref_corr_nodes);
+        torch::Tensor ref_guided_knn_points = ref_graphs[ref_name].node_knn_points.index_select(0, ref_corr_nodes);
+        torch::Tensor ref_guided_knn_feats = ref_graphs[ref_name].node_knn_features.index_select(0, ref_corr_nodes);
         if(M>30)
             open3d::utility::LogWarning(
                                     "Large number of points candidates. Point match can cost >10GB memory on GPU");

@@ -42,6 +42,7 @@ namespace Visualization
 
     bool render_point_cloud(const std::shared_ptr<open3d::geometry::PointCloud> &pcd, ros::Publisher pub, std::string frame_id)
     {
+        if(pub.getNumSubscribers()==0) return false;
         // Publish point cloud
         sensor_msgs::PointCloud2 msg;
         open3d_conversions::open3dToRos(*pcd, msg, frame_id);
@@ -95,6 +96,7 @@ namespace Visualization
                         std::vector<bool> pred_masks,
                         std::array<float,3> src_frame_offset)
     {
+        if(pub.getNumSubscribers()==0) return false;
         visualization_msgs::Marker marker;
         marker.header.frame_id = src_frame_id;
         marker.header.stamp = ros::Time::now();
@@ -143,6 +145,8 @@ namespace Visualization
                             float scale,
                             std::array<float,3> color)
     {
+        if(pub.getNumSubscribers()==0) return false;
+
         visualization_msgs::Marker marker;
         marker.header.frame_id = frame_id;
         marker.header.stamp = ros::Time::now();

@@ -72,6 +72,7 @@ if (ENABLE_TORCH)
 
     list(APPEND FMFUSION_HEADER
             sgloop/Graph.h
+            sgloog/BertBow.h
             sgloop/SGNet.h
             sgloop/ShapeEncoder.h
             sgloop/LoopDetector.h
@@ -80,6 +81,7 @@ if (ENABLE_TORCH)
     list(APPEND FMFUSION_SRC
             tools/IO.cpp
             sgloop/Graph.cpp
+            sgloop/BertBow.cpp
             sgloop/SGNet.cpp
             sgloop/ShapeEncoder.cpp
             sgloop/LoopDetector.cpp
@@ -122,6 +124,10 @@ add_executable(MapMerger)
 target_sources(MapMerger PRIVATE MapMerger.cpp)
 target_link_libraries(MapMerger PRIVATE Open3D::Open3D ${OpenCV_LIBS} fmfusion)
 
+add_executable(robustPoseAvg)
+target_sources(robustPoseAvg PRIVATE robustPoseAvg.cpp)
+target_link_libraries(robustPoseAvg PRIVATE Open3D::Open3D ${OpenCV_LIBS} fmfusion gtsam -ltbb)
+
 if (LOOP_DETECTION)
     add_executable(TestLoop)
     target_sources(TestLoop PRIVATE TestLoop.cpp)
@@ -158,6 +164,7 @@ if (INSTALL_FMFUSION)
             sgloop/SGNet.h
             sgloop/ShapeEncoder.h
             sgloop/LoopDetector.h
+            sgloop/BertBow.h
             DESTINATION include/fmfusion/sgloop
     )
     install(FILES

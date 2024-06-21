@@ -93,6 +93,7 @@ namespace IO
             return stoi(name_a.substr(0,name_a.find_last_of("."))) < stoi(name_b.substr(0,name_b.find_last_of(".")));
     }
 
+    /// Read rgb from color, depth from depth and pose from pose
     void construct_sorted_frame_table(const std::string &scene_dir,
         std::vector<RGBDFrameDirs> &frame_table, std::vector<Eigen::Matrix4d> &pose_table)
     {
@@ -261,6 +262,42 @@ namespace IO
         return true;
     };
 
+
+    bool save_match_results(const float &timestamp,
+                            const Eigen::Matrix4d &pose,
+                            const std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
+                            const std::vector<Eigen::Vector3d> &src_centroids,
+                            const std::vector<Eigen::Vector3d> &ref_centroids,
+                            const std::string &output_file_dir)
+    {
+        std::ofstream file(output_file_dir);
+        if (!file.is_open()){
+            std::cerr<<"Failed to open file: "<<output_file_dir<<std::endl;
+            return false;
+        }
+
+        file<<"# timetstamp: "<<timestamp<<"; pose\n";
+        file<<std::fixed<<std::setprecision(6);
+        for(int i=0; i<4; i++){
+            for(int j=0; j<4; j++){
+                file<<pose(i,j)<<" ";
+            }
+            file<<std::endl;
+        }
+
+        file<<"# src, ref, src_centroid, ref_centroid\n";
+        file<<std::fixed<<std::setprecision(3);
+        for (size_t i=0; i<match_pairs.size(); i++){
+            file<<"("<<match_pairs[i].first<<","<<match_pairs[i].second<<") "
+                <<std::fixed<<std::setprecision(3)
+                <<src_centroids[i][0]<<" "<<src_centroids[i][1]<<" "<<src_centroids[i][2]<<" "
+                <<ref_centroids[i][0]<<" "<<ref_centroids[i][1]<<" "<<ref_centroids[i][2]<<std::endl;
+            // <<src_centroids[i].transpose()<<" "<<ref_centroids[i].transpose()<<std::endl;
+        }
+
+        file.close();
+        return true;
+    };
     
 } // namespace name
 

@@ -26,6 +26,29 @@ struct GraphMsg{
     sensor_msgs::PointCloud2 global_cloud;
 }ref_msgs, src_msgs;
 
+float check_two_points_vec(const std::vector<Eigen::Vector3d> src_points,
+                        const std::vector<Eigen::Vector3d> ref_points)
+{
+    float dist = 0.0;
+    for (int i=0;i<src_points.size();i++){
+        dist += (src_points[i]-ref_points[i]).norm();
+    }
+    return dist;
+}
+
+/// @brief  Check the labels of two points vec.
+/// @return The number of matched labels.
+int check_points_labels(const std::vector<uint32_t> &src_labels, const std::vector<uint32_t> &ref_labels)
+{
+    assert(src_labels.size()==ref_labels.size());
+    int count = 0;
+    for (int i=0;i<src_labels.size();i++){
+        if(src_labels[i]==ref_labels[i])
+            count++;
+    }
+    return count;
+}
+
 int main(int argc, char **argv)
 {
     using namespace fmfusion;
@@ -55,13 +78,17 @@ int main(int argc, char **argv)
     bool fused = nh_private.param("fused",true);
     bool test_communication = nh_private.param("test_communication", false);
     int broadcast_times = nh_private.param("broadcast_times", 2);
+    bool dense_msg = nh_private.param("dense_msg", true);
     bool icp_refine = nh_private.param("icp_refine", true);
+    bool early_stop = nh_private.param("early_stop", false); // Stop after telecom
+    std::string ref_agent_name = "agentB";
 
     // Publisher
     Visualization::Visualizer viz(n,nh_private);
     // ros::Subscriber ref_sub = nh_private.subscribe("coarse_graph",1000);
     std::string src_name = *filesystem::GetPathComponents(src_scene_dir).rbegin();
     std::string ref_name = *filesystem::GetPathComponents(ref_scene_dir).rbegin();
+    std::string pair_name = src_name+"-"+ref_name;
 
     assert(set_cfg && set_wegith_folder);
     assert(set_ref_scene && set_src_scene);
@@ -103,9 +130,14 @@ int main(int argc, char **argv)
 
     // Encode Src Graph
     auto loop_detector = std::make_shared<fmfusion::LoopDetector>(fmfusion::LoopDetector(
-                        sg_config->loop_detector,sg_config->shape_encoder, sg_config->sgnet, weights_folder));
+                        sg_config->loop_detector,
+                        sg_config->shape_encoder, 
+                        sg_config->sgnet, 
+                        weights_folder,
+                        0,
+                        {ref_agent_name}));
     timer.Start();
-    loop_detector->encode_src_scene_graph(src_graph->get_const_nodes(), fmfusion::DataDict{});
+    loop_detector->encode_src_scene_graph(src_graph->get_const_nodes());
     timer.Stop();
     std::cout<<"Encode ref graph takes "<<std::fixed<<std::setprecision(3)<<timer.GetDurationInMillisecond()<<" ms\n";
 
@@ -119,7 +151,7 @@ int main(int argc, char **argv)
         fmfusion::DataDict sent_explicit_nodes;
 
         loop_detector->get_active_node_feats(sent_coarse_feats_vec, Ns, Ds);
-        sent_explicit_nodes = src_graph->extract_data_dict();
+        sent_explicit_nodes = src_graph->extract_data_dict(!dense_msg);
         timer.Stop();
         std::cout<<"Extract src data dict: "<<Ns<<"x"<<Ds<<". "
                     <<"It takes "<<std::fixed<<std::setprecision(3)<<timer.GetDurationInMillisecond()<<" ms\n";
@@ -153,27 +185,22 @@ int main(int argc, char **argv)
  
                 // update
                 torch::Tensor empty_tensor = torch::empty({0,0});
-                timer.Start();
-                loop_detector->subscribe_ref_coarse_features(received_agent_nodes.received_timestamp, 
-                                                                received_agent_nodes.features_vec,
-                                                                empty_tensor);
+
+                loop_detector->subscribe_ref_coarse_features(ref_agent_name,
+                                                            received_agent_nodes.received_timestamp, 
+                                                            received_agent_nodes.features_vec,
+                                                            empty_tensor);
                 int update_nodes_count = ref_graph->subscribe_coarse_nodes(received_agent_nodes.received_timestamp,
                                                     received_agent_nodes.nodes,
                                                     received_agent_nodes.instances,
                                                     received_agent_nodes.centroids);
-                timer.Stop();
-                std::cout<<"coarse update subscribed takes "
-                        << std::fixed<<std::setprecision(3)<<timer.GetDurationInMillisecond()<<" ms\n";
-                timer.Start();
-                int update_pts_count   = ref_graph->subscribde_dense_points(received_agent_nodes.received_timestamp,
-                                                    received_agent_nodes.xyz,
-                                                    received_agent_nodes.labels);
-                timer.Stop();
-                std::cout<<"dense update subscribtion takes "
-                        << std::fixed<<std::setprecision(3)<<timer.GetDurationInMillisecond()<<" ms\n";
+
+                int update_pts_count = 0;
+                if(received_agent_nodes.X>0)
+                    update_pts_count   = ref_graph->subscribde_dense_points(received_agent_nodes.received_timestamp,
+                                                        received_agent_nodes.xyz,
+                                                        received_agent_nodes.labels);
                 ref_data_dict = ref_graph->extract_data_dict();
-                // ref_data_dict.xyz = received_agent_nodes.xyz;
-                // ref_data_dict.labels = received_agent_nodes.labels;
 
                 std::cout<<"Update "<<update_nodes_count<<"/"
                         << received_agent_nodes.N<<" received nodes, "
@@ -184,10 +211,21 @@ int main(int argc, char **argv)
                 if(Ns==Nr){
                     std::cout<<"Checking pub and received tensor \n";
                     torch::Tensor raw_features = loop_detector->get_active_node_feats().to(torch::kCPU);
-                    torch::Tensor received_tensor_bk = loop_detector->get_ref_node_feats().to(torch::kCPU);
+                    torch::Tensor received_tensor_bk = loop_detector->get_ref_node_feats(ref_agent_name).to(torch::kCPU);
 
                     std::cout<<"["<<LOCAL_AGENT<<"] received bk tensor close:"
                             <<torch::allclose(raw_features, received_tensor_bk , 1e-5)<<std::endl;
+                    
+                    //
+                    int Xs = src_data_dict.xyz.size();
+                    int Xr = received_agent_nodes.xyz.size();
+                    std::cout<<"Comparing "<< Xs<<" src points and "
+                            <<Xr<<" received points.\n";
+                    
+                    float dist = check_two_points_vec(src_data_dict.xyz, received_agent_nodes.xyz);
+                    int consist_count = check_points_labels(src_data_dict.labels, received_agent_nodes.labels);
+
+                    ROS_WARN("Check two points vec diff: %.3f, %d/%d consistently labeled", dist, consist_count, Xs);
                 }
             }
         }
@@ -202,12 +240,22 @@ int main(int argc, char **argv)
         ref_graph->construct_triplets();
 
         timer.Start();                        
-        loop_detector->encode_ref_scene_graph(ref_graph->get_const_nodes(), fmfusion::DataDict{});
+        loop_detector->encode_ref_scene_graph(ref_agent_name,ref_graph->get_const_nodes());
         timer.Stop();
         ref_data_dict = ref_graph->extract_data_dict();
     }
-    loop_detector->encode_concat_sgs(ref_graph->get_const_nodes().size(), ref_data_dict,
-                                    src_graph->get_const_nodes().size(), src_data_dict, fused);
+    if(early_stop) {
+        ROS_WARN("%s Early stop", LOCAL_AGENT.c_str());
+        return 0;
+    }
+    
+    timer.Start();
+    bool shape_encode_ret = loop_detector->encode_concat_sgs(ref_agent_name,
+                                        ref_graph->get_const_nodes().size(), ref_data_dict,
+                                        src_graph->get_const_nodes().size(), src_data_dict, fused);
+    timer.Stop();
+    std::cout<<"Encode shape takes "<<std::fixed<<std::setprecision(3)
+            <<timer.GetDurationInMillisecond()<<" ms\n";
 
     // Hierachical matching
     std::vector<std::pair<uint32_t,uint32_t>> match_pairs;
@@ -220,7 +268,7 @@ int main(int argc, char **argv)
     std::vector <NodePair> pruned_match_pairs;
     std::vector<float> pruned_match_scores;
 
-    M = loop_detector->match_nodes(match_pairs, match_scores, fused);
+    M = loop_detector->match_nodes(ref_agent_name,match_pairs, match_scores, fused);
     std::vector<bool> pruned_true_masks(M, false);
     ROS_WARN("Matched nodes: %d", M);
     if(prune_instances && M>0){        
@@ -238,13 +286,18 @@ int main(int argc, char **argv)
     pruned_match_scores = fmfusion::utility::update_masked_vec(match_scores, pruned_true_masks);
     ROS_WARN("Keep %d matched nodes after prune", pruned_match_pairs.size());
 
-    if(pruned_match_pairs.size()>0){ // dense match       
-        C = loop_detector->match_instance_points(pruned_match_pairs, corr_src_points, corr_ref_points, corr_scores_vec);
+    if(pruned_match_pairs.size()>0 && shape_encode_ret){ // dense match  
+        C = loop_detector->match_instance_points(ref_agent_name,
+                                                pruned_match_pairs, 
+                                                corr_src_points, 
+                                                corr_ref_points, 
+                                                corr_scores_vec);
         ROS_WARN("Matched points: %d", C);
     }
 
     // Registration
-    fmfusion::O3d_Cloud_Ptr src_cloud_ptr(new fmfusion::O3d_Cloud()), ref_cloud_ptr(new fmfusion::O3d_Cloud());
+    fmfusion::O3d_Cloud_Ptr src_cloud_ptr = src_mapping->export_global_pcd(true, 0.05);
+    fmfusion::O3d_Cloud_Ptr ref_cloud_ptr = ref_mapping->export_global_pcd(true, 0.05);
     Eigen::Matrix4d pred_pose;
 
     g3reg::Config config;
@@ -253,6 +306,8 @@ int main(int argc, char **argv)
     config.verify_mtd = "plane_based";
     G3RegAPI g3reg(config);
 
+    std::cout<<"Estimate pose with "<<pruned_match_pairs.size()<<" nodes and"
+                <<corr_src_points.size()<<" points\n";
     g3reg.estimate_pose(src_graph->get_const_nodes(),
                         ref_graph->get_const_nodes(),
                         pruned_match_pairs,
@@ -262,23 +317,43 @@ int main(int argc, char **argv)
                         src_cloud_ptr,
                         ref_cloud_ptr,
                         pred_pose);
-    if(icp_refine)
-        pred_pose = g3reg.icp_refine(src_cloud_ptr, ref_cloud_ptr, pred_pose);        
-    std::cout<<"aa\n";
+
+    std::cout<<"trying icp\n";
+    timer.Start();
+    if(icp_refine){
+        if(!ref_cloud_ptr->HasNormals()) ref_cloud_ptr->EstimateNormals();
+        pred_pose = g3reg.icp_refine(src_cloud_ptr, ref_cloud_ptr, pred_pose);  
+    }      
+    timer.Stop();
+    std::cout<<"ICP refine takes "<<std::fixed<<std::setprecision(3)<<timer.GetDurationInMillisecond()<<" ms\n";
 
     // Export
     std::vector<std::pair<fmfusion::InstanceId,fmfusion::InstanceId>> pred_instances;
     std::vector<bool> pred_masks;
     std::vector<Eigen::Vector3d> src_centroids, ref_centroids;
-    fmfusion::IO::extract_match_instances(
-        pruned_match_pairs, src_graph->get_const_nodes(), ref_graph->get_const_nodes(), pred_instances);
-    fmfusion::IO::extract_instance_correspondences(
-        src_graph->get_const_nodes(), ref_graph->get_const_nodes(), pruned_match_pairs, pruned_match_scores, src_centroids, ref_centroids);
-    fmfusion::IO::save_match_results(pred_pose,
-                                    pred_instances,
-                                    pruned_match_scores,
-                                    output_folder+"/"+src_name+"-"+ref_name+".txt");
-    
+    {
+        fmfusion::IO::extract_match_instances(
+            pruned_match_pairs, src_graph->get_const_nodes(), ref_graph->get_const_nodes(), pred_instances);
+        fmfusion::IO::extract_instance_correspondences(
+            src_graph->get_const_nodes(), ref_graph->get_const_nodes(), pruned_match_pairs, pruned_match_scores, src_centroids, ref_centroids);
+
+        if(output_folder.size()>1){
+            std::cout<<"output size: "<<output_folder.size()<<std::endl;
+            fmfusion::IO::save_match_results(pred_pose,
+                                            pred_instances,
+                                            pruned_match_scores,
+                                            output_folder+"/"+src_name+"-"+ref_name+".txt");
+            open3d::io::WritePointCloudToPLY(output_folder + "/" + src_name + ".ply", *src_cloud_ptr, {});
+        
+            if (C > 0) {
+                fmfusion::O3d_Cloud_Ptr corr_src_pcd = std::make_shared<fmfusion::O3d_Cloud>(corr_src_points);
+                fmfusion::O3d_Cloud_Ptr corr_ref_pcd = std::make_shared<fmfusion::O3d_Cloud>(corr_ref_points);
+                open3d::io::WritePointCloudToPLY(output_folder + "/" + pair_name + "_csrc.ply", *corr_src_pcd, {});
+                open3d::io::WritePointCloudToPLY(output_folder + "/" + pair_name + "_cref.ply", *corr_ref_pcd, {});
+            }
+        }
+    }
+
     //
     if(gt_file.size()>0){
         int count_true = fmfusion::maks_true_instance(gt_file, pred_instances, pred_masks);

@@ -54,8 +54,10 @@ public:
 
     bool load(const std::string &path);
 
-    /// \brief  Export instances to the vector. Select by point cloud size.
-    void export_instances(std::vector<InstanceId> &names, std::vector<InstancePtr> &instances);
+    /// \brief  Export instances to the vector. 
+    ///         Filter instances that are too small or not been observed for a long time.
+    void export_instances(std::vector<InstanceId> &names, std::vector<InstancePtr> &instances, 
+                        int earliest_frame_id=-1);
 
 protected:
     /// \brief  match vector in [K,1], K is the number of detections;

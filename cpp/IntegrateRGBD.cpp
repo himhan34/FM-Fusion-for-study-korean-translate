@@ -206,6 +206,8 @@ int main(int argc, char *argv[]) {
         utility::GetProgramOptionAsString(argc, argv, "--trajectory","/trajectory.log");
     std::string intrinsic_filename =
             utility::GetProgramOptionAsString(argc, argv, "--intrinsic");
+    std::string output_dir =
+            utility::GetProgramOptionAsString(argc, argv, "--output","");
     int max_frames =
             utility::GetProgramOptionAsInt(argc, argv, "--max_frames", 1000);
     bool save_pointcloud =
@@ -285,10 +287,6 @@ int main(int argc, char *argv[]) {
                 volume.Reset();
             }
 
-            // auto depth_cloud = geometry::PointCloud::CreateFromDepthImage(
-            //     depth,intrinsic_,camera_trajectory->parameters_[index].extrinsic_,depth_scale,4.0);   
-            // io::WritePointCloud(root_dir+"/"+frame_name+".ply",*depth_cloud);
-
             volume.Integrate(*rgbd,
                             intrinsic_,
                              camera_trajectory->parameters_[index].extrinsic_);
@@ -328,6 +326,7 @@ int main(int argc, char *argv[]) {
                 // else
                 //     utility::LogInfo("Frame {:d} No observed points", index);
             }
+
             index++;
             timer.Signal();
 
@@ -336,7 +335,7 @@ int main(int argc, char *argv[]) {
 
     
     {
-        std::string output_dir = root_dir;//+"/output";
+        if(output_dir.size()<1) output_dir = root_dir;
         struct stat buffer;
         utility::LogInfo("Saving fragment {:s} ...", output_dir);
 

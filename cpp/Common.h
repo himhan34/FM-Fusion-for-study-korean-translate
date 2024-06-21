@@ -107,12 +107,14 @@ struct SgNetConfig
 {
     int token_padding=8;
     int triplet_number=20; // number of triplets for each node
+    int warm_up_iter=10;
     float instance_match_threshold=0.1;
     
     const std::string print_msg()const{
         std::stringstream msg;
         msg<<" - token_padding: "<<token_padding<<std::endl;
         msg<<" - triplet_number: "<<triplet_number<<std::endl;
+        msg<<" - warm_up_iter: "<<warm_up_iter<<std::endl;
         msg<<" - instance_match_threshold: "<<instance_match_threshold<<std::endl;
         return msg.str();
     }

@@ -103,6 +103,7 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
         //
         auto sgnet_config_fs = fs["SGNet"];
         config->sgnet.triplet_number = sgnet_config_fs["triplet_number"];
+        config->sgnet.warm_up_iter = sgnet_config_fs["warm_up"];
         config->sgnet.instance_match_threshold = sgnet_config_fs["instance_match_threshold"];
 
         //
@@ -169,7 +170,7 @@ bool LoadPredictions(const std::string &folder_path, const std::string &frame_na
         bool read_mask = detection_fs->updateInstanceMap(instance_file_dir);
         if(read_mask){            
             detections = detection_fs->detections;
-            cout<<"Load "<<detections.size()<<" detections correct"<<endl;
+            // cout<<"Load "<<detections.size()<<" detections correct"<<endl;
             return true;
         }
         else return false;

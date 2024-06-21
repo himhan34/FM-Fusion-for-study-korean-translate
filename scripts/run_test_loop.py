@@ -14,12 +14,19 @@ def read_scan_pairs(dir):
 
 if __name__ == '__main__':
     # args
-    exe_dir = 'build/cpp/TestLoop'
     config_file = 'config/realsense.yaml'
     dataroot = '/data2/sgslam'
-    split = 'val'
     split_file = 'val_bk.txt'
-    output_folder = os.path.join(dataroot,'output','v2_fused_prune')
+
+    # TestLoop
+    # split = 'val'
+    # output_folder = os.path.join(dataroot,'output','v3+')
+    # RUNPROG = 'TestLoop' # 'InstanceMap', 'TestLoop'
+    
+    ## Instance mapping
+    split = 'val'
+    output_folder = os.path.join(dataroot,'output','v4')
+    RUNPROG = 'TestLoop' # 'InstanceMap', 'TestLoop'
 
     # 
     if os.path.exists(output_folder)==False:
@@ -31,19 +38,28 @@ if __name__ == '__main__':
         print('processing {} {}'.format(pair[0], pair[1]))
         src_folder = os.path.join(dataroot, split, pair[0])
         ref_folder = os.path.join(dataroot, split, pair[1])
-
-        # continue
-        cmd = "{} --config {} --weights_folder torchscript --ref_scene {} --src_scene {} --output_folder {}".format(
-            exe_dir, 
-            config_file,
-            ref_folder,
-            src_folder,
-            output_folder)
-        cmd += " --prune_instance"
-        cmd += " --dense_match"
         
+        if RUNPROG =='TestLoop':
+            exe_dir = 'build/cpp/TestLoop'
+            cmd = "{} --config {} --weights_folder torchscript --ref_scene {} --src_scene {} --output_folder {}".format(
+                exe_dir, 
+                config_file,
+                ref_folder,
+                src_folder,
+                output_folder)
+            cmd += " --prune_instance"
+            cmd += " --dense_match"
+            
+        elif RUNPROG == 'InstanceMap':
+            exe_dir = 'build/cpp/IntegrateInstanceMap'
+            cmd = "{} --config {} --root {} --output {} --prediction prediction_no_augment --verbose 2 --frame_gap 2 --save_frame_gap 20".format(
+                exe_dir, 
+                config_file,
+                src_folder,
+                output_folder)
+            # cmd += "--save_frame_gap 50"
+
         ret = subprocess.run(cmd,
-                            stdin=subprocess.PIPE,shell=True)
-    
-        break
+                            stdin=subprocess.PIPE,shell=True)    
+        # break
 

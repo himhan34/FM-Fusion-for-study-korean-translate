@@ -39,9 +39,16 @@ def write_intrinsic(scan_dir):
     np.savetxt(os.path.join(intrinsic_folder,'intrinsic_depth.txt'),K,fmt='%.6f')
     print('intrinsic saved')
     
-# todo: apply pose drift to the scans
-def apply_pose_drift(scan_dir):
-    pass
+def read_da_file(dir):
+    with open(dir, 'r') as f:
+        lines = f.readlines()
+        da = []
+        for line in lines:
+            eles = line.strip().split(' ')
+            depth = os.path.basename(eles[0]).split('.')[0]
+            da.append(depth.strip())
+        f.close()
+        return da
 
 def move_dense_map(scan_folder,graph_folder):
     import open3d as o3d
@@ -101,7 +108,7 @@ def transform_instance_boxes(T, instance_box_file, out_file):
 
     return instances_box
 
-def transform_scan_maps(dataroot, scene_name, T_ref_src, augment_drift=True, infolder='val_swap',outfolder='val'):
+def transform_reconstructed_maps(dataroot, scene_name, T_ref_src, augment_drift=True, infolder='val_swap',outfolder='val'):
     '''
     Read the rescontruction in scans folder.
     Incorporate a random drift to the reconstruction. 
@@ -163,7 +170,92 @@ def transform_global_pcd(dataroot, scene_name, transform=True):
     
     # export
     o3d.io.write_point_cloud(os.path.join(val_scene,'global_pcd.ply'),global_pcd)
+
+def transform_sequence(folder, T_ref_src):
+    '''
+    Incoporate random pose drift to the sequence.
+    '''
+    import shutil
     
+    # back up pose folder
+    if os.path.exists(os.path.join(folder,'pose_bk')):
+        print('Skip scene ', folder)
+        return None
+    else:
+        shutil.copytree(os.path.join(folder,'pose'),os.path.join(folder,'pose_bk'))    
+    if os.path.exists(os.path.join(folder,'trajectory.log')):
+        shutil.copyfile(os.path.join(folder,'trajectory.log'),os.path.join(folder,'trajectory_bk.log')) 
+
+    # generate random pose drift
+    T_drift = np.eye(4)
+    T_drift[:3,:3] = R.from_euler('z', np.random.uniform(-180,180,1), degrees=True).as_matrix()
+    T_drift[:3,3] = np.random.uniform(-10.0,10.0,3)
+    
+    # update pose
+    pose_frames = glob.glob(os.path.join(folder,'pose','*.txt'))
+    pose_frames = sorted(pose_frames)
+    frame_pose_map = {}
+    for i in range(len(pose_frames)):
+        frame_name = os.path.basename(pose_frames[i]).split('.')[0]
+        T_l_cam = np.loadtxt(pose_frames[i])
+        T_lnew_cam = T_drift @ T_l_cam
+        np.savetxt(pose_frames[i],T_lnew_cam,fmt='%.6f')
+        frame_pose_map[frame_name] = T_lnew_cam
+    
+    # np.savetxt(os.path.join(folder,'T_drift.txt'),T_drift,fmt='%.6f')
+    
+    # update trajectory.log
+    da_file = None
+    if os.path.exists(os.path.join(folder,'data_association_bk.txt')):
+        da_file = os.path.join(folder,'data_association_bk.txt')
+    else:
+        da_file = os.path.join(folder,'data_association.txt')
+    
+    depth_list = read_da_file(os.path.join(folder,da_file))
+    i = 0
+
+    with open(os.path.join(folder,'trajectory.log'),'w') as f:
+        for frame_name in depth_list:
+            if frame_name not in frame_pose_map.keys():
+                print('[WARNNING] skip frame {} in trajectory.log'.format(frame_name))
+                continue
+            
+            f.write('{} {} {}\n'.format(i,i,i+1))
+            # write pose 4x4
+            T = frame_pose_map[frame_name]
+            for j in range(4):
+                for k in range(4):
+                    f.write('{:.6f} '.format(T[j,k]))
+                f.write('\n')
+            i += 1
+        f.close()
+        print('write trajectory.log')
+
+    # update gt pose
+    if T_ref_src is not None:
+        T_gt = transform_coordinate(T_ref_src,np.linalg.inv(T_drift))
+        return T_gt
+    else: return None
+
+def generate_vins_tag_poses(scene_folder):
+    '''
+        Compute T_vins_tag pose and save it to apriltag folder.
+        Vins is the local coordinate the sequence is initialized.
+    '''
+    rgb_frames = glob.glob(scene_folder+'/apriltag/*.jpg')
+    if len(rgb_frames)<1:
+        print('No tag frames found in ', scene_folder)
+        return None
+    for rgb_frame in rgb_frames:
+        frame_name = os.path.basename(rgb_frame).split('.')[0]
+        T_c_tag = np.loadtxt(os.path.join(scene_folder, 'apriltag', frame_name + '_pose.txt'))
+        T_c_tag[3,:3] = 0
+        T_w_c = np.loadtxt(os.path.join(scene_folder, 'pose', frame_name + '.txt'))
+        print(frame_name)
+
+    T_w_tag = T_w_c @ T_c_tag
+    np.savetxt(os.path.join(scene_folder, 'apriltag', 'T_vins_tag.txt'), T_w_tag, fmt='%.6f')
+    print('write tag file to ', os.path.join(scene_folder, 'apriltag', '{}.txt'.format('T_vins_tag')))
 
 if __name__ == '__main__':
     root_dir = '/data2/sgslam'
@@ -174,6 +266,7 @@ if __name__ == '__main__':
     #
     scans = read_scans(os.path.join(root_dir,'splits',split_file))
     scan_pairs = read_scan_pairs(os.path.join(root_dir,'splits','val_bk.txt'))
+    gt_folder = os.path.join(root_dir,'gt')
     
     ref_scans = []
     for pair in scan_pairs:
@@ -187,10 +280,18 @@ if __name__ == '__main__':
         o3d.visualization.webrtc_server.enable_webrtc()
 
     for pair in scan_pairs:
-        transform_global_pcd(root_dir,pair[0],True)
-        transform_global_pcd(root_dir,pair[1],False)
+        src_scene = pair[0]
+        print('-------processing source scene: {}--------'.format(pair[0]))
+        T_ref_src = np.loadtxt(os.path.join(root_dir,'scans',src_scene,'T_ref_src.txt'))
+        generate_vins_tag_poses(os.path.join(root_dir,'scans',pair[0]))
+        generate_vins_tag_poses(os.path.join(root_dir,'scans',pair[1]))
+        
+        continue
+        T_ref_src_new = transform_sequence(os.path.join(root_dir,'scans',src_scene),T_ref_src)
+        if T_ref_src_new is not None:
+            np.savetxt(os.path.join(gt_folder,'{}-{}.txt'.format(pair[0],pair[1])),T_ref_src_new,fmt='%.6f')
+        
         # break
-
 
     exit(0)
     for scan in scans:
@@ -202,7 +303,7 @@ if __name__ == '__main__':
         else:
             augment_drift = True
         
-        transform_scan_maps(root_dir,scan,T_ref_src,augment_drift)
+        transform_reconstructed_maps(root_dir,scan,T_ref_src,augment_drift)
         
         break
         move_dense_map(os.path.join(root_dir,'scans',scan),

@@ -45,11 +45,14 @@ int main(int argc, char *argv[])
             utility::GetProgramOptionAsInt(argc, argv, "--frame_gap", 1);
     int save_gap = 
             utility::GetProgramOptionAsInt(argc, argv, "--save_gap", 50000);
+    int save_frame_gap = utility::GetProgramOptionAsInt(argc, argv, "--save_frame_gap", -1);
 
     utility::SetVerbosityLevel((utility::VerbosityLevel)verbose);
     utility::LogInfo("Read configuration from {:s}",config_file);
     utility::LogInfo("Read RGBD sequence from {:s}", root_dir);
     std::string sequence_name = *utility::filesystem::GetPathComponents(root_dir).rbegin();
+    std::string scene_output = output_folder+"/"+sequence_name+output_subseq;
+    if(!utility::filesystem::DirectoryExists(scene_output)) utility::filesystem::MakeDirectory(scene_output);
 
     // Load frames information
     std::vector<RGBDFrameDirs> rgbd_table;
@@ -105,6 +108,7 @@ int main(int argc, char *argv[])
     
     geometry::Image depth, color;
     int prev_frame_id = -100;
+    int prev_save_frame = -100;
     fmfusion::TicTocSequence tic_toc_seq("# Load Integration Export", 3);
 
     for(int k=0;k<rgbd_table.size();k++){
@@ -164,8 +168,20 @@ int main(int argc, char *argv[])
             utility::LogWarning("Save sequence at frame {:d}",frame_id);
         }
 
+        if(save_frame_gap>0 && frame_id>300 && (frame_id - prev_save_frame)>save_frame_gap){
+            semantic_mapping.extract_point_cloud();
+            auto global_instance_pcd = semantic_mapping.export_global_pcd(true,0.02);
+            global_instance_pcd->colors_.clear();
+            global_instance_pcd->normals_.clear();
+            open3d::io::WritePointCloudToPLY(scene_output+"/"+frame_name+".ply",*global_instance_pcd,{});
+            utility::LogWarning("Save global instance point cloud at frame {:d}",frame_id);
+            std::cout<<scene_output<<"\n";
+            prev_save_frame = frame_id;
+        }
+
     }
     utility::LogWarning("Finished sequence");
+    if(save_frame_gap>0) return 0;
 
     // Post-process
     semantic_mapping.extract_point_cloud();

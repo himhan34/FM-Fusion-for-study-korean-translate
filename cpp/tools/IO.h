@@ -47,6 +47,14 @@ namespace IO
                         const std::vector<std::pair<uint32_t,uint32_t>> &match_pairs, 
                         const std::vector<float> &match_scores,
                         const std::string &output_file_dir);
+
+    bool save_match_results(const float &timestamp,
+                        const Eigen::Matrix4d &pose,
+                        const std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
+                        const std::vector<Eigen::Vector3d> &src_centroids,
+                        const std::vector<Eigen::Vector3d> &ref_centroids,
+                        const std::string &output_file_dir);
+    
 }
 
 }

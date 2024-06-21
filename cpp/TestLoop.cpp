@@ -137,6 +137,15 @@ bool save_match_results(const std::vector<std::pair<uint32_t, uint32_t>> &match_
 
 }
 
+std::vector<char> get_the_bytes(std::string filename) {
+    std::ifstream input(filename, std::ios::binary);
+    std::vector<char> bytes(
+            (std::istreambuf_iterator<char>(input)),
+            (std::istreambuf_iterator<char>()));
+    input.close();
+    return bytes;
+}
+
 int main(int argc, char *argv[]) {
     using namespace open3d;
 
@@ -148,7 +157,14 @@ int main(int argc, char *argv[]) {
     bool dense_match = utility::ProgramOptionExists(argc, argv, "--dense_match");
     bool prune_instance = utility::ProgramOptionExists(argc, argv, "--prune_instance");
     int viz_mode = utility::GetProgramOptionAsInt(argc, argv, "--viz_mode", 0);
+    int cuda_number = utility::GetProgramOptionAsInt(argc, argv, "--cuda_number", 0);
+    int n_iter = utility::GetProgramOptionAsInt(argc, argv, "--n_iter", 1);
+    std::string debug_str = utility::GetProgramOptionAsString(argc, argv, "--debug");
+    int verbose = utility::GetProgramOptionAsInt(argc, argv, "--verbose", 2);
+    std::string ref_name = "agentB";
+
     bool fused = true;
+    open3d::utility::SetVerbosityLevel(open3d::utility::VerbosityLevel(verbose));
 
     // init
     auto sg_config = fmfusion::utility::create_scene_graph_config(config_file, true);
@@ -156,7 +172,6 @@ int main(int argc, char *argv[]) {
         utility::LogWarning("Failed to create scene graph config.");
         return 0;
     }
-    // fmfusion::ShapeEncoderConfig shape_config;
 
     // Load Map
     auto ref_map = std::make_shared<fmfusion::SemanticMapping>(fmfusion::SemanticMapping(sg_config->mapping_cfg, sg_config->instance_cfg));
@@ -191,20 +206,94 @@ int main(int argc, char *argv[]) {
     fmfusion::DataDict src_data_dict = src_graph->extract_data_dict();
     // std::cout<<"ref instance names: "<<ref_data_dict.print_instances()<<std::endl;
 
+    // auto sgnet = std::make_shared<fmfusion::SgNet>(sg_config->sgnet, weights_folder, cuda_number);
+
+    if (debug_str.size() > 0) {
+        torch::Device device(torch::kCUDA, cuda_number);
+        std::cout << "Load script from " << weights_folder + "/" + debug_str << "\n";
+        torch::jit::script::Module tmp_script = torch::jit::load(weights_folder + "/" + debug_str);
+        tmp_script.to(device);
+
+        // sleep 2 seconds
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        return 0;
+    }
+
+    if (false) { // test load bert bag of words
+        fmfusion::BertBow bert_bow(weights_folder + "/bert_bow.txt",
+                                   weights_folder + "/bert_bow.pt");
+
+        std::vector<char> f = get_the_bytes("/home/cliuci/tmp/test.pt");
+        torch::IValue x = torch::pickle_load(f);
+        torch::Tensor x_tensor = x.toTensor();
+        std::cout << "Load tensor \n" << x_tensor << "\n";
+
+        return 0;
+    }
+
     // Encode using SgNet
+    assert(cuda_number < torch::cuda::device_count());
     auto loop_detector = std::make_shared<fmfusion::LoopDetector>(fmfusion::LoopDetector(sg_config->loop_detector,
                                                                                          sg_config->shape_encoder,
                                                                                          sg_config->sgnet,
-                                                                                         weights_folder));
+                                                                                         weights_folder,
+                                                                                         cuda_number,
+                                                                                         {ref_name}));
 
+    torch::Tensor ref_nodes_feats, src_nodes_feats;
+    torch::Tensor tmp_feats;
+
+    for(int itr=0;itr<n_iter;itr++){
+        utility::LogWarning("Iteration: {}",itr);
+        timer.Start();
+        loop_detector->encode_src_scene_graph(src_graph->get_const_nodes());
+        timer.Stop();
+        std::cout << "Encode src GNN " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond() << " ms\n";
+
+        timer.Start();
+        loop_detector->encode_ref_scene_graph(ref_name,ref_graph->get_const_nodes());
+        timer.Stop();
+        std::cout << "Encode ref GNN " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond() << " ms\n";
+        
+    }
+
+    if (false) {   // test tensor->vector conversion
+        torch::Tensor src_node_feats = loop_detector->get_active_node_feats().to(torch::kCPU);
+
+        timer.Start();
+        int Ns, Ds;
+        std::vector <std::vector<float>> src_node_feats_vec;
+        loop_detector->get_active_node_feats(src_node_feats_vec, Ns, Ds);
+        timer.Stop();
+        std::cout << "Export " << Ns << " x " << Ds
+                  << " features takes " << timer.GetDurationInMillisecond() << " ms\n";
+
+        // vector->array
+        float src_node_feats_array[Ns][Ds];
+        for (int i = 0; i < Ns; i++) {
+            std::copy(src_node_feats_vec[i].begin(), src_node_feats_vec[i].end(), src_node_feats_array[i]);
+        }
+
+        // array->tensor
+        torch::Tensor received_node_feats = torch::from_blob(src_node_feats_array,
+                                                             {Ns, Ds}, torch::kFloat32);
+        std::cout << "recreate node features using feature vectors\n";
+        std::cout << "sent nan node: " << torch::isnan(src_node_feats).sum().item<int>() << "\n"
+                  << "received nan node: " << torch::isnan(received_node_feats).sum().item<int>() << "\n";
+
+        // Check the received node feature is close
+        auto diff = received_node_feats - src_node_feats;
+        std::cout << "Check the received node feature is close: "
+                  << torch::allclose(received_node_feats, src_node_feats, 1e-6) << "\n";
+        std::cout << "Sum difference " << torch::sum(diff).item<float>() << "\n";
+        return 0;
+    }
+
+    // Shape encoder
     timer.Start();
-    loop_detector->encode_ref_scene_graph(ref_graph->get_const_nodes(), fmfusion::DataDict{});
-    loop_detector->encode_src_scene_graph(src_graph->get_const_nodes(), fmfusion::DataDict{});
-    // std::cout << "Encode ref scene graph takes " << std::fixed << std::setprecision(3)
-    //           << timer.GetDurationInMillisecond() << " ms\n";
-
-    loop_detector->encode_concat_sgs(ref_graph->get_const_nodes().size(), ref_data_dict,
-                                     src_graph->get_const_nodes().size(), src_data_dict);
+    if (dense_match)
+        loop_detector->encode_concat_sgs(ref_name,ref_graph->get_const_nodes().size(), ref_data_dict,
+                                         src_graph->get_const_nodes().size(), src_data_dict, fused);
     timer.Stop();
     std::cout << "Encode stacked graph takes " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond()
               << " ms\n";
@@ -218,7 +307,7 @@ int main(int argc, char *argv[]) {
     int M; // number of matched nodes
     int C = 0; // number of matched points
     timer.Start();
-    M = loop_detector->match_nodes(match_pairs, match_scores, fused);
+    M = loop_detector->match_nodes(ref_name,match_pairs, match_scores, fused);
     timer.Stop();
     std::cout << "Find " << M << " match. It takes " << std::fixed << std::setprecision(3)
               << timer.GetDurationInMillisecond() << " ms\n";
@@ -247,16 +336,18 @@ int main(int argc, char *argv[]) {
 
     if (dense_match && M > 0) { // Dense match
         timer.Start();
-        C = loop_detector->match_instance_points(pruned_match_pairs, corr_src_points, corr_ref_points, corr_scores_vec);
+        C = loop_detector->match_instance_points(ref_name,
+                                                pruned_match_pairs, corr_src_points, 
+                                                corr_ref_points, corr_scores_vec);
         timer.Stop();
         std::cout << "Match points takes " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond()
                   << " ms\n";
     }
 
     // Estimate pose
-    std::vector<std::pair<fmfusion::InstanceId, fmfusion::InstanceId>> match_instances;
-    std::vector<Eigen::Vector3d> src_centroids, ref_centroids;
-    fmfusion::O3d_Cloud_Ptr src_cloud_ptr(new fmfusion::O3d_Cloud()), ref_cloud_ptr(new fmfusion::O3d_Cloud());
+    std::vector <std::pair<fmfusion::InstanceId, fmfusion::InstanceId>> match_instances;
+    std::vector <Eigen::Vector3d> src_centroids, ref_centroids;
+    fmfusion::O3d_Cloud_Ptr src_cloud_ptr, ref_cloud_ptr;
     Eigen::Matrix4d pred_pose;
     fmfusion::IO::extract_match_instances(
             pruned_match_pairs, src_graph->get_const_nodes(), ref_graph->get_const_nodes(), match_instances);
@@ -264,8 +355,8 @@ int main(int argc, char *argv[]) {
             src_graph->get_const_nodes(), ref_graph->get_const_nodes(), pruned_match_pairs, pruned_match_scores,
             src_centroids,
             ref_centroids);
-
-    timer.Start();
+    src_cloud_ptr = src_map->export_global_pcd(true,0.05);
+    ref_cloud_ptr = ref_map->export_global_pcd(true,0.05);
 
     g3reg::Config config;
 //    noise bound的取值
@@ -275,6 +366,11 @@ int main(int argc, char *argv[]) {
 //    基于点到平面的距离做验证
     config.verify_mtd = "plane_based";
     G3RegAPI g3reg(config);
+
+    std::cout << "G3Reg "
+              << pruned_match_pairs.size() << "nodes, "
+              << corr_src_points.size() << " points\n";
+    timer.Start();
     g3reg.estimate_pose(src_graph->get_const_nodes(),
                         ref_graph->get_const_nodes(),
                         pruned_match_pairs,
@@ -309,7 +405,6 @@ int main(int argc, char *argv[]) {
 
         std::vector <fmfusion::O3d_Geometry_Ptr> viz_geometries;
         viz_geometries.insert(viz_geometries.end(), ref_geometries.begin(), ref_geometries.end());
-        // viz_geometries.emplace_back(ref_edge_lineset);
         viz_geometries.emplace_back(instance_match_lineset);
 
         open3d::visualization::DrawGeometries(viz_geometries, "UST_RI", 1920, 1080);
@@ -326,8 +421,8 @@ int main(int argc, char *argv[]) {
         std::string pair_name = src_scene + "-" + ref_scene;
         std::string output_file_dir = output_folder + "/" + pair_name + ".txt";
         fmfusion::IO::save_match_results(pred_pose, match_instances, pruned_match_scores, output_file_dir);
-        open3d::io::WritePointCloudToPLY(output_folder + "/" + src_scene + ".ply", *src_cloud_ptr,
-                                         {}); // open3d::io::WritePointCloudOption);
+        open3d::io::WritePointCloudToPLY(output_folder + "/" + src_scene + ".ply", *src_cloud_ptr, {});
+
         if (C > 0) {
             fmfusion::O3d_Cloud_Ptr corr_src_pcd = std::make_shared<fmfusion::O3d_Cloud>(corr_src_points);
             fmfusion::O3d_Cloud_Ptr corr_ref_pcd = std::make_shared<fmfusion::O3d_Cloud>(corr_ref_points);

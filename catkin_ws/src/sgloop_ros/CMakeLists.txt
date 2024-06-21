@@ -76,6 +76,7 @@ set(ALL_TARGET_LINK_LIBARIES
 
 add_library(sgloop_ros SHARED
           src/registration/Prune.cpp
+          src/registration/robustPoseAvg.cpp
           src/communication/Communication.cpp
           src/Visualization.cpp)
 target_link_libraries(sgloop_ros ${ALL_TARGET_LINK_LIBARIES})

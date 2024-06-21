@@ -24,7 +24,7 @@ namespace fmfusion
     {
     /// \brief  Shape encoder for one single scene graph.
     public:
-        ShapeEncoder(const ShapeEncoderConfig &config_, const std::string weight_folder);
+        ShapeEncoder(const ShapeEncoderConfig &config_, const std::string weight_folder, int cuda_number=0);
         ~ShapeEncoder(){};
 
         /// \brief  Encode the shape of the scene graph.
@@ -54,6 +54,7 @@ namespace fmfusion
                                         at::Tensor &node_f_points, int K=512, int padding_mode=0);
     
     private:
+        std::string cuda_device_string;
         ShapeEncoderConfig config;
         torch::jit::script::Module encoder; // abandoned
         torch::jit::script::Module encoder_v2;

@@ -120,6 +120,8 @@ class Graph
             return ss.str();
         }
 
+        float get_timestamp()const{return timestamp;}
+
         void clear();
 
         ~Graph() {};

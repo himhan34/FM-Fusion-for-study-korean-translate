@@ -75,15 +75,22 @@ public:
                        const std::vector<float> &corr_scores_vec,
                        const std::vector<Eigen::Vector3d> &corr_src_points,
                        const std::vector<Eigen::Vector3d> &corr_ref_points,
-                       fmfusion::O3d_Cloud_Ptr &src_cloud_ptr,
-                       fmfusion::O3d_Cloud_Ptr &ref_cloud_ptr,
-                       Eigen::Matrix4d &pose) {
-        std::stringstream msg;
+                       const fmfusion::O3d_Cloud_Ptr &src_cloud_ptr,
+                       const fmfusion::O3d_Cloud_Ptr &ref_cloud_ptr,
+                       Eigen::Matrix4d &pose
+                    //    bool use_dense_match
+                       ) {
         // assert(src_corrp.rows() == ref_corrp.rows());
+        std::stringstream msg;
+        std::vector<int> indices;
+        double ds_time, data_time = 0;
+        robot_utils::TicToc t;
+        //    稠密点匹配
+        if (corr_src_points.size() > 0)
+            indices = downsample_corr_indices(corr_src_points, corr_scores_vec);
+        ds_time = t.toc();
 
-//    稠密点匹配
-        std::vector<int> indices = downsample_corr_indices(corr_src_points, corr_scores_vec);
-//    合并instance中心匹配和稠密点匹配
+        //    合并instance中心匹配和稠密点匹配
         Eigen::MatrixX3d src_corrp(match_pairs.size() + indices.size(), 3);
         Eigen::MatrixX3d ref_corrp(match_pairs.size() + indices.size(), 3);
         for (int i = 0; i < indices.size(); i++) {
@@ -92,8 +99,19 @@ public:
         }
         msg << "Correspondence points: " << corr_src_points.size() << " -> " << indices.size() << "\n";
 
-//    中心匹配
+        //    中心匹配
         msg << match_pairs.size() << " Matched instance pairs: \n";
+        int src_cloud_num = 0, ref_cloud_num = 0;
+        for (int i = 0; i < match_pairs.size(); i++) {
+            src_cloud_num += src_nodes[match_pairs[i].first]->cloud->points_.size();
+            ref_cloud_num += ref_nodes[match_pairs[i].second]->cloud->points_.size();
+        }
+        // src_cloud_ptr->points_.reserve(src_cloud_num);
+        // src_cloud_ptr->colors_.reserve(src_cloud_num);
+        // src_cloud_ptr->normals_.reserve(src_cloud_num);
+        // ref_cloud_ptr->points_.reserve(ref_cloud_num);
+        // ref_cloud_ptr->colors_.reserve(ref_cloud_num);
+        // ref_cloud_ptr->normals_.reserve(ref_cloud_num);
         for (int i = 0; i < match_pairs.size(); i++) {
             const auto &pair = match_pairs[i];
             auto src_node = src_nodes[pair.first];
@@ -102,22 +120,28 @@ public:
             ref_corrp.row(i + indices.size()) = ref_node->centroid;
 
             // Add raw point clouds，用于验证
-            MergePointClouds(src_cloud_ptr, src_node->cloud);
-            MergePointClouds(ref_cloud_ptr, ref_node->cloud);
+            // MergePointClouds(src_cloud_ptr, src_node->cloud);
+            // MergePointClouds(ref_cloud_ptr, ref_node->cloud);
 
-            msg << "(" << pair.first << "," << pair.second << ") "
-                << "(" << src_node->semantic << "," << ref_node->semantic << ")\n";
+            // msg << "(" << pair.first << "," << pair.second << ") "
+            //     << "(" << src_node->semantic << "," << ref_node->semantic << ")\n";
         }
-        std::cout << msg.str() << std::endl;
+        data_time = t.toc();
+        // std::cout << msg.str() << std::endl;
 
-//    求解位姿矩阵
-        auto src_cloud = vectorToMatrix(src_cloud_ptr->points_);
-        auto ref_cloud = vectorToMatrix(ref_cloud_ptr->points_);
-        FRGresult result = g3reg::SolveFromCorresp(src_corrp, ref_corrp, src_cloud, ref_cloud, cfg_);
-        std::cout << "FRG result: " << std::endl;
-        std::cout << "verify time: " << result.verify_time << std::endl;
-        std::cout << "total time: " << result.total_time << std::endl;
-        std::cout << "tf: \n" << result.tf << std::endl;
+//    求解位姿矩阵x
+        const Eigen::MatrixX3d &src_cloud_mat = vectorToMatrix(src_cloud_ptr->points_);
+        const Eigen::MatrixX3d &ref_cloud_mat = vectorToMatrix(ref_cloud_ptr->points_);
+        double vec3mat_time = t.toc();
+        FRGresult result = g3reg::SolveFromCorresp(src_corrp, ref_corrp, src_cloud_mat, ref_cloud_mat, cfg_);
+        // std::cout << "FRG result: " << std::endl;
+        std::cout<< src_cloud_ptr->points_.size()<<"src points, "
+                    <<ref_cloud_ptr->points_.size()<<"ref points\n";
+        std::cout << "ds_time: " << ds_time << ", data_time: " << data_time
+                  << ", vec3mat_time: " << vec3mat_time
+                  << ", reg_time(verify): "
+                  << result.total_time << "(" << result.verify_time << ")" << std::endl;
+        // std::cout << "tf: \n" << result.tf << std::endl;
         pose = result.tf;
     };
 
@@ -222,6 +246,14 @@ public:
                Eigen::Matrix4d pred_pose = Eigen::Matrix4d::Identity(),
                float max_correspondence_distance = 0.5, float voxel_size = 0.1) {
         using namespace open3d;
+        if (!src_cloud_ptr->HasPoints() || !ref_cloud_ptr->HasPoints()) {
+            std::cout << "[WARNNING] Empty cloud. Skip ICP refine!\n";
+            return pred_pose;
+        }
+        if (!src_cloud_ptr->HasNormals() || !ref_cloud_ptr->HasNormals()) {
+            std::cout << "[WARNNING] No normals. Skip ICP refine!\n";
+            return pred_pose;
+        }
 
 //        ref_cloud_ptr->EstimateNormals(geometry::KDTreeSearchParamHybrid(0.5, 30));
         auto downsampled_cloud1_ptr = src_cloud_ptr->VoxelDownSample(voxel_size);

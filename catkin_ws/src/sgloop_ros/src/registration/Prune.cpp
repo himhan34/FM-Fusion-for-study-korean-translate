@@ -94,7 +94,7 @@ void pruneInsOutliers(const fmfusion::RegistrationConfig &config,
         msg << "(" << pair.first << "," << pair.second << ") "
             << "(" << src_node->semantic << "," << ref_node->semantic << ")\n";
     }
-    std::cout << msg.str() << std::endl;
+    // std::cout << msg.str() << std::endl;
 }
 
     

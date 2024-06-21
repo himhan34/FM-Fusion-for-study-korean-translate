@@ -34,7 +34,7 @@ void SemanticMapping::integrate(const int &frame_id,
         std::vector<std::pair<InstanceId,InstanceId>> ambiguous_pairs;
         int count_m = data_association(detections, active_instances, matches, ambiguous_pairs); // (n_det,)
         timer_da.Stop();
-        std::cout<<count_m<<" matches and "<<ambiguous_pairs.size()<<" ambiguous pairs\n";
+        // std::cout<<count_m<<" matches and "<<ambiguous_pairs.size()<<" ambiguous pairs\n";
         // std::cout<<"matches: "<<matches.transpose()<<std::endl;
 
         timer_integrate.Start();
@@ -527,15 +527,12 @@ void SemanticMapping::extract_bounding_boxes()
 std::shared_ptr<open3d::geometry::PointCloud> SemanticMapping::export_global_pcd(bool filter, float vx_size)
 {
     auto global_pcd = std::make_shared<open3d::geometry::PointCloud>();
-    // std::cout<<"aa\n";
     for(const auto &inst:instance_map){
         // if(inst.second->point_cloud==nullptr) continue;
-        if(!inst.second->point_cloud->HasPoints()) continue;
         if(filter && inst.second->get_cloud_size()<mapping_config.shape_min_points) continue;
-        // std::cout<<inst.first<<":"<<inst.second->point_cloud->points_.size()<<"\n";
         *global_pcd += *inst.second->point_cloud;
     }
-    if(vx_size>0.0) global_pcd->VoxelDownSample(vx_size);
+    if(vx_size>0.0) global_pcd = global_pcd->VoxelDownSample(vx_size);
 
     return global_pcd;
 }
@@ -748,15 +745,20 @@ bool SemanticMapping::load(const std::string &path)
 }
 
 void SemanticMapping::export_instances(
-    std::vector<InstanceId> &names, std::vector<InstancePtr> &instances)
+    std::vector<InstanceId> &names, std::vector<InstancePtr> &instances, int earliest_frame_id)
 {
+    std::stringstream msg;
+    msg<<"latest frames: ";
     for(auto &instance:instance_map){
         if(!instance.second->point_cloud) continue;
         if (instance.second->get_cloud_size() >mapping_config.shape_min_points){
+            // instance.second->frame_id_>earliest_frame_id){
             names.emplace_back(instance.first);
             instances.emplace_back(instance.second);
+            msg<<instance.second->frame_id_<<",";
         }
     }
+    // std::cout<<msg.str()<<"\n";
 }
 
 int SemanticMapping::merge_other_instances(std::vector<InstancePtr> &instances)

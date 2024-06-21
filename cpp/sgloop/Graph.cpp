@@ -58,7 +58,7 @@ namespace fmfusion
             node->centroid = inst->centroid;
             node->bbox_shape = inst->min_box->extent_;
             node->cloud = std::make_shared<open3d::geometry::PointCloud>(*inst->point_cloud); // deep copy
-                        if (config.voxel_size>0.0)
+            if (config.voxel_size>0.0)
                 node->cloud = node->cloud->VoxelDownSample(config.voxel_size);
             
             nodes.push_back(node);
@@ -83,6 +83,7 @@ namespace fmfusion
             for (int i=0; i<instances.size(); i++){
                 NodePtr node = std::make_shared<Node>(node_indices[i], instances[i]);
                 node->centroid = centroids[i];
+                node->cloud = std::make_shared<open3d::geometry::PointCloud>();
                 nodes.push_back(node);
                 node_instance_idxs.push_back(instances[i]);
                 instance2node_idx[instances[i]] = i;
@@ -279,6 +280,7 @@ namespace fmfusion
         nodes.clear();
         edges.clear();
         node_instance_idxs.clear();
+        instance2node_idx.clear();
         max_corner_number = 0;
         max_neighbor_number = 0;
     }
@@ -290,7 +292,7 @@ namespace fmfusion
             data_dict.centroids.push_back(node->centroid);
             data_dict.nodes.push_back(node->id);
             data_dict.instances.push_back(node->instance_id);  
-            if(!coarse){
+            if(!coarse && node->cloud.use_count()>0){
                 data_dict.xyz.insert(data_dict.xyz.end(), node->cloud->points_.begin(), node->cloud->points_.end());
                 data_dict.labels.insert(data_dict.labels.end(), node->cloud->points_.size(), node->id);
             }

@@ -35,21 +35,33 @@ int check_nan_features(const torch::Tensor &features)
     return wired_nodes;
 }
 
-SgNet::SgNet(const SgNetConfig &config_, const std::string weight_folder):config(config_)
+SgNet::SgNet(const SgNetConfig &config_, const std::string weight_folder, int cuda_number):config(config_)
 {
-    std::cout<<"Initializing loop detector\n";
     std::string sgnet_path = weight_folder + "/sgnet.pt";
     std::string bert_path = weight_folder + "/bert_script.pt";
     std::string vocab_path = weight_folder + "/bert-base-uncased-vocab.txt";
     std::string instance_match_light_path = weight_folder + "/instance_match_light.pt";
     std::string instance_match_fused_path = weight_folder + "/instance_match_fused.pt";
     std::string point_match_path = weight_folder + "/point_match_layer.pt";
+    cuda_device_string = "cuda:"+std::to_string(cuda_number);
+    std::cout<<"Initializing SGNet on "<<cuda_device_string<<"\n";
+    torch::Device device(torch::kCUDA, cuda_number);
 
     try {
-        // Deserialize the ScriptModule from a file using torch::jit::load().
         sgnet_lt = torch::jit::load(sgnet_path);
-        sgnet_lt.to(torch::kCUDA);
-        std::cout << "Load encoder from "<< sgnet_path << std::endl;
+        sgnet_lt.to(device);
+        std::cout << "Load encoder from "<< sgnet_path
+                <<" on device "<< cuda_device_string << std::endl;
+        sgnet_lt.eval();
+        torch::jit::optimize_for_inference(sgnet_lt);
+        // sgnet_lt.optimize_for_inference();
+
+        // at::cuda::CUDAStream myStream1 = at::cuda::getStreamFromPool(false, 1);
+        // at::cuda::setCurrentCUDAStream(myStream1);
+        // auto module_list = sgnet_lt.named_modules();
+        // auto param_list = sgnet_lt.named_parameters();
+        // std::cout<<sgnet_lt.dump_to_str(true,false,false)<<std::endl;
+        // Verify sgnet_lt is on correct device
 
     }
     catch (const c10::Error& e) {
@@ -60,7 +72,7 @@ SgNet::SgNet(const SgNetConfig &config_, const std::string weight_folder):config
     try
     {
         bert_encoder = torch::jit::load(bert_path);
-        bert_encoder.to(torch::kCUDA);
+        bert_encoder.to(device);
         std::cout << "Load bert from "<< bert_path << std::endl;
     }
     catch(const std::exception& e)
@@ -71,7 +83,7 @@ SgNet::SgNet(const SgNetConfig &config_, const std::string weight_folder):config
     //
     try{
         light_match_layer = torch::jit::load(instance_match_light_path);
-        light_match_layer.to(torch::kCUDA);
+        light_match_layer.to(device);
         std::cout << "Load light match layer from "<< instance_match_light_path << std::endl;
     }
     catch(const std::exception& e)
@@ -82,7 +94,7 @@ SgNet::SgNet(const SgNetConfig &config_, const std::string weight_folder):config
     //
     try{
         fused_match_layer = torch::jit::load(instance_match_fused_path);
-        fused_match_layer.to(torch::kCUDA);
+        fused_match_layer.to(device);
         std::cout << "Load fused match layer from "<< instance_match_fused_path << std::endl;
     }
     catch(const std::exception& e)
@@ -93,7 +105,7 @@ SgNet::SgNet(const SgNetConfig &config_, const std::string weight_folder):config
     //
     try{
         point_match_layer = torch::jit::load(point_match_path);
-        point_match_layer.to(torch::kCUDA);
+        point_match_layer.to(device);
         std::cout << "Load point match layer from "<< point_match_path << std::endl;
     }
     catch(const std::exception& e)
@@ -101,10 +113,19 @@ SgNet::SgNet(const SgNetConfig &config_, const std::string weight_folder):config
         std::cerr << e.what() << '\n';
     }
 
+    // Load bert bow
+    bert_bow_ptr = std::make_shared<BertBow>(weight_folder+"/bert_bow.txt",
+                                            weight_folder+"/bert_bow.pt", true);
+    enable_bert_bow = bert_bow_ptr->is_loaded();
+    std::cout<<"enable bert bow: "<<enable_bert_bow<<"\n";
+
     // Load tokenizer
     tokenizer.reset(radish::TextTokenizerFactory::Create("radish::BertTokenizer"));
     tokenizer->Init(vocab_path);
     std::cout<<"Tokenizer loaded and initialized\n";
+
+    if(config.warm_up_iter>0) warm_up(config.warm_up_iter, true);
+    // torch::cuda::synchronize(0);
 
 }
 
@@ -117,7 +138,7 @@ bool SgNet::load_bert(const std::string weight_folder)
     try
     {
         bert_encoder = torch::jit::load(bert_path);
-        bert_encoder.to(torch::kCUDA);
+        bert_encoder.to(cuda_device_string);
         std::cout << "Load bert from "<< bert_path << std::endl;
     }
     catch(const std::exception& e)
@@ -131,6 +152,34 @@ bool SgNet::load_bert(const std::string weight_folder)
     return true;
 }
 
+void SgNet::warm_up(int inter, bool verbose)
+{
+    // Generate fake tensor data
+    int N = 120;
+    const int semantic_dim = 768;
+    triplet_verify_mask = torch::zeros({N,config.triplet_number,3}).to(torch::kInt8).to(cuda_device_string);
+
+    // torch::Tensor semantic_embeddings;
+    // torch::Tensor boxes, centroids, anchors, corners, corners_mask;
+    
+    semantic_embeddings = torch::rand({N, semantic_dim}).to(cuda_device_string);
+    boxes = torch::rand({N, 3}).to(cuda_device_string);
+    centroids = torch::rand({N, 3}).to(cuda_device_string);
+    
+    // Anchors should be 0,1,2,...,N-1
+    anchors = torch::arange(N).to(torch::kInt32).to(cuda_device_string);
+    corners = torch::randint(0, N, {N, config.triplet_number, 2}).to(torch::kInt32).to(cuda_device_string);
+    corners_mask = torch::ones({N, config.triplet_number}).to(torch::kInt32).to(cuda_device_string);
+
+    // Run the model
+    if(verbose) std::cout<<"Warm up SGNet with "<<inter<<" iterations\n";
+    for (int i=0;i<inter;i++){
+        auto output = sgnet_lt.forward({semantic_embeddings, boxes, centroids, anchors, corners, corners_mask}).toTuple();
+    }
+
+    //
+    if(verbose) std::cout<<"Warm up SGNet done\n";
+}
 
 bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node_features)
 {
@@ -139,13 +188,15 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
 
     float centroids_arr[N][3];
     float boxes_arr[N][3];
-    std::string labels[N];
+    std::vector<std::string> labels;
     float tokens[N][config.token_padding]={};
     float tokens_attention_mask[N][config.token_padding]={};
     std::vector<int> triplet_anchors; // (N',)
     std::vector<std::vector<Corner>> triplet_corners; // (N', triplet_number, 2)
     float timer_array[5];
     open3d::utility::Timer timer;
+
+    labels.reserve(N);
 
     // Extract node information
     timer.Start();
@@ -163,20 +214,24 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
         boxes_arr[i][1] = extent[1];
         boxes_arr[i][2] = extent[2];
 
-        // Semantic label
-        labels[i] = node->semantic;
-        std::vector<int> label_tokens = tokenizer->Encode(node->semantic);
 
-        tokens[i][0] = 101;
-        int k=1;
-        for (auto token: label_tokens){
-            tokens[i][k] = token;
-            k++;
+        // Tokenize semantic label
+        if(enable_bert_bow){
+            labels.emplace_back(node->semantic);
         }
-        tokens[i][k] = 102;
+        else{
+            std::vector<int> label_tokens = tokenizer->Encode(node->semantic);
+            tokens[i][0] = 101;
+            int k=1;
+            for (auto token: label_tokens){
+                tokens[i][k] = token;
+                k++;
+            }
+            tokens[i][k] = 102;
 
-        for (int iter=0; iter<=k; iter++)
-            tokens_attention_mask[i][iter] = 1;
+            for (int iter=0; iter<=k; iter++)
+                tokens_attention_mask[i][iter] = 1;
+        }
 
         // Triplet corners
         if (node->corners.size()>0){
@@ -206,70 +261,73 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
     }
 
     // Input tensors
-    torch::Tensor boxes = torch::from_blob(boxes_arr, {N, 3}).to(torch::kCUDA);
-    torch::Tensor centroids = torch::from_blob(centroids_arr, {N, 3}).to(torch::kCUDA);
-    torch::Tensor input_ids = torch::from_blob(tokens, {N, config.token_padding}).to(torch::kInt32).to(torch::kCUDA);
-    torch::Tensor attention_mask = torch::from_blob(tokens_attention_mask, {N, config.token_padding}).to(torch::kInt32).to(torch::kCUDA);
-    torch::Tensor token_type_ids = torch::zeros({N, config.token_padding}).to(torch::kInt32).to(torch::kCUDA);
-    torch::Tensor anchors = torch::from_blob(triplet_anchors_arr,{N_valid}).to(torch::kInt32).to(torch::kCUDA); //torch::zeros({30, 1}).to(torch::kCUDA);
-    torch::Tensor corners = torch::from_blob(triplet_corners_arr, {N_valid, config.triplet_number, 2}).to(torch::kInt32).to(torch::kCUDA);
-    torch::Tensor corners_mask = torch::from_blob(triplet_corners_masks, {N_valid, config.triplet_number}).to(torch::kInt32).to(torch::kCUDA);
+    // torch::Tensor semantic_embeddings;
+    // torch::Tensor boxes, centroids, anchors, corners, corners_mask;
+    boxes = torch::from_blob(boxes_arr, {N, 3}).to(cuda_device_string);
+    centroids = torch::from_blob(centroids_arr, {N, 3}).to(cuda_device_string);
+    anchors = torch::from_blob(triplet_anchors_arr,{N_valid}).to(torch::kInt32).to(cuda_device_string);
+    corners = torch::from_blob(triplet_corners_arr, {N_valid, config.triplet_number, 2}).to(torch::kInt32).to(cuda_device_string);
+    corners_mask = torch::from_blob(triplet_corners_masks, {N_valid, config.triplet_number}).to(torch::kInt32).to(cuda_device_string);
+
     timer.Stop();
     timer_array[1] = timer.GetDurationInMillisecond();
     std::cout<<"Encoding "<<N<<" node features, with "<<N_valid<<" nodes have valid triplets\n";
 
-    //
-    // std::stringstream debug_msg;
-    // for(int i=0;i<N;i++){
-    //     debug_msg<<labels[i]<<",";
-    // }
-    // std::cout<<"labels: "<<debug_msg.str()<<"\n";
-
-    // produce a large input by stacking the same input multiple times
-    // int B = 5;
-    // for(int k=0;k<B;k++){
-    //     input_ids = torch::cat({input_ids, input_ids}, 0);
-    //     attention_mask = torch::cat({attention_mask, attention_mask}, 0);
-    //     token_type_ids = torch::cat({token_type_ids, token_type_ids}, 0);
-    // }
-    // std::cout<<"Passing labels at batch size "<<input_ids.size(0)<<"\n";
-
-    // Graph encoding
     timer.Start();
-    torch::Tensor semantic_embeddings = bert_encoder.forward({input_ids, attention_mask, token_type_ids}).toTensor();
-    // torch::cuda::synchronize();
-    std::cout<<"Bert output correct\n";
+    if(enable_bert_bow){
+        bool bert_bow_ret = bert_bow_ptr->query_semantic_features(labels, semantic_embeddings);
+        semantic_embeddings = semantic_embeddings.to(cuda_device_string); 
+        // std::cout<<"Queried semantic features "<< bert_bow_ret<<"\n";
+    }
+    else{
+        torch::Tensor input_ids = torch::from_blob(tokens, {N, config.token_padding}).to(torch::kInt32).to(cuda_device_string);
+        torch::Tensor attention_mask = torch::from_blob(tokens_attention_mask, {N, config.token_padding}).to(torch::kInt32).to(cuda_device_string);
+        torch::Tensor token_type_ids = torch::zeros({N, config.token_padding}).to(torch::kInt32).to(cuda_device_string);
 
-    int semantic_nan = check_nan_features(semantic_embeddings);
-    if(semantic_nan>0)
-        open3d::utility::LogWarning("Found {:d} nan semantic embeddings", semantic_nan);
+        semantic_embeddings = bert_encoder.forward(
+                                {input_ids, attention_mask, token_type_ids}).toTensor();
+
+        int semantic_nan = check_nan_features(semantic_embeddings);
+        if(semantic_nan>0)
+            open3d::utility::LogWarning("Found {:d} nan semantic embeddings", semantic_nan);                       
+    }
+    std::cout<<"Bert output correct\n";
     timer.Stop();
     timer_array[2] = timer.GetDurationInMillisecond();
 
+
+    // Graph encoding
     timer.Start();
+    assert(semantic_embeddings.device().str()==cuda_device_string);
+
     auto output = sgnet_lt.forward({semantic_embeddings, boxes, centroids, anchors, corners, corners_mask}).toTuple();
     node_features = output->elements()[0].toTensor();
-    torch::Tensor triplet_verify_mask = output->elements()[1].toTensor();
+    triplet_verify_mask = output->elements()[1].toTensor();
+    // std::cout<<"Triplet verify mask shape: "<<triplet_verify_mask.sizes()
+    //         <<"types: "<< triplet_verify_mask.dtype()<<"\n";
     assert(triplet_verify_mask.sum().item<int>()<5);
-    // std::cout<<triplet_verify_mask.sum().item<int>()<<" triplets are invalid\n";
-    
+    timer.Stop();
+    timer_array[3] = timer.GetDurationInMillisecond();    
+
+    // Check nan
+    timer.Start();
     int node_nan = check_nan_features(node_features);
     if(node_nan>0){
         open3d::utility::LogWarning("Found {:d} nan node features", node_nan);
         auto nan_mask = torch::isnan(node_features);
         node_features.index_put_({nan_mask.to(torch::kBool)}, 0);
-                                // torch::zeros({256}).to(torch::kFloat32).to(torch::kCUDA));
         open3d::utility::LogWarning("Set nan node features to 0");
 
     }
     timer.Stop();
-    timer_array[3] = timer.GetDurationInMillisecond();
+    timer_array[4] = timer.GetDurationInMillisecond();
 
     std::cout<<"graph encode time cost (ms): "
             <<timer_array[0]<<", "
             <<timer_array[1]<<", "
             <<timer_array[2]<<", "
-            <<timer_array[3]<<std::endl;
+            <<timer_array[3]<<", "
+            <<timer_array[4]<<"\n";
 
     return true;
 }
@@ -287,7 +345,7 @@ void SgNet::match_nodes(const torch::Tensor &src_node_features, const torch::Ten
     int src_nan_sum = torch::isnan(src_node_features).sum().item<int>();
     int ref_nan_sum = torch::isnan(ref_node_features).sum().item<int>();
     assert(src_nan_sum==0 && ref_nan_sum==0);
-    std::cout<<"ref shape: "<<ref_node_features.sizes()<<std::endl; // (Y,C)
+    // std::cout<<"ref shape: "<<ref_node_features.sizes()<<std::endl; // (Y,C)
     c10::intrusive_ptr<torch::ivalue::Tuple> match_output;
 
     if(fused)
@@ -331,7 +389,7 @@ void SgNet::match_nodes(const torch::Tensor &src_node_features, const torch::Ten
 int SgNet::match_points(const torch::Tensor &src_guided_knn_feats, const torch::Tensor &ref_guided_knn_feats,
                             torch::Tensor &corr_points, std::vector<float> &corr_scores_vec)
 {
-    // torch::Tensor src_fake_knn_feats = torch::ones({M,K,D}).to(torch::kFloat32).to(torch::kCUDA);
+    // torch::Tensor src_fake_knn_feats = torch::ones({M,K,D}).to(torch::kFloat32).to(cuda_device_string);
 
     auto match_output = point_match_layer.forward({src_guided_knn_feats, ref_guided_knn_feats}).toTuple();
     corr_points = match_output->elements()[0].toTensor(); // (C,3),[node_index, src_index, ref_index]
@@ -342,7 +400,7 @@ int SgNet::match_points(const torch::Tensor &src_guided_knn_feats, const torch::
 
     // return C;
     if(C>0){
-        // corr_scores = torch::zeros({C}).to(torch::kFloat32).to(torch::kCUDA);
+        // corr_scores = torch::zeros({C}).to(torch::kFloat32).to(cuda_device_string);
         corr_scores_vec = std::vector<float>(C,0.0);
         for (int i=0;i<C;i++){
             int match_index = corr_points[i][0].item<int>();
