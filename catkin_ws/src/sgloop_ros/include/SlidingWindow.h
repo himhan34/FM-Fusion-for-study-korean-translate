@@ -57,11 +57,11 @@ namespace sgloop_ros
     int SlidingWindow::get_window_start_frame()
     {
         int start_frame;
-        if(frame_ids.empty()) start_frame = -1;
-        else start_frame = frame_ids[0]-1;
+        if(frame_ids.empty()) start_frame = 0;
+        else start_frame = std::max(0,frame_ids[0]-1);
 
-        std::cout<<"start_frame: "<<start_frame<<", "
-                <<"translation: " <<total_translation <<"\n";
+        // std::cout<<"start_frame: "<<start_frame<<", "
+        //         <<"translation: " <<total_translation <<"\n";
         return start_frame;
     }
     

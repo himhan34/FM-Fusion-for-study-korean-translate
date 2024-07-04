@@ -78,8 +78,8 @@ public:
                        const fmfusion::O3d_Cloud_Ptr &src_cloud_ptr,
                        const fmfusion::O3d_Cloud_Ptr &ref_cloud_ptr,
                        Eigen::Matrix4d &pose
-                    //    bool use_dense_match
-                       ) {
+            //    bool use_dense_match
+    ) {
         // assert(src_corrp.rows() == ref_corrp.rows());
         std::stringstream msg;
         std::vector<int> indices;
@@ -100,7 +100,7 @@ public:
         msg << "Correspondence points: " << corr_src_points.size() << " -> " << indices.size() << "\n";
 
         //    中心匹配
-        msg << match_pairs.size() << " Matched instance pairs: \n";
+//        msg << match_pairs.size() << " Matched instance pairs: \n";
         int src_cloud_num = 0, ref_cloud_num = 0;
         for (int i = 0; i < match_pairs.size(); i++) {
             src_cloud_num += src_nodes[match_pairs[i].first]->cloud->points_.size();
@@ -127,7 +127,7 @@ public:
             //     << "(" << src_node->semantic << "," << ref_node->semantic << ")\n";
         }
         data_time = t.toc();
-        // std::cout << msg.str() << std::endl;
+        std::cout << msg.str() << std::endl;
 
 //    求解位姿矩阵x
         const Eigen::MatrixX3d &src_cloud_mat = vectorToMatrix(src_cloud_ptr->points_);
@@ -135,8 +135,8 @@ public:
         double vec3mat_time = t.toc();
         FRGresult result = g3reg::SolveFromCorresp(src_corrp, ref_corrp, src_cloud_mat, ref_cloud_mat, cfg_);
         // std::cout << "FRG result: " << std::endl;
-        std::cout<< src_cloud_ptr->points_.size()<<"src points, "
-                    <<ref_cloud_ptr->points_.size()<<"ref points\n";
+        std::cout << src_cloud_ptr->points_.size() << " src points, "
+                  << ref_cloud_ptr->points_.size() << " ref points\n";
         std::cout << "ds_time: " << ds_time << ", data_time: " << data_time
                   << ", vec3mat_time: " << vec3mat_time
                   << ", reg_time(verify): "
@@ -147,13 +147,13 @@ public:
 
     std::vector<int> downsample_corr_indices(const std::vector<Eigen::Vector3d> &corr_src_points,
                                              const std::vector<float> &corr_scores_vec, int target = 1000) {
-        if (target >= corr_src_points.size()) {
-            std::vector<int> indices;
-            for (int i = 0; i < corr_src_points.size(); i++) {
-                indices.push_back(i);
-            }
-            return indices;
-        }
+//        if (target >= corr_src_points.size()) {
+//            std::vector<int> indices;
+//            for (int i = 0; i < corr_src_points.size(); i++) {
+//                indices.push_back(i);
+//            }
+//            return indices;
+//        }
 
         cutCloud(corr_src_points, corr_scores_vec, 1.0, voxel_map);
 
@@ -221,7 +221,7 @@ public:
     }
 
     // Function to merge cloud2_ptr into cloud1_ptr
-    void MergePointClouds(fmfusion::O3d_Cloud_Ptr &cloud1_ptr, const fmfusion::O3d_Cloud_Ptr &cloud2_ptr) {
+    void MergePointClouds(const fmfusion::O3d_Cloud_Ptr &cloud1_ptr, const fmfusion::O3d_Cloud_Ptr &cloud2_ptr) {
 
         // Concatenate points
         cloud1_ptr->points_.insert(cloud1_ptr->points_.end(),

@@ -54,7 +54,13 @@ namespace IO
                         const std::vector<Eigen::Vector3d> &src_centroids,
                         const std::vector<Eigen::Vector3d> &ref_centroids,
                         const std::string &output_file_dir);
-    
+
+    bool load_match_results(const std::string &match_file_dir,
+                        Eigen::Matrix4d &pose,
+                        std::vector<Eigen::Vector3d> &src_centroids,
+                        std::vector<Eigen::Vector3d> &ref_centroids,
+                        bool verbose=false);
+
 }
 
 }

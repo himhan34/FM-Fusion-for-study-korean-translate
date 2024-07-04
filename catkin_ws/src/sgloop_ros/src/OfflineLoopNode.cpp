@@ -84,7 +84,7 @@ int main(int argc, char **argv)
     std::string ref_agent_name = "agentB";
 
     // Publisher
-    Visualization::Visualizer viz(n,nh_private);
+    Visualization::Visualizer viz(n,nh_private,{ref_agent_name});
     // ros::Subscriber ref_sub = nh_private.subscribe("coarse_graph",1000);
     std::string src_name = *filesystem::GetPathComponents(src_scene_dir).rbegin();
     std::string ref_name = *filesystem::GetPathComponents(ref_scene_dir).rbegin();
@@ -373,8 +373,8 @@ int main(int argc, char **argv)
         Visualization::instance_centroids(src_graph->get_centroids(),viz.src_centroids,LOCAL_AGENT,viz.param.centroid_size,viz.param.centroid_color);
         Visualization::inter_graph_edges(src_graph->get_centroids(), src_graph->get_edges(), viz.src_edges, viz.param.edge_width, viz.param.edge_color , LOCAL_AGENT);
 
-        Visualization::correspondences(src_centroids, ref_centroids, viz.instance_match,LOCAL_AGENT, pred_masks, viz.local_frame_offset);
-        Visualization::correspondences(corr_src_points, corr_ref_points, viz.point_match, LOCAL_AGENT, std::vector<bool> {}, viz.local_frame_offset);
+        Visualization::correspondences(src_centroids, ref_centroids, viz.instance_match,LOCAL_AGENT, pred_masks, viz.t_local_remote[ref_agent_name]);
+        Visualization::correspondences(corr_src_points, corr_ref_points, viz.point_match, LOCAL_AGENT, std::vector<bool> {}, viz.t_local_remote[ref_agent_name]);
 
         if(viz.src_map_aligned.getNumSubscribers()>0){
             ros::Duration(1.0).sleep();

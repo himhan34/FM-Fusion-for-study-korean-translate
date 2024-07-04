@@ -49,7 +49,7 @@ namespace fmfusion
         o3d_utility::Timer timer_;
         timer_.Start();
         frame_id = 1;
-        std::cout<<"Constructing GNN...\n";
+        // std::cout<<"Constructing GNN...\n";
         for (auto inst:instances){
             NodePtr node = std::make_shared<Node>(nodes.size(), inst->get_id());
             std::string label = inst->get_predicted_class().first;
@@ -206,9 +206,9 @@ namespace fmfusion
         }
 
         timer_.Stop();
-        std::cout<<"Constructed "<<edges.size()<<" edges in "
-            <<std::fixed<<std::setprecision(3)
-            <<timer_.GetDurationInMillisecond()<<" ms.\n";
+        // std::cout<<"Constructed "<<edges.size()<<" edges in "
+        //     <<std::fixed<<std::setprecision(3)
+        //     <<timer_.GetDurationInMillisecond()<<" ms.\n";
 
         update_neighbors();
     }
@@ -241,9 +241,9 @@ namespace fmfusion
             // std::cout<<"  "<<node->id<<": "<<neighbor_msg.str()<<std::endl;
             // std::cout<<"  "<<node->corners.size()<<" corners: "<<corner_msg.str()<<std::endl;
         }
-        std::cout<<"Construct corners for all the nodes.\n"
-            <<"The max nieghbor number is "<<max_neighbor_number<<"; "
-            <<"The max corner number is "<<max_corner_number<<".\n";
+        // std::cout<<"Construct corners for all the nodes.\n"
+        //     <<"The max nieghbor number is "<<max_neighbor_number<<"; "
+        //     <<"The max corner number is "<<max_corner_number<<".\n";
         assert(max_corner_number>0);
 
     }

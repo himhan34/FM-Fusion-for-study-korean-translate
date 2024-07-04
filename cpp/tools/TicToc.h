@@ -137,10 +137,14 @@ namespace fmfusion
             }
 
             void create_frame(int frame_id){
-                frame_idxs.push_back(cur_frame_id);
-                timings.push_back(cur_frame);
                 cur_frame_id = frame_id;
                 cur_frame.clear();           
+            }
+            
+            void finish_frame(){
+                frame_idxs.push_back(cur_frame_id);
+                timings.push_back(cur_frame);
+                cur_frame.clear();
             }
 
             void record(double duration){

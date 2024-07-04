@@ -184,10 +184,10 @@ namespace SgCom
         }
         //
         pub_dense_sg.publish(graph_msg);
-        if(X>0)
-            ROS_WARN("Publish dense graph msg %d nodes and %d point\n",N,X);
-        else
-            ROS_WARN("Publish coarse graph msg %d node\n",N);
+        // if(X>0)
+        //     ROS_WARN("Publish dense graph msg %d nodes and %d point\n",N,X);
+        // else
+        //     ROS_WARN("Publish coarse graph msg %d node\n",N);
 
         //
         Log log;

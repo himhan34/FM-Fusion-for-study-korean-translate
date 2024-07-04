@@ -132,6 +132,11 @@ if (LOOP_DETECTION)
     add_executable(TestLoop)
     target_sources(TestLoop PRIVATE TestLoop.cpp)
     target_link_libraries(TestLoop PRIVATE ${ALL_TARGET_LIBRARIES} fmfusion)
+
+    add_executable(TestRegister)
+    target_sources(TestRegister PRIVATE TestRegister.cpp)
+    target_link_libraries(TestRegister PRIVATE ${ALL_TARGET_LIBRARIES} fmfusion)
+
 endif ()
 
 # Install fmfusion library

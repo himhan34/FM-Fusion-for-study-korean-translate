@@ -299,6 +299,64 @@ namespace IO
         return true;
     };
     
+
+    bool load_match_results(const std::string &match_file_dir,
+                            Eigen::Matrix4d &pose,
+                            std::vector<Eigen::Vector3d> &src_centroids,
+                            std::vector<Eigen::Vector3d> &ref_centroids,
+                            bool verbose)
+    {
+        std::ifstream file(match_file_dir);
+        if (!file.is_open()){
+            std::cerr<<"Failed to open file: "<<match_file_dir<<std::endl;
+            return false;
+        }
+
+        std::string line;
+        std::getline(file,line);
+        if(line.find("# timetstamp")!=std::string::npos){
+            for(int i=0; i<4; i++){
+                std::getline(file,line);
+                std::stringstream ss(line);
+                for(int j=0; j<4; j++){
+                    ss>>pose(i,j);
+                }
+            }
+            if(verbose)
+                std::cout<<"Load pose: \n"<<pose<<"\n";
+        }
+
+        while(std::getline(file,line)){
+            if(line.find("# src, ref, src_centroid, ref_centroid")!=std::string::npos){
+                while(std::getline(file,line)){
+                    std::stringstream ss(line);
+                    std::string substr;
+                    ss>>substr;
+                    if(substr.find("(")!=std::string::npos){
+                        substr = substr.substr(1,substr.size()-2);
+                        auto pair = fmfusion::utility::split_str(substr,",");
+                        int src_id = stoi(pair[0]);
+                        int ref_id = stoi(pair[1]);
+                        Eigen::Vector3d src_centroid, ref_centroid;
+                        ss>>src_centroid[0]>>src_centroid[1]>>src_centroid[2];
+                        ss>>ref_centroid[0]>>ref_centroid[1]>>ref_centroid[2];
+                        src_centroids.push_back(src_centroid);
+                        ref_centroids.push_back(ref_centroid);
+
+                        if(verbose)
+                            std::cout<<"("<<src_id<<","<<ref_id<<") "
+                                <<src_centroid.transpose()<<" "<<ref_centroid.transpose()<<"\n";
+                    }
+                }
+            }
+        }
+
+        std::cout<<"Load "<<src_centroids.size()<<" correspondences.\n";
+
+        file.close();
+        return true;
+    };
+
 } // namespace name
 
 

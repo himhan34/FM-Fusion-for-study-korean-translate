@@ -36,7 +36,7 @@ public:
 
     std::shared_ptr<open3d::geometry::PointCloud> export_global_pcd(bool filter=false,float vx_size=-1.0);
 
-    std::vector<Eigen::Vector3d> export_instance_centroids() const;
+    std::vector<Eigen::Vector3d> export_instance_centroids(int earliest_frame_id=-1) const;
 
     void remove_invalid_instances();
 
@@ -57,7 +57,7 @@ public:
     /// \brief  Export instances to the vector. 
     ///         Filter instances that are too small or not been observed for a long time.
     void export_instances(std::vector<InstanceId> &names, std::vector<InstancePtr> &instances, 
-                        int earliest_frame_id=-1);
+                        int earliest_frame_id=0);
 
 protected:
     /// \brief  match vector in [K,1], K is the number of detections;

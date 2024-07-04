@@ -271,7 +271,7 @@ bool SgNet::graph_encoder(const std::vector<NodePtr> &nodes, torch::Tensor &node
 
     timer.Stop();
     timer_array[1] = timer.GetDurationInMillisecond();
-    std::cout<<"Encoding "<<N<<" node features, with "<<N_valid<<" nodes have valid triplets\n";
+    // std::cout<<"Encoding "<<N<<" node features, with "<<N_valid<<" nodes have valid triplets\n";
 
     timer.Start();
     if(enable_bert_bow){

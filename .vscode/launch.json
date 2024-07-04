@@ -8,9 +8,11 @@
             "program": "${workspaceRoot}/scripts/eval_loop.py",
             "console": "integratedTerminal",
             "args": [
-                        // "--consider_iou",
+                        "--consider_iou",
+                        "--run_mode","online",
+                        "--split_file","multi_agent.txt",
                         "--output_folder",
-                        "/data2/sgslam/output/online_coarse+"
+                        "/data2/sgslam/output/two_agent+"
                     ]
         },
         {
@@ -62,11 +64,12 @@
                 "--src_scene",
                 "/data2/sgslam/val/uc0110_00b",
                 "--prune_instance",
+                // "--n_iter","10",
                 // "--cuda_number","1",
                 // "--debug","test bert",
-                // "--dense_match",
+                "--dense_match",
                 "--output_folder",
-                "/data2/sgslam/output/testloop",
+                "/data2/sgslam/output/v5+",
             ],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",

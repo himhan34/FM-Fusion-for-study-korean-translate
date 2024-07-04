@@ -28,8 +28,8 @@ namespace fmfusion
             assert(N==(word_features.size(0)-1));
             load_success = true;
             if(cuda_device) word_features = word_features.to(torch::kCUDA);
-            std::cout<<"Load "<< N <<" words features on CUDA: "
-                        <<cuda_device<<"\n" ;  //A zero feature is padded in the first row.\n"; 
+            std::cout<<"Load "<< N <<" words features on CUDA\n";
+                        // <<cuda_device<<"\n" ;  //A zero feature is padded in the first row.\n"; 
             warm_up();
                               
         }

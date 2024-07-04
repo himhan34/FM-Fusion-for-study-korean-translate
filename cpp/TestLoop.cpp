@@ -161,6 +161,7 @@ int main(int argc, char *argv[]) {
     int n_iter = utility::GetProgramOptionAsInt(argc, argv, "--n_iter", 1);
     std::string debug_str = utility::GetProgramOptionAsString(argc, argv, "--debug");
     int verbose = utility::GetProgramOptionAsInt(argc, argv, "--verbose", 2);
+    float ds_voxel_size = utility::GetProgramOptionAsDouble(argc, argv, "--ds_voxel_size", 0.05);
     std::string ref_name = "agentB";
 
     bool fused = true;
@@ -187,6 +188,7 @@ int main(int argc, char *argv[]) {
     ExplicitInstances ref_instances, src_instances;
     ref_map->export_instances(ref_instances.names, ref_instances.instances);
     src_map->export_instances(src_instances.names, src_instances.instances);
+    assert(src_instances.names.size() > 0 && ref_instances.names.size() > 0);
 
     // Construct GNN from the exported instances
     auto ref_graph = std::make_shared<fmfusion::Graph>(sg_config->graph);
@@ -205,8 +207,6 @@ int main(int argc, char *argv[]) {
     fmfusion::DataDict ref_data_dict = ref_graph->extract_data_dict();
     fmfusion::DataDict src_data_dict = src_graph->extract_data_dict();
     // std::cout<<"ref instance names: "<<ref_data_dict.print_instances()<<std::endl;
-
-    // auto sgnet = std::make_shared<fmfusion::SgNet>(sg_config->sgnet, weights_folder, cuda_number);
 
     if (debug_str.size() > 0) {
         torch::Device device(torch::kCUDA, cuda_number);
@@ -243,18 +243,20 @@ int main(int argc, char *argv[]) {
     torch::Tensor ref_nodes_feats, src_nodes_feats;
     torch::Tensor tmp_feats;
 
-    for(int itr=0;itr<n_iter;itr++){
-        utility::LogWarning("Iteration: {}",itr);
+    for (int itr = 0; itr < n_iter; itr++) {
+        utility::LogWarning("Iteration: {}", itr);
         timer.Start();
         loop_detector->encode_src_scene_graph(src_graph->get_const_nodes());
         timer.Stop();
-        std::cout << "Encode src GNN " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond() << " ms\n";
+        std::cout << "Encode src GNN " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond()
+                  << " ms\n";
 
         timer.Start();
-        loop_detector->encode_ref_scene_graph(ref_name,ref_graph->get_const_nodes());
+        loop_detector->encode_ref_scene_graph(ref_name, ref_graph->get_const_nodes());
         timer.Stop();
-        std::cout << "Encode ref GNN " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond() << " ms\n";
-        
+        std::cout << "Encode ref GNN " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond()
+                  << " ms\n";
+
     }
 
     if (false) {   // test tensor->vector conversion
@@ -262,7 +264,7 @@ int main(int argc, char *argv[]) {
 
         timer.Start();
         int Ns, Ds;
-        std::vector <std::vector<float>> src_node_feats_vec;
+        std::vector<std::vector<float>> src_node_feats_vec;
         loop_detector->get_active_node_feats(src_node_feats_vec, Ns, Ds);
         timer.Stop();
         std::cout << "Export " << Ns << " x " << Ds
@@ -292,27 +294,27 @@ int main(int argc, char *argv[]) {
     // Shape encoder
     timer.Start();
     if (dense_match)
-        loop_detector->encode_concat_sgs(ref_name,ref_graph->get_const_nodes().size(), ref_data_dict,
+        loop_detector->encode_concat_sgs(ref_name, ref_graph->get_const_nodes().size(), ref_data_dict,
                                          src_graph->get_const_nodes().size(), src_data_dict, fused);
     timer.Stop();
     std::cout << "Encode stacked graph takes " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond()
               << " ms\n";
 
     // Hierachical matching
-    std::vector <NodePair> match_pairs;
+    std::vector<NodePair> match_pairs;
     std::vector<float> match_scores;
-    std::vector <Eigen::Vector3d> corr_src_points, corr_ref_points; // (C,3),(C,3)
+    std::vector<Eigen::Vector3d> corr_src_points, corr_ref_points; // (C,3),(C,3)
     std::vector<float> corr_scores_vec; // (C,)
 
     int M; // number of matched nodes
     int C = 0; // number of matched points
     timer.Start();
-    M = loop_detector->match_nodes(ref_name,match_pairs, match_scores, fused);
+    M = loop_detector->match_nodes(ref_name, match_pairs, match_scores, fused);
     timer.Stop();
     std::cout << "Find " << M << " match. It takes " << std::fixed << std::setprecision(3)
               << timer.GetDurationInMillisecond() << " ms\n";
 
-    std::vector <NodePair> pruned_match_pairs;
+    std::vector<NodePair> pruned_match_pairs;
     std::vector<float> pruned_match_scores;
     if (prune_instance) {
         std::vector<bool> pruned_true_masks(M, false);
@@ -337,16 +339,16 @@ int main(int argc, char *argv[]) {
     if (dense_match && M > 0) { // Dense match
         timer.Start();
         C = loop_detector->match_instance_points(ref_name,
-                                                pruned_match_pairs, corr_src_points, 
-                                                corr_ref_points, corr_scores_vec);
+                                                 pruned_match_pairs, corr_src_points,
+                                                 corr_ref_points, corr_scores_vec);
         timer.Stop();
         std::cout << "Match points takes " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond()
                   << " ms\n";
     }
 
     // Estimate pose
-    std::vector <std::pair<fmfusion::InstanceId, fmfusion::InstanceId>> match_instances;
-    std::vector <Eigen::Vector3d> src_centroids, ref_centroids;
+    std::vector<std::pair<fmfusion::InstanceId, fmfusion::InstanceId>> match_instances;
+    std::vector<Eigen::Vector3d> src_centroids, ref_centroids;
     fmfusion::O3d_Cloud_Ptr src_cloud_ptr, ref_cloud_ptr;
     Eigen::Matrix4d pred_pose;
     fmfusion::IO::extract_match_instances(
@@ -355,8 +357,8 @@ int main(int argc, char *argv[]) {
             src_graph->get_const_nodes(), ref_graph->get_const_nodes(), pruned_match_pairs, pruned_match_scores,
             src_centroids,
             ref_centroids);
-    src_cloud_ptr = src_map->export_global_pcd(true,0.05);
-    ref_cloud_ptr = ref_map->export_global_pcd(true,0.05);
+    src_cloud_ptr = src_map->export_global_pcd(true, ds_voxel_size);
+    ref_cloud_ptr = ref_map->export_global_pcd(true, ds_voxel_size);
 
     g3reg::Config config;
 //    noise bound的取值
@@ -368,7 +370,7 @@ int main(int argc, char *argv[]) {
     G3RegAPI g3reg(config);
 
     std::cout << "G3Reg "
-              << pruned_match_pairs.size() << "nodes, "
+              << pruned_match_pairs.size() << " nodes, "
               << corr_src_points.size() << " points\n";
     timer.Start();
     g3reg.estimate_pose(src_graph->get_const_nodes(),
@@ -399,18 +401,21 @@ int main(int argc, char *argv[]) {
 
     // visualization
     if (viz_mode == 1) { // instance match
+        auto src_geometries = src_map->get_geometries(true, false);
         auto ref_geometries = ref_map->get_geometries(true, false);
         auto instance_match_lineset = fmfusion::visualization::draw_instance_correspondences(src_centroids,
                                                                                              ref_centroids);
 
-        std::vector <fmfusion::O3d_Geometry_Ptr> viz_geometries;
+        std::vector<fmfusion::O3d_Geometry_Ptr> viz_geometries;
+        viz_geometries.insert(viz_geometries.end(), src_geometries.begin(), src_geometries.end());
         viz_geometries.insert(viz_geometries.end(), ref_geometries.begin(), ref_geometries.end());
         viz_geometries.emplace_back(instance_match_lineset);
-
         open3d::visualization::DrawGeometries(viz_geometries, "UST_RI", 1920, 1080);
     } else if (viz_mode == 2) {   // registration result
         src_cloud_ptr->Transform(pred_pose);
-        std::vector <fmfusion::O3d_Geometry_Ptr> viz_geometries = {src_cloud_ptr, ref_cloud_ptr};
+        src_cloud_ptr->PaintUniformColor(Eigen::Vector3d(0.0, 0.651, 0.929));
+        ref_cloud_ptr->PaintUniformColor(Eigen::Vector3d(1.0, 0.706, 0));
+        std::vector<fmfusion::O3d_Geometry_Ptr> viz_geometries = {src_cloud_ptr, ref_cloud_ptr};
         open3d::visualization::DrawGeometries(viz_geometries, "UST_RI", 1920, 1080);
     }
 

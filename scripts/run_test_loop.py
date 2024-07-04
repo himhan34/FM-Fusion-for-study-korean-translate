@@ -25,7 +25,7 @@ if __name__ == '__main__':
     
     ## Instance mapping
     split = 'val'
-    output_folder = os.path.join(dataroot,'output','v4')
+    output_folder = os.path.join(dataroot,'output','v5_coarse')
     RUNPROG = 'TestLoop' # 'InstanceMap', 'TestLoop'
 
     # 
@@ -48,7 +48,8 @@ if __name__ == '__main__':
                 src_folder,
                 output_folder)
             cmd += " --prune_instance"
-            cmd += " --dense_match"
+            # cmd += " --dense_match"
+            # cmd += " --ds_voxel_size 0.02"
             
         elif RUNPROG == 'InstanceMap':
             exe_dir = 'build/cpp/IntegrateInstanceMap'

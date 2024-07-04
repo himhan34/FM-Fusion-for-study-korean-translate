@@ -2,7 +2,7 @@
 
 namespace Visualization
 {
-    Visualizer::Visualizer(ros::NodeHandle &nh, ros::NodeHandle &nh_private)
+    Visualizer::Visualizer(ros::NodeHandle &nh, ros::NodeHandle &nh_private, std::vector<std::string> remote_agents)
     {
         // Ref graph
         ref_graph = nh_private.advertise<sensor_msgs::PointCloud2>("ref/instance_map", 1000);
@@ -18,8 +18,10 @@ namespace Visualization
         instance_match = nh_private.advertise<visualization_msgs::Marker>("instance_match", 1000);
         point_match = nh_private.advertise<visualization_msgs::Marker>("point_match", 1000);
         src_map_aligned = nh_private.advertise<sensor_msgs::PointCloud2>("aligned_map", 1000); //aligned and render in reference frame
+        path_aligned = nh_private.advertise<nav_msgs::Path>("aligned_path", 1000);
 
         rgb_image = nh_private.advertise<sensor_msgs::Image>("rgb_image", 1000);
+        pred_image = nh_private.advertise<sensor_msgs::Image>("pred_image", 1000);
         camera_pose = nh_private.advertise<nav_msgs::Odometry>("camera_pose", 1000);
         path = nh_private.advertise<nav_msgs::Path>("path", 1000);
 
@@ -32,12 +34,20 @@ namespace Visualization
         param.edge_color[1] = nh.param("viz/edge_color/g", 0.0);
         param.edge_color[2] = nh.param("viz/edge_color/b", 1.0);
         param.centroid_size = nh.param("viz/centroid_size", 0.1);
+        param.centroid_color[0] = nh.param("viz/centroid_color/r", 0.0);
+        param.centroid_color[1] = nh.param("viz/centroid_color/g", 0.0);
+        param.centroid_color[2] = nh.param("viz/centroid_color/b", 0.0);
 
         // Agents relative transform
-        local_frame_offset[0] = nh_private.param("viz/local_frame_offset/x", 0.0);
-        local_frame_offset[1] = nh_private.param("viz/local_frame_offset/y", 0.0);
-        local_frame_offset[2] = nh_private.param("viz/local_frame_offset/z", 0.0);
-        std::cout<<"local_frame_offset: "<<local_frame_offset[0]<<" "<<local_frame_offset[1]<<" "<<local_frame_offset[2]<<std::endl;
+        for(auto agent: remote_agents){
+            Eigen::Vector3d t;
+            t[0] = nh.param("br/"+agent+"/x", 0.0);
+            t[1] = nh.param("br/"+agent+"/y", 0.0);
+            t[2] = nh.param("br/"+agent+"/z", 0.0);
+            t_local_remote[agent] = t;
+            // std::cout<<agent<<": "<<t.transpose()<<std::endl;
+        }
+
     }
 
     bool render_point_cloud(const std::shared_ptr<open3d::geometry::PointCloud> &pcd, ros::Publisher pub, std::string frame_id)
@@ -46,6 +56,7 @@ namespace Visualization
         // Publish point cloud
         sensor_msgs::PointCloud2 msg;
         open3d_conversions::open3dToRos(*pcd, msg, frame_id);
+
         pub.publish(msg);
 
         return true;
@@ -94,7 +105,7 @@ namespace Visualization
                         ros::Publisher pub, 
                         std::string src_frame_id, 
                         std::vector<bool> pred_masks,
-                        std::array<float,3> src_frame_offset)
+                        Eigen::Vector3d t_local_remote)
     {
         if(pub.getNumSubscribers()==0) return false;
         visualization_msgs::Marker marker;
@@ -116,9 +127,9 @@ namespace Visualization
             p1.x = src_centroids[i].x();
             p1.y = src_centroids[i].y();
             p1.z = src_centroids[i].z();
-            p2.x = ref_centroids[i].x()+ src_frame_offset[0];
-            p2.y = ref_centroids[i].y()+ src_frame_offset[1];
-            p2.z = ref_centroids[i].z()+ src_frame_offset[2];
+            p2.x = ref_centroids[i].x()+ t_local_remote[0];
+            p2.y = ref_centroids[i].y()+ t_local_remote[1];
+            p2.z = ref_centroids[i].z()+ t_local_remote[2];
             marker.points.push_back(p1);
             marker.points.push_back(p2);
             std_msgs::ColorRGBA line_color;
@@ -128,7 +139,7 @@ namespace Visualization
                 if(pred_masks[i]) line_color.g = 1;
                 else line_color.r = 1;
             }
-            else line_color.b = 1;
+            else line_color.g = 1;
             marker.colors.push_back(line_color);
             marker.colors.push_back(line_color);
         }
@@ -206,7 +217,8 @@ namespace Visualization
         
     }
 
-    bool render_path (const Eigen::Matrix4d &poses, nav_msgs::Path &path_msg,ros::Publisher pub,std::string frame_id, int sequence_id)
+    bool render_path (const Eigen::Matrix4d &poses, nav_msgs::Path &path_msg,
+                    ros::Publisher pub,std::string frame_id, int sequence_id)
     {
         path_msg.header.frame_id = frame_id;
 
@@ -225,6 +237,44 @@ namespace Visualization
         path_msg.poses.push_back(pose_stamped);
         pub.publish(path_msg);
         return true;
+    }
+
+    bool render_path (const std::vector<Eigen::Matrix4d> &T_a_camera,
+                    const Eigen::Matrix4d & T_b_a,
+                    const std::string &agnetB_frame_id,
+                    nav_msgs::Path &path_msg,
+                    ros::Publisher pub)
+    {
+        if(pub.getNumSubscribers()==0||T_a_camera.empty()) return false;
+
+        path_msg.header.frame_id = agnetB_frame_id;
+
+        int k=0;
+        for(auto T_a_c: T_a_camera){
+            Eigen::Matrix4d T_b_c = T_b_a * T_a_c;
+            // render_path(T_b_c, path_msg, pub, agnetB_frame_id, k);
+
+            geometry_msgs::PoseStamped pose_stamped;
+            pose_stamped.header.frame_id = agnetB_frame_id;
+            pose_stamped.header.seq = k;
+            pose_stamped.header.stamp = ros::Time::now();
+            pose_stamped.pose.position.x = T_b_c(0,3);
+            pose_stamped.pose.position.y = T_b_c(1,3);
+            pose_stamped.pose.position.z = T_b_c(2,3);
+            Eigen::Quaterniond q(T_b_c.block<3,3>(0,0));
+            pose_stamped.pose.orientation.x = q.x();
+            pose_stamped.pose.orientation.y = q.y();
+            pose_stamped.pose.orientation.z = q.z();
+            pose_stamped.pose.orientation.w = q.w();
+            path_msg.poses.push_back(pose_stamped);
+
+            k++;
+        }
+
+        pub.publish(path_msg);
+        return true;
+
+
     }
 
                 

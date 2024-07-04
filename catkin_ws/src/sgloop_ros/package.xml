@@ -71,6 +71,7 @@
   <exec_depend>message_runtime</exec_depend>
   <depend>cv_bridge</depend>
   <depend>nav_msgs</depend>
+  <depend>tf</depend>
 
 
   <!-- The export tag contains other, unspecified, tags -->

@@ -92,6 +92,19 @@ namespace fmfusion
             }
         }
 
+        bool IsSrcShapeEmbedded()const{
+            return src_features.shape_embedded;
+        }
+
+        bool IsRefShapeEmbedded(const std::string &ref_name)const{
+            if(ref_graphs.find(ref_name)==ref_graphs.end()){
+                return false;
+            }
+            else{
+                return ref_graphs.at(ref_name).shape_embedded;
+            }
+        }
+
     private:
         bool encode_scene_graph(const std::vector<NodePtr> &nodes, ImplicitGraph &graph_features);
 

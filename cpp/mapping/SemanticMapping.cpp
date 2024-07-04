@@ -537,13 +537,12 @@ std::shared_ptr<open3d::geometry::PointCloud> SemanticMapping::export_global_pcd
     return global_pcd;
 }
 
-std::vector<Eigen::Vector3d> SemanticMapping::export_instance_centroids()const
+std::vector<Eigen::Vector3d> SemanticMapping::export_instance_centroids(int earliest_frame_id)const
 {
     std::vector<Eigen::Vector3d> centroids;
     for(const auto &inst:instance_map){
-        // if(inst.second->point_cloud==nullptr) continue;
-        // if(inst.second->point_cloud->HasPoints()) continue;
-        if(inst.second->get_cloud_size()>mapping_config.shape_min_points)
+        if(inst.second->get_cloud_size()>mapping_config.shape_min_points &&
+            inst.second->frame_id_>=earliest_frame_id)
             centroids.emplace_back(inst.second->centroid);
     }
     return centroids;
@@ -751,8 +750,8 @@ void SemanticMapping::export_instances(
     msg<<"latest frames: ";
     for(auto &instance:instance_map){
         if(!instance.second->point_cloud) continue;
-        if (instance.second->get_cloud_size() >mapping_config.shape_min_points){
-            // instance.second->frame_id_>earliest_frame_id){
+        if (instance.second->get_cloud_size() >mapping_config.shape_min_points&&
+            instance.second->frame_id_>earliest_frame_id){
             names.emplace_back(instance.first);
             instances.emplace_back(instance.second);
             msg<<instance.second->frame_id_<<",";

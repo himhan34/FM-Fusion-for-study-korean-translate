@@ -15,6 +15,7 @@ find_package(catkin REQUIRED COMPONENTS
   visualization_msgs
   open3d_conversions
   cv_bridge
+  tf
   message_generation
 )
 
@@ -47,7 +48,7 @@ generate_messages(
 
 catkin_package(
   INCLUDE_DIRS include
-  CATKIN_DEPENDS roscpp std_msgs sensor_msgs open3d_conversions cv_bridge message_runtime
+  CATKIN_DEPENDS roscpp std_msgs sensor_msgs tf open3d_conversions cv_bridge message_runtime
   DEPENDS Open3D
 )
 
