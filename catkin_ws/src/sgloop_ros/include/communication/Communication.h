@@ -19,6 +19,7 @@ namespace SgCom
         int frame_id;
         float timestamp;
         int N;
+        int X=0;
         std::string direction; // "pub" or "sub"
         std::string msg_type; // "CoarseGraph", "DenseGraph"
         bool checksum;

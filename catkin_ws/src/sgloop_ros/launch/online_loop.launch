@@ -1,7 +1,8 @@
 <launch>
   <!-- agent A,B -->
-  <arg name="agentA_scene" default="uc0204_00b"/>
-  <arg name="agentB_scene" default="uc0204_00a"/>
+  <arg name="agentA_scene" default="uc0115_00b"/>
+  <arg name="agentB_scene" default="uc0115_00a"/>
+  <arg name="agentC_scene" default="uc0115_00c"/>
 
   <!-- global settings  -->
   <arg name="dataroot" value="/data2/sgslam"/>
@@ -9,8 +10,7 @@
   <arg name="weights_folder" value="/home/cliuci/code_ws/OpensetFusion/torchscript"/>
   <arg name="loop_duration" value="20"/>
   <arg name="sliding_widow_translation" value="25.0"/>
-  <arg name="dense_msg" value="false"/>
-  <arg name="icp_refine" value="false"/>
+  <arg name="icp_refine" value="true"/>
   <arg name="verbose_level" value="0"/>
   <arg name="output_folder" value="$(arg dataroot)/output/online_coarse++"/>
   <group ns="viz"> 
@@ -33,13 +33,14 @@
     <param name="active_sequence_dir" value="$(arg dataroot)/scans/$(arg agentA_scene)"/>
     <param name="local_agent" value="agentA"/>
     <param name="second_agent" value="agentB"/>    
-    <!-- <param name="third_agent" value="agentC"/> -->
+    <param name="third_agent" value="agentC"/>
+    <param name="second_agent_scene" value="$(arg agentB_scene)"/>
+    <param name="third_agent_scene" value="$(arg agentC_scene)"/>
     <param name="frame_gap" value="2"/>
     <param name="loop_duration" value="$(arg loop_duration)"/>
-    <param name="dense_msg" value="$(arg dense_msg)"/>
     <param name="visualization" value="1"/>
     <param name="o3d_verbose_level" value="$(arg verbose_level)"/>
-    <param name="ref_scene_dir" value="$(arg dataroot)/val/$(arg agentB_scene)"/>
+    <!-- <param name="ref_scene_dir" value="$(arg dataroot)/val/$(arg agentB_scene)"/> -->
     <param name="debug_mode" value="false"/>
     <param name="icp_refine" value="$(arg icp_refine)"/>
     <param name="sliding_widow_translation" value="$(arg sliding_widow_translation)"/>
@@ -59,15 +60,14 @@
     <param name="active_sequence_dir" value="$(arg dataroot)/scans/$(arg agentB_scene)"/>
     <param name="local_agent" value="agentB"/>
     <param name="second_agent" value="agentZ"/>    
+    <param name="second_agent_scene" value="fakeScene"/>
     <param name="frame_gap" value="2"/>
-    <param name="dense_msg" value="$(arg dense_msg)"/>
     <param name="loop_duration" value="$(arg loop_duration)"/>
     <param name="broadcast_sleep_time" value="2.0"/>
     <param name="sliding_widow_translation" value="$(arg sliding_widow_translation)"/>
     <param name="visualization" value="1"/>
     <param name="o3d_verbose_level" value="$(arg verbose_level)"/>
     <param name="ref_scene_dir" value="$(arg dataroot)/val/$(arg agentA_scene)"/>
-    <param name="icp_refine" value="$(arg icp_refine)"/>
 
     <param name="viz/local_frame_offset/x" value="-$(arg offset_x)"/>
     <param name="viz/local_frame_offset/y" value="-$(arg offset_y)"/>

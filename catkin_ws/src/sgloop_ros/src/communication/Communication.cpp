@@ -198,6 +198,7 @@ namespace SgCom
         log.timestamp = timestamp;
         log.checksum = true;
         log.N = N;
+        log.X = X;
         pub_logs.push_back(log);
 
         return true;
@@ -312,7 +313,7 @@ namespace SgCom
             data_dict.features_vec.emplace_back(feat_vec);
         }
         
-        std::cout<<"receive feature array length "<<N<<" x "<<D <<" at timestamp "<<rece_timestamp<<"\n";
+        // std::cout<<"receive feature array length "<<N<<" x "<<D <<" at timestamp "<<rece_timestamp<<"\n";
 
         // Read dense data
         for(int k=0;k<X;k++){
@@ -320,11 +321,12 @@ namespace SgCom
             data_dict.xyz.emplace_back(pt);
             data_dict.labels.emplace_back((uint32_t)msg->labels[k]);
         }
-        std::cout<<"Receive "<< X<<" xyzi\n";
+        // std::cout<<"Receive "<< X<<" xyzi\n";
 
         // Log
         log.checksum = true;
         log.N = N;
+        log.X = X;
         sub_logs.push_back(log);
 
     }
@@ -370,25 +372,25 @@ namespace SgCom
         std::ofstream sub_log_stream;
         pub_log_stream.open(pub_log_file);
         sub_log_stream.open(sub_log_file);
-        std::string header="# frame_id timestamp direction msg_type nodes_number checksum\n";
+        std::string header="# frame_id timestamp direction msg_type nodes_number points_number checksum\n";
 
         if(pub_log_stream.is_open() && sub_log_stream.is_open()){
             pub_log_stream<<header;
             for(const Log &log: pub_logs){
-                pub_log_stream<<log.frame_id<<" "<<log.timestamp<<" "<<log.direction<<" "<<log.msg_type<<" "<<log.N<<" ";
+                pub_log_stream<<log.frame_id<<" "<<log.timestamp<<" "<<log.direction<<" "<<log.msg_type<<" "<<log.N<<" "<<log.X<<" ";
                 if(log.checksum) pub_log_stream<<"true\n";
                 else pub_log_stream<<"false\n";
             }
 
             sub_log_stream<<header;
             for(const Log &log: sub_logs){
-                sub_log_stream<<log.frame_id<<" "<<log.timestamp<<" "<<log.direction<<" "<<log.msg_type<<" "<<log.N<<" ";
+                sub_log_stream<<log.frame_id<<" "<<log.timestamp<<" "<<log.direction<<" "<<log.msg_type<<" "<<log.N<<" "<<log.X<<" ";
                 if(log.checksum) sub_log_stream<<"true\n";
                 else sub_log_stream<<"false\n";
             }
             pub_log_stream.close();
             sub_log_stream.close();
-            std::cout<<"Write logs successfully.\n";
+            // std::cout<<"Write logs successfully.\n";
             return true;
         }
         else{

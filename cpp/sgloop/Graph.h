@@ -66,6 +66,16 @@ struct DataDict{
         }
         return msg.str();
     }
+
+    void clear(){
+        xyz.clear();
+        length_vec.clear();
+        labels.clear();
+        centroids.clear();
+        nodes.clear();
+        instances.clear();
+    }
+
 };
 
 class Graph
@@ -145,6 +155,7 @@ class Graph
 
 
 };
+typedef std::shared_ptr<Graph> GraphPtr;
 
 }
 

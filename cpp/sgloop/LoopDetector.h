@@ -101,7 +101,6 @@ namespace fmfusion
     private:
         std::string cuda_device_string;
         ImplicitGraph src_features;    
-        // ImplicitGraph ref_features;
         std::unordered_map<std::string, ImplicitGraph> ref_graphs;
         std::unordered_map<std::string, float> ref_sg_timestamps; // The latest received sg frame id
 

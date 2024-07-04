@@ -93,7 +93,7 @@ namespace fmfusion
         if(cur_timestamp - ref_sg_timestamps[ref_name] > 0.01){
             int N = coarse_features_vec.size();
             int D = coarse_features_vec[0].size();
-            std::cout<<"Update subscribed node features "<<N <<" x "<<D<<"\n";
+            // std::cout<<"Update subscribed node features "<<N <<" x "<<D<<"\n";
             float features_array[N][D];
             for(int i=0;i<N;i++){
                 std::copy(coarse_features_vec[i].begin(), coarse_features_vec[i].end(), features_array[i]);
