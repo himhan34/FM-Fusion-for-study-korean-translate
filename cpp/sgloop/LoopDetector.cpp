@@ -211,8 +211,10 @@ namespace fmfusion
                                             const std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
                                             std::vector<Eigen::Vector3d> &corr_src_points,
                                             std::vector<Eigen::Vector3d> &corr_ref_points,
+                                            std::vector<int> &corr_match_indices,
                                             std::vector<float> &corr_scores_vec)
     {
+
         if(ref_graphs.find(ref_name)==ref_graphs.end()){
             open3d::utility::LogWarning("Reference graph name not found. Skip matching");
             return 0;
@@ -222,7 +224,6 @@ namespace fmfusion
             return 0;
         }
 
-        torch::Tensor corr_points;
         int M = match_pairs.size();
         float match_pairs_array[2][M]; //
         for(int i=0;i<M;i++){
@@ -250,14 +251,25 @@ namespace fmfusion
         assert(src_guided_knn_feats.size(0)>0 && ref_guided_knn_feats.size(0)>0);
         assert(src_guided_knn_feats.size(1)==512 && ref_guided_knn_feats.size(1)==512);
 
-        int C = sgnet->match_points(src_guided_knn_feats, ref_guided_knn_feats, corr_points, corr_scores_vec);
+        // torch::Tensor corr_points;
+        int C = sgnet->match_points(src_guided_knn_feats, 
+                                    ref_guided_knn_feats, 
+                                    src_guided_knn_points,
+                                    ref_guided_knn_points,
+                                    corr_src_points,
+                                    corr_ref_points,
+                                    corr_match_indices,
+                                    corr_scores_vec);
 
         TORCH_CHECK(src_guided_knn_feats.device().is_cuda(), "src guided knn feats must be a CUDA tensor");
 
-        // std::vector<Eigen::Vector3d> corr_src_points, corr_ref_points;
-        if(C>0){
-            extract_corr_points(src_guided_knn_points, ref_guided_knn_points, corr_points, corr_src_points, corr_ref_points);
-        }
+        // if(C>0){
+        //     extract_corr_points(src_guided_knn_points, ref_guided_knn_points, 
+        //                     corr_points, corr_src_points, corr_ref_points);
+        //     for (const int&index:corr_match_indices){
+        //         assert(index>=0 && index<M);
+        //     }
+        // }
 
         return C;
     }

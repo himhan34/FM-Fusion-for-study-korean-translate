@@ -95,7 +95,7 @@ public:
         Eigen::MatrixX3d ref_corrp(match_pairs.size() + indices.size(), 3);
         for (int i = 0; i < indices.size(); i++) {
             src_corrp.row(i) = corr_src_points[indices[i]];
-            src_corrp.row(i) = corr_ref_points[indices[i]];
+            ref_corrp.row(i) = corr_ref_points[indices[i]];
         }
         msg << "Correspondence points: " << corr_src_points.size() << " -> " << indices.size() << "\n";
 
@@ -144,6 +144,56 @@ public:
         // std::cout << "tf: \n" << result.tf << std::endl;
         pose = result.tf;
     };
+
+
+    void estimate_pose(const std::vector<Eigen::Vector3d> &src_centroids,
+                       const std::vector<Eigen::Vector3d> &ref_centroids,
+                       const std::vector<Eigen::Vector3d> &corr_src_points,
+                       const std::vector<Eigen::Vector3d> &corr_ref_points,
+                       const std::vector<float> &corr_scores_vec,
+                       const fmfusion::O3d_Cloud_Ptr &src_cloud_ptr,
+                       const fmfusion::O3d_Cloud_Ptr &ref_cloud_ptr,
+                       Eigen::Matrix4d &pose
+            //    bool use_dense_match
+    ) {
+        // assert(src_corrp.rows() == ref_corrp.rows());
+        std::stringstream msg;
+        std::vector<int> indices;
+        double ds_time, data_time = 0;
+        robot_utils::TicToc t;
+        //    稠密点匹配
+        if (corr_src_points.size() > 0)
+            indices = downsample_corr_indices(corr_src_points, corr_scores_vec);
+        ds_time = t.toc();
+        
+        //    合并instance中心匹配和稠密点匹配
+        Eigen::MatrixX3d src_corrp(src_centroids.size() + indices.size(), 3);
+        Eigen::MatrixX3d ref_corrp(ref_centroids.size() + indices.size(), 3);
+        for (int i = 0; i < indices.size(); i++) {
+            src_corrp.row(i) = corr_src_points[indices[i]];
+            ref_corrp.row(i) = corr_ref_points[indices[i]];
+        }
+        for (int i = 0; i < src_centroids.size(); i++) {
+            src_corrp.row(i + indices.size()) = src_centroids[i];
+            ref_corrp.row(i + indices.size()) = ref_centroids[i];
+        }
+
+//    求解位姿矩阵x
+        const Eigen::MatrixX3d &src_cloud_mat = vectorToMatrix(src_cloud_ptr->points_);
+        const Eigen::MatrixX3d &ref_cloud_mat = vectorToMatrix(ref_cloud_ptr->points_);
+        double vec3mat_time = t.toc();
+        FRGresult result = g3reg::SolveFromCorresp(src_corrp, ref_corrp, src_cloud_mat, ref_cloud_mat, cfg_);
+        // std::cout << "FRG result: " << std::endl;
+        std::cout << src_cloud_ptr->points_.size() << " src points, "
+                  << ref_cloud_ptr->points_.size() << " ref points\n";
+        std::cout << "ds_time: " << ds_time << ", data_time: " << data_time
+                  << ", vec3mat_time: " << vec3mat_time
+                  << ", reg_time(verify): "
+                  << result.total_time << "(" << result.verify_time << ")" << std::endl;
+        // std::cout << "tf: \n" << result.tf << std::endl;
+        pose = result.tf;
+    };
+
 
     std::vector<int> downsample_corr_indices(const std::vector<Eigen::Vector3d> &corr_src_points,
                                              const std::vector<float> &corr_scores_vec, int target = 1000) {

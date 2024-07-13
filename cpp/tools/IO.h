@@ -18,6 +18,8 @@ namespace IO
 
     bool read_scannet_intrinsic(const std::string intrinsic_folder,
                         open3d::camera::PinholeCameraIntrinsic &intrinsic_);
+    bool read_transformation(const std::string &transformation_file, 
+                        Eigen::Matrix4d &transformation);
 
     bool frames_srt_func(const std::string &a, const std::string &b);
 
@@ -55,11 +57,20 @@ namespace IO
                         const std::vector<Eigen::Vector3d> &ref_centroids,
                         const std::string &output_file_dir);
 
+    bool save_corrs_match_indices(const std::vector<int> &corrs_match_indices,
+                                const std::string &output_file_dir);
+    
+    bool load_corrs_match_indices(const std::string &corrs_match_indices_file,
+                                std::vector<int> &corrs_match_indices);
+
     bool load_match_results(const std::string &match_file_dir,
                         Eigen::Matrix4d &pose,
+                        std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
                         std::vector<Eigen::Vector3d> &src_centroids,
                         std::vector<Eigen::Vector3d> &ref_centroids,
                         bool verbose=false);
+    
+    bool save_pose(const std::string &output_dir, const Eigen::Matrix4d &pose);
 
 }
 

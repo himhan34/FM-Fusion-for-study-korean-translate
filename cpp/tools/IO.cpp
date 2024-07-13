@@ -83,6 +83,35 @@ namespace IO
 
     }
 
+    bool read_transformation(const std::string &transformation_file, 
+                        Eigen::Matrix4d &transformation)
+    {
+        using namespace std;
+        fstream file(transformation_file,fstream::in);
+        if(file.is_open()){
+            string line{""};
+            int i=0;
+            while(getline(file,line)){
+                // std::cout<<line<<"\n";
+                std::stringstream ss(line);
+                int j=0;
+                while(ss.good() && j<4){
+                    std::string substr;
+                    getline(ss, substr, ' ');
+                    if(substr.empty()) continue;
+                    transformation(i,j) = stod(substr);
+                    j++;
+                }
+                i++;
+            }
+            file.close();
+            std::cout<<"Read gt transformation from "<<transformation_file<<":\n";
+            return true;
+        }
+        else
+            return false;
+    }
+
     bool frames_srt_func(const std::string &a, const std::string &b)
     {
         std::string name_a = a.substr(a.find_last_of("/")+1); 
@@ -302,6 +331,7 @@ namespace IO
 
     bool load_match_results(const std::string &match_file_dir,
                             Eigen::Matrix4d &pose,
+                            std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
                             std::vector<Eigen::Vector3d> &src_centroids,
                             std::vector<Eigen::Vector3d> &ref_centroids,
                             bool verbose)
@@ -340,6 +370,8 @@ namespace IO
                         Eigen::Vector3d src_centroid, ref_centroid;
                         ss>>src_centroid[0]>>src_centroid[1]>>src_centroid[2];
                         ss>>ref_centroid[0]>>ref_centroid[1]>>ref_centroid[2];
+
+                        match_pairs.push_back(std::make_pair(src_id,ref_id));
                         src_centroids.push_back(src_centroid);
                         ref_centroids.push_back(ref_centroid);
 
@@ -356,6 +388,65 @@ namespace IO
         file.close();
         return true;
     };
+
+    bool save_pose(const std::string &output_dir, const Eigen::Matrix4d &pose)
+    {
+        std::ofstream file(output_dir);
+        if (!file.is_open()){
+            std::cerr<<"Failed to open file: "<<output_dir<<std::endl;
+            return false;
+        }
+
+        file<<std::fixed<<std::setprecision(6);
+        for(int i=0; i<4; i++){
+            for(int j=0; j<4; j++){
+                file<<pose(i,j)<<" ";
+            }
+            file<<std::endl;
+        }
+
+        file.close();
+        return true;
+    };
+
+    bool save_corrs_match_indices(const std::vector<int> &corrs_match_indices,
+                                const std::string &output_file_dir)
+    {
+        std::ofstream file(output_file_dir);
+        if (!file.is_open()){
+            std::cerr<<"Failed to open file: "<<output_file_dir<<std::endl;
+            return false;
+        }
+
+        file<<std::fixed<<std::setprecision(6);
+        for(int i=0; i<corrs_match_indices.size(); i++){
+            file<<corrs_match_indices[i]<<"\n";
+        }
+
+        file.close();
+        return true;
+    };
+
+    bool load_corrs_match_indices(const std::string &corrs_match_indices_file,
+                                std::vector<int> &corrs_match_indices)
+    {
+        std::ifstream file(corrs_match_indices_file);
+        if (!file.is_open()){
+            std::cerr<<"Failed to open file: "<<corrs_match_indices_file<<std::endl;
+            return false;
+        }
+
+        std::string line;
+        while(std::getline(file,line)){
+            corrs_match_indices.push_back(std::stoi(line));
+        }
+
+        std::cout<<"Load "<<corrs_match_indices.size()<<" correspodences match index.\n";
+
+        file.close();
+        return true;
+    };
+    
 
 } // namespace name
 

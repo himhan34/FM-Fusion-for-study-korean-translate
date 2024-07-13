@@ -85,7 +85,7 @@ class TrajectoryAnalysis:
             print('No loop frames found in ', src_scene_output)
             return None
         
-        T_ref_src, _, _ = read_match_centroid_result(loop_frames[-1]) # predicted T_ref_src
+        T_ref_src, _, _, _ = read_match_centroid_result(loop_frames[-1]) # predicted T_ref_src
         
         for frame_name, pose in self.poses.items():
             self.pred_poses[frame_name] = T_ref_src @ pose # T_ref_c = T_ref_src @ T_src_c
@@ -142,7 +142,7 @@ if __name__=='__main__':
     parser.add_argument("--config_file", type=str, default="config/realsense.yaml")
     parser.add_argument("--dataroot", type=str, default="/data2/sgslam")
     parser.add_argument(
-        "--output_folder", type=str, default="/data2/sgslam/output/online_coarse+")
+        "--output_folder", type=str, default="/data2/sgslam/output/two_agent+")
     parser.add_argument("--split_file", type=str, default="val_bk.txt")
     parser.add_argument("--gt_source", type=str, default="tag", help="icp, tag or optitrack")
     args = parser.parse_args()  
@@ -179,6 +179,7 @@ if __name__=='__main__':
         summary_pred_poses = np.concatenate(summary_pred_poses, axis=0)
         summary_gt_poses = np.concatenate(summary_gt_poses, axis=0)
         final_ate = position_ate(summary_pred_poses, summary_gt_poses)
-        print('Evaluate {} pair of scenes. Final ATE: {:.3f}m'.format(count_sequence,final_ate))
+        print('Evaluate {} pair of scenes {} poses. Final ATE: {:.3f}m'.format(
+            count_sequence,summary_gt_poses.shape[0],final_ate))
 
 

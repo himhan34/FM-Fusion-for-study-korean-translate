@@ -7,12 +7,14 @@ namespace Visualization
         // Ref graph
         ref_graph = nh_private.advertise<sensor_msgs::PointCloud2>("ref/instance_map", 1000);
         ref_centroids = nh_private.advertise<visualization_msgs::Marker>("ref/centroids", 1000);
+        ref_global_map = nh_private.advertise<sensor_msgs::PointCloud2>("ref/global_map", 1000);
         // ref_edges = nh_private.advertise<visualization_msgs::Marker>("ref/edges", 1000);
 
         // Local graph
         src_graph = nh_private.advertise<sensor_msgs::PointCloud2>("instance_map", 1000);
         src_centroids = nh_private.advertise<visualization_msgs::Marker>("centroids", 1000);
         src_edges = nh_private.advertise<visualization_msgs::Marker>("edges", 1000);
+        src_global_map = nh_private.advertise<sensor_msgs::PointCloud2>("global_map", 1000);
 
         // Loop
         instance_match = nh_private.advertise<visualization_msgs::Marker>("instance_match", 1000);
@@ -41,11 +43,18 @@ namespace Visualization
         // Agents relative transform
         for(auto agent: remote_agents){
             Eigen::Vector3d t;
+            Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+            
             t[0] = nh.param("br/"+agent+"/x", 0.0);
             t[1] = nh.param("br/"+agent+"/y", 0.0);
             t[2] = nh.param("br/"+agent+"/z", 0.0);
+            float yaw = nh.param("br/"+agent+"/yaw", 0.0);
+
+            T.block<3,1>(0,3) = t;
+            T.block<3,3>(0,0) = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+
             t_local_remote[agent] = t;
-            // std::cout<<agent<<": "<<t.transpose()<<std::endl;
+            Transfrom_local_remote[agent] = T;
         }
 
     }
@@ -105,7 +114,8 @@ namespace Visualization
                         ros::Publisher pub, 
                         std::string src_frame_id, 
                         std::vector<bool> pred_masks,
-                        Eigen::Vector3d t_local_remote)
+                        Eigen::Matrix4d T_local_remote)
+                        // Eigen::Vector3d t_local_remote)
     {
         if(pub.getNumSubscribers()==0) return false;
         visualization_msgs::Marker marker;
@@ -124,12 +134,14 @@ namespace Visualization
 
         for (int i=0;i<n;i++){
             geometry_msgs::Point p1, p2;
+            Eigen::Vector3d aligned_ref_centroid = T_local_remote.block<3,3>(0,0)*ref_centroids[i] + T_local_remote.block<3,1>(0,3);
+
             p1.x = src_centroids[i].x();
             p1.y = src_centroids[i].y();
             p1.z = src_centroids[i].z();
-            p2.x = ref_centroids[i].x()+ t_local_remote[0];
-            p2.y = ref_centroids[i].y()+ t_local_remote[1];
-            p2.z = ref_centroids[i].z()+ t_local_remote[2];
+            p2.x = aligned_ref_centroid.x(); // ref_centroids[i].x()+ t_local_remote[0];
+            p2.y = aligned_ref_centroid.y(); //ref_centroids[i].y()+ t_local_remote[1];
+            p2.z = aligned_ref_centroid.z(); //ref_centroids[i].z()+ t_local_remote[2];
             marker.points.push_back(p1);
             marker.points.push_back(p2);
             std_msgs::ColorRGBA line_color;

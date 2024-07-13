@@ -579,7 +579,7 @@ def eval_online_loop(
         if EVAL_COMM:
             bw_evaluator.update(os.path.join(output_folder, pair[0], "sub_logs.txt"))
 
-        loop_frames = glob.glob(os.path.join(output_folder, pair[0], pair[1], "*.txt"))
+        loop_frames = glob.glob(os.path.join(output_folder, pair[0], pair[1], "frame*.txt"))
         loop_frames = sorted(loop_frames)
 
         gt_pose = np.loadtxt(
@@ -593,11 +593,11 @@ def eval_online_loop(
         rmse_list = []
 
         for frame in loop_frames:
+            if 'cmatches' in frame: continue
             src_frame_name = os.path.basename(frame).split(".")[0]
             src_pcd = o3d.io.read_point_cloud(
                 os.path.join(
-                    output_folder, pair[0], pair[1], "{}_src.ply".format(src_frame_name)
-                )
+                    output_folder, pair[0], pair[1], "{}_src.ply".format(src_frame_name))
             )
 
             pred_pose, src_centroids, ref_centroids, ref_timestamp = read_match_centroid_result(frame)
@@ -697,6 +697,69 @@ def eval_online_loop(
                    delimiter=',', 
                    header=','.join(summary_header), 
                    fmt='%.3f')
+
+
+def eval_offline_register(
+    export_folder, gt_folder, scan_pairs, consider_iou = False, gt_iou_folder=None
+):
+    
+    coarse_evaluator = RegistrationEvaluator()
+    dense_evaluator = RegistrationEvaluator()
+    
+    for pair in scan_pairs:
+        print('---------- Eval {}-{} ------------'.format(pair[0],pair[1]))
+        pair_export_folder = os.path.join(export_folder, pair[0]+'-'+pair[1])
+        gt_pose = np.loadtxt(os.path.join(gt_folder,'{}-{}.txt'.format(pair[0],pair[1])))
+        frame_files = glob.glob(pair_export_folder + "/frame*.txt")
+        
+        if consider_iou:
+            assert(gt_iou_folder is not None)
+            ref_maps = read_frames_map(os.path.join(gt_iou_folder, pair[1]))
+        
+        for frame_file in sorted(frame_files):
+            if 'cmatches' in frame_file:continue
+            if 'newpose' in frame_file:continue
+            print('Eval frame: {}'.format(frame_file))
+            msg = '{} '.format(frame_file.split('/')[-1].split('.')[0])
+            pred_pose, src_centroids, ref_centroids, ref_timestamp = read_match_centroid_result(frame_file)
+            pred_pose = np.loadtxt(frame_file[:-4]+'_newpose.txt')
+            # print('new pose: \n', pred_pose_new)
+            print('todo: replace with the new pose to evaluate')
+            
+            ref_frame_id = int((ref_timestamp - 12000.0)/0.1)
+
+            src_pcd = o3d.io.read_point_cloud(frame_file[:-4]+'_src.ply')
+            rmse = eval_registration_error(src_pcd, pred_pose, gt_pose)
+            frame_data = [0,len(src_centroids), rmse.float().item()]
+
+            src_corr_dir = frame_file[:-4]+'_csrc.ply'
+            ref_corr_dir = frame_file[:-4]+'_cref.ply'
+            
+            if consider_iou:
+                ref_map_dir = find_closet_index(
+                    ref_maps["indices"], ref_maps["dirs"], ref_frame_id)
+
+                ref_pcd = o3d.io.read_point_cloud(ref_map_dir)
+                src_pcd.transform(gt_pose)
+                iou, _ = compute_cloud_overlap(src_pcd, ref_pcd, 0.2)
+            else:
+                iou = 0.99
+                
+            if os.path.exists(src_corr_dir) and os.path.exists(ref_corr_dir):
+                dense_mode = True
+                dense_evaluator.update(0,len(src_centroids),rmse,iou)
+                msg += 'dense mode '
+            else:
+                dense_mode = False
+                coarse_evaluator.update(0,len(src_centroids),rmse,iou)
+                msg += 'coars mode '
+            msg += 'rmse: {:.3f}, iou: {:.3f}'.format(rmse,iou)
+            print(msg)
+    # Summary
+    
+    coarse_evaluator.analysis('*** Summary coarse registrations ***')
+    dense_evaluator.analysis('*** Summary dense registrations ***')
+    
 
 
 def summary_registration_result(scan_pairs, output_folder):

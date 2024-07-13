@@ -30,6 +30,7 @@ namespace Visualization
 
         public:
             ros::Publisher ref_graph, src_graph;
+            ros::Publisher ref_global_map, src_global_map;
             ros::Publisher ref_centroids, src_centroids;
             ros::Publisher ref_edges, src_edges;
             ros::Publisher instance_match, point_match;
@@ -44,6 +45,7 @@ namespace Visualization
             std::array<float,3> local_frame_offset;        
 
             std::map<std::string, Eigen::Vector3d> t_local_remote;    
+            std::map<std::string, Eigen::Matrix4d> Transfrom_local_remote;
 
     };
 
@@ -61,7 +63,8 @@ namespace Visualization
                         ros::Publisher pub, 
                         std::string frame_id="world",
                         std::vector<bool> pred_masks={},
-                        Eigen::Vector3d t_local_remote = Eigen::Vector3d(0,0,0));
+                        Eigen::Matrix4d T_local_remote = Eigen::Matrix4d::Identity());
+                        // Eigen::Vector3d t_local_remote = Eigen::Vector3d(0,0,0));
 
     bool instance_centroids(const std::vector<Eigen::Vector3d> &centroids,
                             ros::Publisher pub, 

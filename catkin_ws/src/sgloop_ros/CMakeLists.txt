@@ -76,6 +76,7 @@ set(ALL_TARGET_LINK_LIBARIES
 )
 
 add_library(sgloop_ros SHARED
+          src/utility/CameraPoseVisualization.cpp
           src/registration/Prune.cpp
           src/registration/robustPoseAvg.cpp
           src/communication/Communication.cpp
@@ -87,6 +88,9 @@ target_link_libraries(OfflineLoop ${ALL_TARGET_LINK_LIBARIES} sgloop_ros)
 
 add_executable(OnlineLoop src/OnlineLoopNode.cpp)
 target_link_libraries(OnlineLoop ${ALL_TARGET_LINK_LIBARIES} sgloop_ros)
+
+add_executable(PoseGraphNode src/PoseGraphNode.cpp)
+target_link_libraries(PoseGraphNode PUBLIC ${ALL_TARGET_LINK_LIBARIES} sgloop_ros)
 
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context

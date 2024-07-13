@@ -54,11 +54,13 @@ namespace fmfusion
         /// \param  match_pairs         The matched node pairs.
         /// \param  corr_src_points     (C,3) The corresponding points in the source instance.
         /// \param  corr_ref_points     (C,3) The corresponding points in the reference instance.
+        /// \param  corr_match_indices  (C,) The indices of the matched node pairs.
         /// \param  corr_scores_vec     (C,) The matching scores of each point correspondence.
         int match_instance_points(const std::string &ref_name,
                                 const std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
                                 std::vector<Eigen::Vector3d> &corr_src_points,
                                 std::vector<Eigen::Vector3d> &corr_ref_points,
+                                std::vector<int> &corr_match_indices,
                                 std::vector<float> &corr_scores_vec);
 
         // void clear();

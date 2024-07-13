@@ -4,25 +4,59 @@
 namespace fmfusion
 {
 
-int extract_corr_points(const torch::Tensor &src_guided_knn_points,
+int extract_corr_points(const torch::Tensor &src_guided_knn_points, // (N,K,3)
                         const torch::Tensor &ref_guided_knn_points,
-                        const torch::Tensor &corr_points,
+                        const torch::Tensor &corr_points, // (C,3),[node_index, src_index, ref_index]
                         std::vector<Eigen::Vector3d> &corr_src_points,
                         std::vector<Eigen::Vector3d> &corr_ref_points)
 {
     int C = corr_points.size(0);
     if(C>0){
+        using namespace torch::indexing;
+        torch::Tensor corr_match_indices = corr_points.index(
+                                        {"...",0}).to(torch::kInt32); // (C,)
+        torch::Tensor corr_src_indices = corr_points.index(
+                                        {"...",1}).to(torch::kInt32); // (C)
+        torch::Tensor corr_ref_indices = corr_points.index(
+                                        {"...",2}).to(torch::kInt32); // (C)
+        assert(corr_match_indices.max()<src_guided_knn_points.size(0));
+        assert(corr_src_indices.max()<src_guided_knn_points.size(1));
+        assert(corr_ref_indices.max()<ref_guided_knn_points.size(1));
+
+        torch::Tensor corr_src_points_t = src_guided_knn_points.index(
+                                        {corr_match_indices,corr_src_indices}).to(torch::kFloat32); // (C,3)
+        torch::Tensor corr_ref_points_t = ref_guided_knn_points.index(
+                                        {corr_match_indices,corr_ref_indices}).to(torch::kFloat32); // (C,3)
+        corr_src_points_t = corr_src_points_t.to(torch::kCPU);
+        corr_ref_points_t = corr_ref_points_t.to(torch::kCPU);
+
+        auto corr_src_points_a = corr_src_points_t.accessor<float,2>();
+        auto corr_ref_points_a = corr_ref_points_t.accessor<float,2>();
+        
         for (int i=0;i<C;i++){
-            int match_index = corr_points[i][0].item<int>();
-            int src_index = corr_points[i][1].item<int>();
-            int ref_index = corr_points[i][2].item<int>();
-            corr_src_points.push_back({src_guided_knn_points[match_index][src_index][0].item<float>(),
-                                src_guided_knn_points[match_index][src_index][1].item<float>(),
-                                src_guided_knn_points[match_index][src_index][2].item<float>()});
-            corr_ref_points.push_back({ref_guided_knn_points[match_index][ref_index][0].item<float>(),
-                                ref_guided_knn_points[match_index][ref_index][1].item<float>(),
-                                ref_guided_knn_points[match_index][ref_index][2].item<float>()});
+            corr_src_points.push_back({corr_src_points_a[i][0],
+                                        corr_src_points_a[i][1],
+                                        corr_src_points_a[i][2]});
+            corr_ref_points.push_back({corr_ref_points_a[i][0],
+                                        corr_ref_points_a[i][1],
+                                        corr_ref_points_a[i][2]});
         }
+
+        // std::cout<<"out shape "<< corr_src_points_t.sizes()<<std::endl;
+        // timer.Stop();
+
+        // for (int i=0;i<C;i++){
+        //     int match_index = corr_points[i][0].item<int>();
+        //     int src_index = corr_points[i][1].item<int>();
+        //     int ref_index = corr_points[i][2].item<int>();
+        //     corr_src_points.push_back({src_guided_knn_points[match_index][src_index][0].item<float>(),
+        //                         src_guided_knn_points[match_index][src_index][1].item<float>(),
+        //                         src_guided_knn_points[match_index][src_index][2].item<float>()});
+        //     corr_ref_points.push_back({ref_guided_knn_points[match_index][ref_index][0].item<float>(),
+        //                         ref_guided_knn_points[match_index][ref_index][1].item<float>(),
+        //                         ref_guided_knn_points[match_index][ref_index][2].item<float>()});
+        // }
+        // std::cout<<"extract corr points takes "<<timer.GetDurationInMillisecond()<<" ms\n";
     }
     return C;
 }
@@ -357,13 +391,22 @@ void SgNet::match_nodes(const torch::Tensor &src_node_features, const torch::Ten
     torch::Tensor matches_scores = match_output->elements()[1].toTensor(); // (M,)
     torch::Tensor Kn = match_output->elements()[2].toTensor(); // (X,Y)
 
+    matches = matches.to(torch::kCPU);
+    matches_scores = matches_scores.to(torch::kCPU);
+    // std::cout<<"matches shape: "<<matches.sizes()<<","<<matches_scores.sizes()<<std::endl;
+    // std::cout<<"dtype: "<<matches.dtype()<<","<<matches_scores.dtype()<<std::endl;
+
+    auto matches_a = matches.accessor<long,2>();
+    auto matches_scores_a = matches_scores.accessor<float,1>();
+
     int M = matches.size(0);
     std::cout<<"Find "<<M<<" matched pairs\n";
 
     for (int i=0;i<M;i++){
-        float score = matches_scores[i].item<float>();
+        float score = matches_scores_a[i];
         if(score>config.instance_match_threshold){
-            match_pairs.push_back({matches[i][0].item<int>(), matches[i][1].item<int>()});
+            auto match_pair = std::make_pair(matches_a[i][0], matches_a[i][1]);
+            match_pairs.push_back(match_pair);
             match_scores.push_back(score);
         }
     }
@@ -386,28 +429,89 @@ void SgNet::match_nodes(const torch::Tensor &src_node_features, const torch::Ten
 
 }
 
-int SgNet::match_points(const torch::Tensor &src_guided_knn_feats, const torch::Tensor &ref_guided_knn_feats,
-                            torch::Tensor &corr_points, std::vector<float> &corr_scores_vec)
+int SgNet::match_points(const torch::Tensor &src_guided_knn_feats, 
+                        const torch::Tensor &ref_guided_knn_feats,
+                        const torch::Tensor &src_guided_knn_points,
+                        const torch::Tensor &ref_guided_knn_points,
+                        // torch::Tensor &corr_points, 
+                        std::vector<Eigen::Vector3d> &corr_src_points,
+                        std::vector<Eigen::Vector3d> &corr_ref_points,
+                        std::vector<int> &corr_match_indices,
+                        std::vector<float> &corr_scores_vec)
 {
-    // torch::Tensor src_fake_knn_feats = torch::ones({M,K,D}).to(torch::kFloat32).to(cuda_device_string);
-
+    std::stringstream msg;
+    open3d::utility::Timer timer;
+    timer.Start();
     auto match_output = point_match_layer.forward({src_guided_knn_feats, ref_guided_knn_feats}).toTuple();
-    corr_points = match_output->elements()[0].toTensor(); // (C,3),[node_index, src_index, ref_index]
+    torch::Tensor corr_points = match_output->elements()[0].toTensor(); // (C,3),[node_index, src_index, ref_index]
     torch::Tensor matching_scores = match_output->elements()[1].toTensor(); // (M,K,K)
     // std::cout<<"matching score: "<<matching_scores.sizes()<<std::endl;
+    timer.Stop();
+    msg<< "match "<<timer.GetDurationInMillisecond()<<" ms, ";
+
+    int M = src_guided_knn_feats.size(0);
     int C = corr_points.size(0);
     std::cout<<"Find "<<C<<" matched points\n";
 
-    // return C;
     if(C>0){
-        // corr_scores = torch::zeros({C}).to(torch::kFloat32).to(cuda_device_string);
+        // Indexing corr points
+        using namespace torch::indexing;
+        torch::Tensor corr_match_indices_t = corr_points.index(
+                                        {"...",0}).to(torch::kInt32); // (C,)
+        torch::Tensor corr_src_indices = corr_points.index(
+                                        {"...",1}).to(torch::kInt32); // (C)
+        torch::Tensor corr_ref_indices = corr_points.index(
+                                        {"...",2}).to(torch::kInt32); // (C)
+        assert(corr_match_indices_t.max()<src_guided_knn_points.size(0));
+        assert(corr_src_indices.max()<src_guided_knn_points.size(1));
+        assert(corr_ref_indices.max()<ref_guided_knn_points.size(1));
+
+        torch::Tensor corr_src_points_t = src_guided_knn_points.index(
+                                        {corr_match_indices_t,corr_src_indices}).to(torch::kFloat32); // (C,3)
+        torch::Tensor corr_ref_points_t = ref_guided_knn_points.index(
+                                        {corr_match_indices_t,corr_ref_indices}).to(torch::kFloat32); // (C,3)
+
+        // toCPU
+        torch::Tensor corr_points_cpu = corr_points.clone().to(torch::kCPU);
+        matching_scores = matching_scores.to(torch::kCPU);
+        corr_src_points_t = corr_src_points_t.to(torch::kCPU);
+        corr_ref_points_t = corr_ref_points_t.to(torch::kCPU);
+
+        // Tensor accessor
+        auto corr_src_points_a = corr_src_points_t.accessor<float,2>();
+        auto corr_ref_points_a = corr_ref_points_t.accessor<float,2>();        
+        auto corr_points_a = corr_points_cpu.accessor<long,2>();
+        auto matching_scores_a = matching_scores.accessor<float,3>();
+
+        corr_match_indices = std::vector<int>(C,-1);
         corr_scores_vec = std::vector<float>(C,0.0);
+        // msg<<"indexing  "<<timer.GetDurationInMillisecond()<<" ms";
+
+        //
+        int min_match_index = 100;
+        float min_score = 1.0;
         for (int i=0;i<C;i++){
-            int match_index = corr_points[i][0].item<int>();
-            int src_index = corr_points[i][1].item<int>();
-            int ref_index = corr_points[i][2].item<int>();
-            corr_scores_vec[i] = matching_scores[match_index][src_index][ref_index].item<float>();
+            int match_index = corr_points_a[i][0];
+            int src_index = corr_points_a[i][1];
+            int ref_index = corr_points_a[i][2];
+            corr_match_indices[i] = match_index;
+            corr_scores_vec[i] = matching_scores_a[match_index][src_index][ref_index];
+
+            corr_src_points.push_back({corr_src_points_a[i][0],
+                                        corr_src_points_a[i][1],
+                                        corr_src_points_a[i][2]});
+            corr_ref_points.push_back({corr_ref_points_a[i][0],
+                                        corr_ref_points_a[i][1],
+                                        corr_ref_points_a[i][2]});
+            assert(match_index>=0 && match_index<M);
+            // if(match_index<min_match_index) min_match_index = match_index;
+            // if(corr_scores_vec[i]<min_score) min_score = corr_scores_vec[i];
         }
+        // std::cout<<"Min match index: "<<min_match_index
+        //         <<", min score: "<<min_score<<"\n";
+        // msg<< ", extract "<<timer.GetDurationInMillisecond()<<" ms";
+        std::cout<<msg.str()<<"\n";
+
     }
 
     return C;

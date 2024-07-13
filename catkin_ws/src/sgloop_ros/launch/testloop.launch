@@ -1,20 +1,22 @@
 <launch>
 
   <!-- global config -->
+
   <arg name="dataroot" value="/data2/sgslam"/>
   <!-- <arg name="scan_folder" value="val"/> -->
   <arg name="scan_folder" value= "output/two_agent+"/>
+  <arg name="agentA_scene" value="uc0204_00a"/>
+  <arg name="agentB_scene" value="uc0204_00b"/>
 
-  <arg name="agentA_scene" value="uc0107_00b"/>
-  <arg name="agentB_scene" value="uc0107_00a"/>
   <arg name="test_communication" value="true"/>
   <arg name="dense_msg" value="false"/>
   <arg name="icp_refine" value="true"/>
   <arg name="visualization" value="1"/>
 
-  <arg name="agentA_agnetB_x" value="0.0"/>
+  <arg name="agentA_agnetB_x" value="10.0"/>
   <arg name="agentA_agentB_y" value="0.0"/>
   <arg name="agentA_agentB_z" value="0.0"/>
+  <arg name="agentA_agentB_yaw" value="3.14"/>
 
 
   <group ns="viz">
@@ -34,6 +36,7 @@
     <param name="agentB/x" value="$(arg agentA_agnetB_x)"/>
     <param name="agentB/y" value="$(arg agentA_agentB_y)"/>
     <param name="agentB/z" value="$(arg agentA_agentB_z)"/>
+    <param name="agentB/yaw" value="$(arg agentA_agentB_yaw)"/>
 
     <param name="agentC/x" value="0.0"/>
     <param name="agentC/y" value="0.0"/>
@@ -74,7 +77,7 @@
   </node>
 
   <node pkg="tf" type="static_transform_publisher" name="link_1st_agent" args="0 0 0 0 0 0 1 world agentA 100" />
-  <node pkg="tf" type="static_transform_publisher" name="link_2nd_agent" args="$(arg agentA_agnetB_x) $(arg agentA_agentB_y) $(arg agentA_agentB_z) 0 0 0 1 world agentB 100" />
+  <node pkg="tf" type="static_transform_publisher" name="link_2nd_agent" args="$(arg agentA_agnetB_x) $(arg agentA_agentB_y) $(arg agentA_agentB_z) 0 0 1 0 world agentB 100" />
   <!-- <node pkg="tf" type="static_transform_publisher" name="link_before_loop" args="$(arg offset_x) $(arg offset_y) $(arg offset_z) 0 0 0 1 world agentB 100" /> -->
 
 </launch>

@@ -304,6 +304,7 @@ int main(int argc, char *argv[]) {
     std::vector<NodePair> match_pairs;
     std::vector<float> match_scores;
     std::vector<Eigen::Vector3d> corr_src_points, corr_ref_points; // (C,3),(C,3)
+    std::vector<int> corr_match_indices; // (C,)
     std::vector<float> corr_scores_vec; // (C,)
 
     int M; // number of matched nodes
@@ -339,8 +340,11 @@ int main(int argc, char *argv[]) {
     if (dense_match && M > 0) { // Dense match
         timer.Start();
         C = loop_detector->match_instance_points(ref_name,
-                                                 pruned_match_pairs, corr_src_points,
-                                                 corr_ref_points, corr_scores_vec);
+                                                 pruned_match_pairs, 
+                                                 corr_src_points,
+                                                 corr_ref_points, 
+                                                 corr_match_indices,
+                                                 corr_scores_vec);
         timer.Stop();
         std::cout << "Match points takes " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond()
                   << " ms\n";
@@ -433,6 +437,8 @@ int main(int argc, char *argv[]) {
             fmfusion::O3d_Cloud_Ptr corr_ref_pcd = std::make_shared<fmfusion::O3d_Cloud>(corr_ref_points);
             open3d::io::WritePointCloudToPLY(output_folder + "/" + pair_name + "_csrc.ply", *corr_src_pcd, {});
             open3d::io::WritePointCloudToPLY(output_folder + "/" + pair_name + "_cref.ply", *corr_ref_pcd, {});
+            fmfusion::IO::save_corrs_match_indices(corr_match_indices, 
+                                                    output_folder + "/" + pair_name + "_cmatches.txt");
         }
 
         std::cout << "Save output result to " << output_folder << std::endl;

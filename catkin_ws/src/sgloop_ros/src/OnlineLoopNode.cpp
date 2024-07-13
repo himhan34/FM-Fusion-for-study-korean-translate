@@ -541,12 +541,12 @@ int main(int argc, char **argv)
                 int C = 0;
                 std::vector<Eigen::Vector3d> src_centroids, ref_centroids;
                 std::vector<Eigen::Vector3d> corr_src_points, corr_ref_points;
+                std::vector<int> corr_match_indices;
                 std::vector<float> corr_scores_vec;
                 fmfusion::O3d_Cloud_Ptr src_cloud_ptr = cur_active_instance_pcd;
 
                 if(M>global_config->loop_detector.recall_nodes){ // Dense mode
-                    tictoc_bk.tic();
-                    target_dense_m.coarse_loop_number++; // call loop
+                    target_dense_m.coarse_loop_number++;
 
                     // Prune
                     std::vector<bool> pruned_true_masks(M, false);
@@ -565,8 +565,14 @@ int main(int argc, char **argv)
                                                                 pruned_match_pairs, 
                                                                 corr_src_points, 
                                                                 corr_ref_points, 
+                                                                corr_match_indices,
                                                                 corr_scores_vec);
                     }
+                }
+                else{
+                    pruned_match_pairs = match_pairs;
+                    pruned_match_scores = match_scores;
+                    Mp = M;
                 }
                 loop_timing.record(tic_toc.toc());// Point match
 
@@ -577,7 +583,7 @@ int main(int argc, char **argv)
                     tictoc_bk.tic();
                     g3reg.estimate_pose(src_graph->get_const_nodes(),
                                         target_graph->get_const_nodes(),
-                                        match_pairs,
+                                        pruned_match_pairs,
                                         corr_scores_vec,
                                         corr_src_points,
                                         corr_ref_points,
@@ -624,19 +630,26 @@ int main(int argc, char **argv)
                 // I/O
                 std::vector <std::pair<fmfusion::InstanceId, fmfusion::InstanceId>> match_instances;
                 if(M>global_config->loop_detector.recall_nodes){ //IO
-                    fmfusion::IO::extract_instance_correspondences(src_graph->get_const_nodes(), target_graph->get_const_nodes(), 
-                                                                match_pairs, match_scores, src_centroids, ref_centroids);                
-                    fmfusion::IO::extract_match_instances(match_pairs, src_graph->get_const_nodes(), target_graph->get_const_nodes(), match_instances);
+                    fmfusion::IO::extract_instance_correspondences(src_graph->get_const_nodes(), 
+                                                                target_graph->get_const_nodes(), 
+                                                                pruned_match_pairs, pruned_match_scores, 
+                                                                src_centroids, ref_centroids);                
+                    fmfusion::IO::extract_match_instances(pruned_match_pairs, 
+                                                        src_graph->get_const_nodes(), 
+                                                        target_graph->get_const_nodes(), 
+                                                        match_instances);
                     fmfusion::IO::save_match_results(target_graph->get_timestamp(),pred_pose, match_instances, src_centroids, ref_centroids, 
                                                     loop_result_dir+"/"+frame_name+".txt");       
                     open3d::io::WritePointCloudToPLY(loop_result_dir+"/"+frame_name+"_src.ply", *cur_active_instance_pcd, {});
 
-                    Eigen::Vector3d t_local_remote;
-                    if(viz.t_local_remote.find(target_agent)==viz.t_local_remote.end())
-                        t_local_remote = Eigen::Vector3d::Zero();
-                    else t_local_remote = viz.t_local_remote[target_agent];
+                    Eigen::Matrix4d T_local_remote;
+                    if(viz.Transfrom_local_remote.find(target_agent)==viz.Transfrom_local_remote.end())
+                        T_local_remote = Eigen::Matrix4d::Identity();
+                    else T_local_remote = viz.Transfrom_local_remote[target_agent];
 
-                    Visualization::correspondences(src_centroids, ref_centroids, viz.instance_match,LOCAL_AGENT,{},t_local_remote);                    
+                    Visualization::correspondences(src_centroids, ref_centroids, 
+                                                viz.instance_match,LOCAL_AGENT,{},
+                                                T_local_remote);
                     if(viz.src_map_aligned.getNumSubscribers()>0){
                         O3d_Cloud_Ptr aligned_src_pcd_ptr = std::make_shared<open3d::geometry::PointCloud>(*cur_active_instance_pcd);
                         aligned_src_pcd_ptr->Transform(pred_pose);
@@ -649,6 +662,7 @@ int main(int argc, char **argv)
                         O3d_Cloud_Ptr corr_ref_ptr = std::make_shared<open3d::geometry::PointCloud>(corr_ref_points);
                         open3d::io::WritePointCloudToPLY(loop_result_dir+"/"+frame_name+"_csrc.ply", *corr_src_ptr, {});
                         open3d::io::WritePointCloudToPLY(loop_result_dir+"/"+frame_name+"_cref.ply", *corr_ref_ptr, {});
+                        fmfusion::IO::save_corrs_match_indices(corr_match_indices, loop_result_dir+"/"+frame_name+"_cmatches.txt");
                     }
                 }
                 loop_timing.record(tic_toc.toc());// I/O
@@ -658,7 +672,6 @@ int main(int argc, char **argv)
                 prev_loop_frame_id = seq_id;
             }
         
-            if(cool_down_sleep>0.0) ros::Duration(cool_down_sleep).sleep();
         }
         
         // Visualization

@@ -47,11 +47,21 @@ public:
     /// @brief  Match the points of the matched nodes. Each node sampled 512 points.
     /// @param src_guided_knn_feats (M,512,256)
     /// @param ref_guided_knn_feats (M,512,256)
-    /// @param corr_points (C,3)
+    /// @param src_guided_knn_points (M,512,3)
+    /// @param ref_guided_knn_points (M,512,3)
+    /// @param corr_src_points (C,3)
+    /// @param corr_ref_points (C,3)
+    /// @param corr_match_indices (C,)
     /// @param corr_scores_vec (C,)
-    /// @return 
-    int match_points(const torch::Tensor &src_guided_knn_feats, const torch::Tensor &ref_guided_knn_feats,
-        torch::Tensor &corr_points, std::vector<float> &corr_scores_vec);
+    /// @return C, number of matched points
+    int match_points(const torch::Tensor &src_guided_knn_feats, 
+                    const torch::Tensor &ref_guided_knn_feats,
+                    const torch::Tensor &src_guided_knn_points,
+                    const torch::Tensor &ref_guided_knn_points,
+                    std::vector<Eigen::Vector3d> &corr_src_points,
+                    std::vector<Eigen::Vector3d> &corr_ref_points,
+                    std::vector<int> &corr_match_indices,
+                    std::vector<float> &corr_scores_vec);
 
     bool load_bert(const std::string weight_folder);
 

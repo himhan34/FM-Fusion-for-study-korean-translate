@@ -261,6 +261,7 @@ int main(int argc, char **argv)
     std::vector<std::pair<uint32_t,uint32_t>> match_pairs;
     std::vector<float> match_scores;
     std::vector<Eigen::Vector3d> corr_src_points, corr_ref_points;
+    std::vector<int> corr_match_indices;
     std::vector<float> corr_scores_vec;
 
     int M; // number of matched nodes
@@ -291,6 +292,7 @@ int main(int argc, char **argv)
                                                 pruned_match_pairs, 
                                                 corr_src_points, 
                                                 corr_ref_points, 
+                                                corr_match_indices,
                                                 corr_scores_vec);
         ROS_WARN("Matched points: %d", C);
     }
@@ -350,6 +352,8 @@ int main(int argc, char **argv)
                 fmfusion::O3d_Cloud_Ptr corr_ref_pcd = std::make_shared<fmfusion::O3d_Cloud>(corr_ref_points);
                 open3d::io::WritePointCloudToPLY(output_folder + "/" + pair_name + "_csrc.ply", *corr_src_pcd, {});
                 open3d::io::WritePointCloudToPLY(output_folder + "/" + pair_name + "_cref.ply", *corr_ref_pcd, {});
+                fmfusion::IO::save_corrs_match_indices(corr_match_indices, 
+                                                    output_folder + "/" + pair_name + "_cmatches.txt");
             }
         }
     }
@@ -373,8 +377,16 @@ int main(int argc, char **argv)
         Visualization::instance_centroids(src_graph->get_centroids(),viz.src_centroids,LOCAL_AGENT,viz.param.centroid_size,viz.param.centroid_color);
         Visualization::inter_graph_edges(src_graph->get_centroids(), src_graph->get_edges(), viz.src_edges, viz.param.edge_width, viz.param.edge_color , LOCAL_AGENT);
 
-        Visualization::correspondences(src_centroids, ref_centroids, viz.instance_match,LOCAL_AGENT, pred_masks, viz.t_local_remote[ref_agent_name]);
-        Visualization::correspondences(corr_src_points, corr_ref_points, viz.point_match, LOCAL_AGENT, std::vector<bool> {}, viz.t_local_remote[ref_agent_name]);
+        Visualization::correspondences(src_centroids, ref_centroids, 
+                                        viz.instance_match,LOCAL_AGENT, 
+                                        pred_masks, 
+                                        viz.Transfrom_local_remote[ref_agent_name]);
+                                        // viz.t_local_remote[ref_agent_name]);
+        Visualization::correspondences(corr_src_points, corr_ref_points, 
+                                    viz.point_match, LOCAL_AGENT, 
+                                    std::vector<bool> {}, 
+                                    viz.Transfrom_local_remote[ref_agent_name]);
+                                    // viz.t_local_remote[ref_agent_name]);
 
         if(viz.src_map_aligned.getNumSubscribers()>0){
             ros::Duration(1.0).sleep();

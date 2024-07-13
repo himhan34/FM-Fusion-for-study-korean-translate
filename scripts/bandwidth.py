@@ -38,6 +38,12 @@ class BandwidthEvaluator():
             return
         nodes = np.array(self.nodes)
         points = np.array(self.points)
+        COARSE_ONLY = False
+        
+        if COARSE_ONLY: # remove those dense frames
+            dense_frames_maks = points>0
+            nodes = nodes[~dense_frames_maks]
+            points = points[~dense_frames_maks]
         
         print('---------- Summary Bandwidth {} frames -----------'.format(nodes.shape[0]))
 
