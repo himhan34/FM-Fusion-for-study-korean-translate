@@ -8,6 +8,7 @@
 #include "sensor_msgs/PointCloud2.h"
 #include "sensor_msgs/Image.h"
 #include "visualization_msgs/Marker.h"
+#include "visualization_msgs/MarkerArray.h"
 
 #include "cv_bridge/cv_bridge.h"
 #include "open3d_conversions/open3d_conversions.h"
@@ -19,6 +20,9 @@ namespace Visualization
         std::array<float,3> edge_color;
         float centroid_size = 0.1;
         std::array<float,3> centroid_color = {0.0,0.0,0.0};
+        float annotation_size = 0.2;
+        float annotation_voffset = 0.3;
+        std::array<float,3> annotation_color = {0.0,0.0,0.0};
     }; 
 
     class Visualizer
@@ -37,6 +41,7 @@ namespace Visualization
 
             ros::Publisher rgb_image, pred_image;
             ros::Publisher camera_pose, path;
+            ros::Publisher node_annotation;
 
             ros::Publisher src_map_aligned, path_aligned;
 
@@ -71,6 +76,14 @@ namespace Visualization
                             std::string frame_id="world", 
                             float scale=0.1,
                             std::array<float,3> color={0.0,0.0,1.0});
+    
+    bool node_annotation(const std::vector<Eigen::Vector3d> &centroids,
+                        const std::vector<std::string> &annotations,
+                        ros::Publisher pub, 
+                        std::string frame_id="world", 
+                        float scale=0.1,
+                        float z_offset=0.3,
+                        std::array<float,3> color={0.0,0.0,1.0});
 
     bool render_image(const cv::Mat &image, ros::Publisher pub, std::string frame_id="world");
 

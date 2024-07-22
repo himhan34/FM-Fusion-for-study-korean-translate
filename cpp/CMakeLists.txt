@@ -15,6 +15,8 @@ find_package(Eigen3 REQUIRED)
 find_package(Open3D REQUIRED)
 find_package(OpenCV REQUIRED)
 add_subdirectory(thirdparty/G3Reg)
+add_subdirectory(thirdparty/Kimera-RPGO)
+include_directories("thirdparty/Kimera-RPGO/include")
 
 ##
 include_directories(${OpenCV_INCLUDE_DIRS})
@@ -59,6 +61,7 @@ set(ALL_TARGET_LIBRARIES
         ${OpenCV_LIBS}
         gtsam
         G3REG::g3reg
+        KimeraRPGO
 )
 
 message(STATUS "GTSAM VERSION: ${GTSAM_VERSION} ${GTSAM_INCLUDE_DIR} ${gtsam}")
@@ -127,6 +130,10 @@ target_link_libraries(MapMerger PRIVATE Open3D::Open3D ${OpenCV_LIBS} fmfusion)
 add_executable(robustPoseAvg)
 target_sources(robustPoseAvg PRIVATE robustPoseAvg.cpp)
 target_link_libraries(robustPoseAvg PRIVATE Open3D::Open3D ${OpenCV_LIBS} fmfusion gtsam -ltbb)
+
+add_executable(testTwoAgentsPGO)
+target_sources(testTwoAgentsPGO PRIVATE testTwoAgentsPGO.cpp)
+target_link_libraries(testTwoAgentsPGO PRIVATE Open3D::Open3D ${OpenCV_LIBS} fmfusion gtsam KimeraRPGO -ltbb)
 
 if (LOOP_DETECTION)
     add_executable(TestLoop)

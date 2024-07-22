@@ -38,6 +38,12 @@ public:
 
     std::vector<Eigen::Vector3d> export_instance_centroids(int earliest_frame_id=-1) const;
 
+    std::vector<std::string> export_instance_annotations(int earliest_frame_id=-1) const;
+
+    bool query_instance_info(const std::vector<InstanceId> &names,
+                            std::vector<Eigen::Vector3f> &centroids,
+                            std::vector<std::string> &labels);
+
     void remove_invalid_instances();
 
     /// \brief  Get geometries for each instance.

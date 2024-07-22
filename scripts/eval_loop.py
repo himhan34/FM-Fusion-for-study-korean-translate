@@ -45,11 +45,10 @@ def read_match_centroid_result(dir):
     with open(dir) as f:
         lines = f.readlines()
         ref_timestamp = None
-        if 'time' in lines[0]:
+        if "time" in lines[0]:
             ref_timestamp = lines[0].split(":")[1].split(";")[0]
             ref_timestamp = float(ref_timestamp.strip())
-        
-        
+
         pose_lines = lines[1:5]
         pred_lines = lines[6:]
         f.close()
@@ -79,8 +78,10 @@ def read_instance_match_result(dir):
     
     return pose, pred_nodes, pred_scores
 
-def isRotationIdentitiy(pose:np.ndarray):
-    return np.allclose(pose[:3,:3], np.eye(3))
+
+def isRotationIdentitiy(pose: np.ndarray):
+    return np.allclose(pose[:3, :3], np.eye(3))
+
 
 def eval_instance_match(pred_nodes, iou_map, min_iou=0.2):
     # print('pred_nodes\n', pred_nodes)
@@ -188,6 +189,7 @@ def compute_cloud_overlap(
     iou = len(correspondences) / Na
     return iou, correspondences
 
+
 class RegistrationEvaluator:
     def __init__(self):
         self.tps = []
@@ -196,46 +198,55 @@ class RegistrationEvaluator:
         self.rmses = []
         self.ious = []
         self.rmse_threshold = 0.2
-        self.segment = [0.0,0.4,0.7,1.0] # difficult, median and easy
+        self.segment = [0.0, 0.4, 0.7, 1.0]  # difficult, median and easy
 
     def update(self, tp_, count_, rmse_, iou_):
         self.tps.append(tp_)
         self.counts.append(count_)
         self.rmses.append(rmse_)
         self.ious.append(iou_)
-    
+
     def analysis(self, msg=None):
-        if(len(self.rmses)<1):
-            return 
+        if len(self.rmses) < 1:
+            return
         self.tps = np.array(self.tps)
         self.counts = np.array(self.counts)
         self.rmses = np.array(self.rmses)
         self.ious = np.array(self.ious)
-        
+
         if msg is not None:
             print(msg)
-        
-        NUM_SEGMENT = len(self.segment)-1
-        segment_names = ['difficult','median','easy']
-        
+
+        NUM_SEGMENT = len(self.segment) - 1
+        segment_names = ["difficult", "median", "easy"]
+
         for k in range(NUM_SEGMENT):
             iou_lb = self.segment[k]
-            iou_hb = self.segment[k+1]
-            selection = np.logical_and(self.ious>iou_lb, self.ious<=iou_hb)
-            if(selection.sum()==0):
+            iou_hb = self.segment[k + 1]
+            selection = np.logical_and(self.ious > iou_lb, self.ious <= iou_hb)
+            if selection.sum() == 0:
                 continue
-            
-            registration_tp = np.sum(self.rmses[selection]<self.rmse_threshold)
-            registration_recall = registration_tp/np.sum(selection)
+
+            registration_tp = np.sum(self.rmses[selection] < self.rmse_threshold)
+            registration_recall = registration_tp / np.sum(selection)
             avg_rmse = np.mean(self.rmses[selection])
-            
+
             instances_tp = np.sum(self.tps[selection])
             instances_count = np.sum(self.counts[selection])
-            instance_precision = instances_tp/instances_count
-            
-            print('{} Segment: [{:.1f},{:.1f}], {:d} frames, Registration recall: {:.3f}, Avg. RMSE: {:.3f}, Instance precision: {:.3f}'.format(
-                segment_names[k],iou_lb, iou_hb, selection.sum(), registration_recall, avg_rmse, instance_precision))            
-                    
+            instance_precision = instances_tp / instances_count
+
+            print(
+                "{} Segment: [{:.1f},{:.1f}], {:d} frames, Registration recall: {:.3f}, Avg. RMSE: {:.3f}, Instance precision: {:.3f}".format(
+                    segment_names[k],
+                    iou_lb,
+                    iou_hb,
+                    selection.sum(),
+                    registration_recall,
+                    avg_rmse,
+                    instance_precision,
+                )
+            )
+
 
 class InstanceEvaluator:
     def __init__(self):
@@ -402,8 +413,9 @@ def read_frames_map(gt_scene_folder):
 
     for file in gt_maps:
         frame_name = os.path.basename(file).split(".")[0]
-        if 'frame' not in file:continue
-        frame_id = int(frame_name.split("-")[-1])
+        if "frame" not in file:
+            continue
+        frame_id = int(frame_name.split("-")[-1][:6])
         # frames_map[frame_name] = file
         frames_map["indices"].append(frame_id)
         frames_map["dirs"].append(file)
@@ -510,6 +522,7 @@ def write_eval_data(outdir, tp_instances, count_instances, rmse_list, iou):
         f.close()
         return True
 
+
 # Required data structure:
 # |-- ${dataroot}
 #     |-- output
@@ -532,17 +545,22 @@ def eval_online_loop(
     INSTANCE_RADIUS = 1.0
     CONSIDER_IOU = consider_iou
     EVAL_COMM = True
+    RMSE_THRESHOLD = 0.1
     print("Evaluate online loop results")
 
     broadcast_runtime = TimeAnalysis(["SgCreate SgEncode Pub"])
     map_runtime = TimeAnalysis(["Load SemanticMapping"])
-    coarse_loop_runtime = TimeAnalysis(["Subscribe ShapeEncoder C-Match D-Match Reg I/O"])
-    dense_loop_runtime = TimeAnalysis(["Subscribe ShapeEncoder C-Match D-Match Reg I/O"])
+    coarse_loop_runtime = TimeAnalysis(
+        ["Subscribe ShapeEncoder ShapeTotal C-Match D-Match Reg I/O"]
+    )
+    dense_loop_runtime = TimeAnalysis(
+        ["Subscribe ShapeEncoder ShapeTotal C-Match D-Match Reg I/O"]
+    )
     coarse_evaluator = RegistrationEvaluator()
     dense_evaluator = RegistrationEvaluator()
     bw_evaluator = BandwidthEvaluator()
-    
-    summary_header = ['tp','count','rmse','dense','iou']
+
+    summary_header = ["tp", "count", "rmse", "dense", "iou"]
     summary_data = []
 
     for pair in scan_pairs:
@@ -564,22 +582,23 @@ def eval_online_loop(
             )
             map_runtime.add_frame_data(map_timing)
             broadcast_runtime.add_frame_data(broadcast_timing, True)
-            
-            dense_frame_mask = loop_timing[:,1] > 50.0
-            if dense_frame_mask.sum()>0:
-                dense_loop_runtime.add_frame_data(loop_timing[dense_frame_mask],False)
+
+            dense_frame_mask = loop_timing[:, 1] > 50.0
+            if dense_frame_mask.sum() > 0:
+                dense_loop_runtime.add_frame_data(loop_timing[dense_frame_mask], False)
                 loop_timing = loop_timing[~dense_frame_mask]
             coarse_loop_runtime.add_frame_data(loop_timing, False)
 
         if CONSIDER_IOU:
-            ref_maps = read_frames_map(
-                os.path.join(dataroot, "output", "gt_iou", pair[1])
-            )
+            # ref_maps = read_frames_map(os.path.join(dataroot, "output", "gt_iou", pair[1]))
+            ref_maps = read_frames_map(os.path.join(output_folder, pair[1],'fakeScene'))
 
         if EVAL_COMM:
             bw_evaluator.update(os.path.join(output_folder, pair[0], "sub_logs.txt"))
 
-        loop_frames = glob.glob(os.path.join(output_folder, pair[0], pair[1], "frame*.txt"))
+        loop_frames = glob.glob(
+            os.path.join(output_folder, pair[0], pair[1], "frame*.txt")
+        )
         loop_frames = sorted(loop_frames)
 
         gt_pose = np.loadtxt(
@@ -591,45 +610,70 @@ def eval_online_loop(
         instance_tp = []
         instance_count = []
         rmse_list = []
+        ir_list = []
 
         for frame in loop_frames:
-            if 'cmatches' in frame: continue
+            if "cmatches" in frame:
+                continue
             src_frame_name = os.path.basename(frame).split(".")[0]
             src_pcd = o3d.io.read_point_cloud(
                 os.path.join(
-                    output_folder, pair[0], pair[1], "{}_src.ply".format(src_frame_name))
+                    output_folder, pair[0], pair[1], "{}_src.ply".format(src_frame_name)
+                )
             )
 
-            pred_pose, src_centroids, ref_centroids, ref_timestamp = read_match_centroid_result(frame)
+            (
+                pred_pose,
+                src_centroids,
+                ref_centroids,
+                ref_timestamp,
+            ) = read_match_centroid_result(frame)
             if ref_timestamp is not None:
-                ref_frame_id = int((ref_timestamp - 12000.0)/0.1)
+                ref_frame_id = int((ref_timestamp - 12000.0) / 0.1)
             else:
                 ref_frame_id = int(-1)
-            
+
             inst_pre, inst_mask = evaluate_fine(
                 src_centroids, ref_centroids, gt_pose, acceptance_radius=INSTANCE_RADIUS
             )
             rmse = eval_registration_error(src_pcd, pred_pose, gt_pose)
             msg = "{}: {}/{} true instance matches, rmse {:.3f}".format(
-                    src_frame_name, inst_mask.sum(), len(src_centroids), rmse)
-            frame_data = [inst_mask.sum().item(),len(src_centroids), rmse.float().item()]
-            
-            src_corr_dir = os.path.join(output_folder,pair[0],pair[1],"{}_csrc.ply".format(src_frame_name))
-            ref_corr_dir = os.path.join(output_folder,pair[0],pair[1],"{}_cref.ply".format(src_frame_name)) 
+                src_frame_name, inst_mask.sum(), len(src_centroids), rmse
+            )
+            frame_data = [
+                inst_mask.sum().item(),
+                len(src_centroids),
+                rmse.float().item(),
+            ]
+
+            src_corr_dir = os.path.join(
+                output_folder, pair[0], pair[1], "{}_csrc.ply".format(src_frame_name)
+            )
+            ref_corr_dir = os.path.join(
+                output_folder, pair[0], pair[1], "{}_cref.ply".format(src_frame_name)
+            )
             if os.path.exists(src_corr_dir) and os.path.exists(ref_corr_dir):
-                msg += " dense "  
+                msg += " dense "
                 dense_mode = True
-                frame_data.append(1)          
+                frame_data.append(1)
+                
+                corr_src_pcd = o3d.io.read_point_cloud(src_corr_dir)
+                corr_ref_pcd = o3d.io.read_point_cloud(ref_corr_dir)
+                precision, corr_tp_mask = evaluate_fine(np.asarray(corr_src_pcd.points),
+                                                        np.asarray(corr_ref_pcd.points),
+                                                        gt_pose,
+                                                        acceptance_radius=RMSE_THRESHOLD)
+                ir_list.append(precision)
             else:
                 msg += " coars "
                 dense_mode = False
                 frame_data.append(0)
-            
+
             if ref_frame_id > 0:
                 msg += " refFrame:{}".format(ref_frame_id)
-            
+
             if CONSIDER_IOU:
-                if ref_frame_id>0:
+                if ref_frame_id > 0:
                     # frame_id = int(src_frame_name.split("-")[-1])
                     ref_map_dir = find_closet_index(
                         ref_maps["indices"], ref_maps["dirs"], ref_frame_id
@@ -640,25 +684,30 @@ def eval_online_loop(
                     iou, _ = compute_cloud_overlap(src_pcd, ref_pcd, 0.2)
                     msg += ", iou: {:.3f}".format(iou)
                     if dense_mode:
-                        dense_evaluator.update(inst_mask.sum().item(),
-                                                  len(src_centroids), 
-                                                  rmse.float().item(), 
-                                                  iou)
+                        dense_evaluator.update(
+                            inst_mask.sum().item(),
+                            len(src_centroids),
+                            rmse.float().item(),
+                            iou,
+                        )
                     else:
-                        coarse_evaluator.update(inst_mask.sum().item(), 
-                                               len(src_centroids), 
-                                               rmse.float().item(), 
-                                               iou)
-                    
+                        coarse_evaluator.update(
+                            inst_mask.sum().item(),
+                            len(src_centroids),
+                            rmse.float().item(),
+                            iou,
+                        )
+
                 else:
                     iou = -1.0
             else:
                 iou = -1.0
             frame_data.append(iou)
-                
-            if np.allclose(pred_pose[:3,:3], np.eye(3)):
-                msg += " tOnly"
-                
+
+            if np.allclose(pred_pose[:3, :3], np.eye(3)):
+                msg += " nanPred"
+            
+            if dense_mode: msg+= " IR: {:.3f}".format(precision)
             print(msg)
 
             # I/O
@@ -676,90 +725,114 @@ def eval_online_loop(
                 rmse_list,
                 ious,
             )
-        
-        # break
+
+        break
+    
     # Runtime summary
     map_runtime.analysis(verbose=True)
     broadcast_runtime.analysis(verbose=True)
     coarse_loop_runtime.analysis(verbose=True)
     dense_loop_runtime.analysis(verbose=True)
-    
-    if len(summary_data)>0:
-        
-        coarse_evaluator.analysis('------ Coarse Mode Loop Evaluation-----')
-        dense_evaluator.analysis('------ Dense Mode Loop Evaluation-----')
-        
-        bw_evaluator.get_bandwidth()
-        
-        summary_data = np.vstack(summary_data)
-        np.savetxt(os.path.join(output_folder, "summary.csv"), 
-                   summary_data, 
-                   delimiter=',', 
-                   header=','.join(summary_header), 
-                   fmt='%.3f')
 
+    if len(summary_data) > 0:
+
+        coarse_evaluator.analysis("------ Coarse Mode Loop Evaluation-----")
+        dense_evaluator.analysis("------ Dense Mode Loop Evaluation-----")
+
+        bw_evaluator.get_bandwidth()
+
+        summary_data = np.vstack(summary_data)
+        np.savetxt(
+            os.path.join(output_folder, "summary.csv"),
+            summary_data,
+            delimiter=",",
+            header=",".join(summary_header),
+            fmt="%.3f",
+        )
+
+    if len(ir_list)>0:
+        ir_list = np.array(ir_list)
+        print('IR mean: {:.3f}'.format(ir_list.mean()))
 
 def eval_offline_register(
-    export_folder, gt_folder, scan_pairs, consider_iou = False, gt_iou_folder=None
+    export_folder,
+    gt_folder,
+    scan_pairs,
+    consider_iou=False,
+    result_folder = None,
+    verbose=True,
 ):
-    
+
     coarse_evaluator = RegistrationEvaluator()
     dense_evaluator = RegistrationEvaluator()
-    
+
     for pair in scan_pairs:
-        print('---------- Eval {}-{} ------------'.format(pair[0],pair[1]))
-        pair_export_folder = os.path.join(export_folder, pair[0]+'-'+pair[1])
-        gt_pose = np.loadtxt(os.path.join(gt_folder,'{}-{}.txt'.format(pair[0],pair[1])))
+        if verbose:
+            print("---------- Eval {}-{} ------------".format(pair[0], pair[1]))
+        pair_export_folder = os.path.join(export_folder, pair[0] + "-" + pair[1])
+        gt_pose = np.loadtxt(
+            os.path.join(gt_folder, "{}-{}.txt".format(pair[0], pair[1]))
+        )
         frame_files = glob.glob(pair_export_folder + "/frame*.txt")
-        
+
         if consider_iou:
-            assert(gt_iou_folder is not None)
-            ref_maps = read_frames_map(os.path.join(gt_iou_folder, pair[1]))
-        
+            ref_maps = read_frames_map(os.path.join(result_folder,pair[1],'fakeScene'))
+            # assert gt_iou_folder is not None
+            # ref_maps = read_frames_map(os.path.join(gt_iou_folder, pair[1]))
+
         for frame_file in sorted(frame_files):
-            if 'cmatches' in frame_file:continue
-            if 'newpose' in frame_file:continue
-            print('Eval frame: {}'.format(frame_file))
-            msg = '{} '.format(frame_file.split('/')[-1].split('.')[0])
-            pred_pose, src_centroids, ref_centroids, ref_timestamp = read_match_centroid_result(frame_file)
-            pred_pose = np.loadtxt(frame_file[:-4]+'_newpose.txt')
+            if "cmatches" in frame_file:
+                continue
+            if "newpose" in frame_file:
+                continue
+            if verbose:
+                print("Eval frame: {}".format(frame_file))
+            msg = "{} ".format(frame_file.split("/")[-1].split(".")[0])
+            (
+                pred_pose,
+                src_centroids,
+                ref_centroids,
+                ref_timestamp,
+            ) = read_match_centroid_result(frame_file)
+            pred_pose = np.loadtxt(frame_file[:-4] + "_newpose.txt")
             # print('new pose: \n', pred_pose_new)
-            print('todo: replace with the new pose to evaluate')
-            
-            ref_frame_id = int((ref_timestamp - 12000.0)/0.1)
+            # print('todo: replace with the new pose to evaluate')
 
-            src_pcd = o3d.io.read_point_cloud(frame_file[:-4]+'_src.ply')
+            ref_frame_id = int((ref_timestamp - 12000.0) / 0.1)
+
+            src_pcd = o3d.io.read_point_cloud(frame_file[:-4] + "_src.ply")
             rmse = eval_registration_error(src_pcd, pred_pose, gt_pose)
-            frame_data = [0,len(src_centroids), rmse.float().item()]
+            frame_data = [0, len(src_centroids), rmse.float().item()]
 
-            src_corr_dir = frame_file[:-4]+'_csrc.ply'
-            ref_corr_dir = frame_file[:-4]+'_cref.ply'
-            
+            src_corr_dir = frame_file[:-4] + "_csrc.ply"
+            ref_corr_dir = frame_file[:-4] + "_cref.ply"
+
             if consider_iou:
                 ref_map_dir = find_closet_index(
-                    ref_maps["indices"], ref_maps["dirs"], ref_frame_id)
+                    ref_maps["indices"], ref_maps["dirs"], ref_frame_id
+                )
 
                 ref_pcd = o3d.io.read_point_cloud(ref_map_dir)
                 src_pcd.transform(gt_pose)
                 iou, _ = compute_cloud_overlap(src_pcd, ref_pcd, 0.2)
             else:
                 iou = 0.99
-                
+
             if os.path.exists(src_corr_dir) and os.path.exists(ref_corr_dir):
                 dense_mode = True
-                dense_evaluator.update(0,len(src_centroids),rmse,iou)
-                msg += 'dense mode '
+                dense_evaluator.update(0, len(src_centroids), rmse, iou)
+                msg += "dense mode "
             else:
                 dense_mode = False
-                coarse_evaluator.update(0,len(src_centroids),rmse,iou)
-                msg += 'coars mode '
-            msg += 'rmse: {:.3f}, iou: {:.3f}'.format(rmse,iou)
-            print(msg)
+                coarse_evaluator.update(0, len(src_centroids), rmse, iou)
+                msg += "coars mode "
+            msg += "rmse: {:.3f}, iou: {:.3f}".format(rmse, iou)
+            if verbose:
+                print(msg)
     # Summary
-    
-    coarse_evaluator.analysis('*** Summary coarse registrations ***')
-    dense_evaluator.analysis('*** Summary dense registrations ***')
-    
+
+    coarse_evaluator.analysis("*** Summary coarse registrations ***")
+    dense_evaluator.analysis("*** Summary dense registrations ***")
 
 
 def summary_registration_result(scan_pairs, output_folder):

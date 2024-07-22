@@ -42,8 +42,10 @@ namespace fmfusion
                                         torch::Tensor coarse_features);
 
         /// Concatenate the point cloud and instance points from two scene graphs to encode.
-        bool encode_concat_sgs(const std::string &ref_name, const int &Nr, const DataDict& ref_data_dict,
+        bool encode_concat_sgs(const std::string &ref_name, 
+                                const int &Nr, const DataDict& ref_data_dict,
                                 const int& Ns, const DataDict& src_data_dict,
+                                float &encoding_time,
                                 bool fused=false);
 
         int match_nodes(const std::string &ref_name,

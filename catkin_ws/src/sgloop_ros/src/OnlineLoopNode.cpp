@@ -13,6 +13,7 @@
 
 #include "tools/Utility.h"
 #include "tools/IO.h"
+#include "tools/Eval.h"
 #include "tools/g3reg_api.h"
 #include "tools/TicToc.h"
 #include "mapping/SemanticMapping.h"
@@ -238,13 +239,21 @@ int main(int argc, char **argv)
     bool prune_instances = nh_private.param("prune_instances", true);
     bool debug_mode = nh_private.param("debug_mode", false);
     bool icp_refine = nh_private.param("icp_refine",false);
-    int pose_average_window = nh_private.param("pose_average_size",5);
+    int pose_average_window = nh_private.param("pose_average_size",0);
     bool save_corr = nh_private.param("save_corr",true);
     int o3d_verbose_level = nh_private.param("o3d_verbose_level", 2);
     float sliding_widow_translation = nh_private.param("sliding_widow_translation", 100.0);
     float cool_down_sleep = nh_private.param("cool_down_sleep", -1.0);
     bool enable_tf_br = nh_private.param("enable_tf_br", false);
     bool create_gt_iou = nh_private.param("create_gt_iou", false);
+    std::string gt_ref_src_file = nh_private.param("gt_ref_src", std::string("")); // gt T_src_ref
+
+    // G3reg params
+    double verify_voxel = nh_private.param("g3reg/verify_voxel", 0.5);
+    double search_radius = nh_private.param("g3reg/search_radius", 0.5);
+    double icp_voxel = nh_private.param("g3reg/icp_voxel", 0.2);
+    double ds_voxel = nh_private.param("g3reg/ds_voxel", 0.5);
+    int ds_num = nh_private.param("g3reg/ds_num", 9);
 
     // Remote agents    
     assert(set_2nd_agent && set_2nd_agent_scene);
@@ -278,6 +287,13 @@ int main(int argc, char **argv)
         br_timer.timer.start();
     }
 
+    //
+    Eigen::Matrix4d gt_T_ref_src = Eigen::Matrix4d::Identity(); // src->ref
+    if(gt_ref_src_file.size()>0){
+        fmfusion::IO::read_transformation(gt_ref_src_file, gt_T_ref_src);
+        ROS_WARN("Read gt T_src_ref from %s", gt_ref_src_file.c_str());
+    }
+    
     // Configs
     fmfusion::Config *global_config;
     DenseMatchConfig dense_m_config;
@@ -323,10 +339,17 @@ int main(int argc, char **argv)
     int broadcast_frame_id = -100;
 
     // G3Reg
-    g3reg::Config config;
+    G3RegAPI::Config config;
     config.set_noise_bounds({0.2, 0.3});
-    config.tf_solver  = "quatro";
+    config.tf_solver = "gnc";
+    config.ds_num = ds_num;
+    config.plane_resolution = verify_voxel;
     config.verify_mtd = "plane_based";
+    config.search_radius = search_radius;
+
+    config.icp_voxel = icp_voxel;
+    config.ds_voxel = ds_voxel;
+
     G3RegAPI g3reg(config);
 
     // Viz
@@ -336,7 +359,7 @@ int main(int argc, char **argv)
     // fmfusion::TimingSequence timing_seq("#FrameID: Load Mapping; SgCreate SgCoarse Pub&Sub ShapeEncoder PointMatch; Match Reg Viz");
     fmfusion::TimingSequence map_timing("FrameID: Load Mapping");
     fmfusion::TimingSequence broadcast_timing("#FrameID: SgCreate Encode Pub");
-    fmfusion::TimingSequence loop_timing("#FrameID: Subscribe ShapeEncoder C-Match D-Match Reg I/O");
+    fmfusion::TimingSequence loop_timing("#FrameID: Subscribe ShapeEncoder ShapeModule C-Match D-Match Reg I/O");
     
     robot_utils::TicToc tic_toc;
     robot_utils::TicToc tictoc_bk;
@@ -515,9 +538,13 @@ int main(int argc, char **argv)
                 { // Shape encode
                     DataDict ref_data_dict = target_graph->extract_data_dict();
                     Nr = ref_data_dict.instances.size();
+                    float shape_encoding_time;
                     bool shape_ret = loop_detector->encode_concat_sgs(target_agent,
                                                     Nr, ref_data_dict, 
-                                                    Ns, src_data_dict, true);
+                                                    Ns, src_data_dict, 
+                                                    shape_encoding_time,
+                                                    true);
+                    loop_timing.record(shape_encoding_time);// shape encode
                     
                     if(shape_ret) { // reset
                         local_coarse_mode = true; // src graph back to coarse mode
@@ -575,30 +602,42 @@ int main(int argc, char **argv)
                     Mp = M;
                 }
                 loop_timing.record(tic_toc.toc());// Point match
+                fmfusion::IO::extract_instance_correspondences(src_graph->get_const_nodes(), 
+                                                            target_graph->get_const_nodes(), 
+                                                            pruned_match_pairs, pruned_match_scores, 
+                                                            src_centroids, ref_centroids);  
 
                 // Pose Estimation
                 Eigen::Matrix4d pred_pose;
                 pred_pose.setIdentity();
                 if(M>global_config->loop_detector.recall_nodes){
                     tictoc_bk.tic();
-                    g3reg.estimate_pose(src_graph->get_const_nodes(),
-                                        target_graph->get_const_nodes(),
-                                        pruned_match_pairs,
-                                        corr_scores_vec,
+                    std::cout<<"Run G3Reg with "<<corr_src_points.size()<<" points\n";
+                    g3reg.estimate_pose(src_centroids, 
+                                        ref_centroids,
                                         corr_src_points,
                                         corr_ref_points,
+                                        corr_scores_vec,
                                         src_cloud_ptr,
-                                        ref_cloud_ptr,
-                                        pred_pose);
+                                        ref_cloud_ptr);
+                    pred_pose = g3reg.reg_result.tf;
+                    if((pred_pose - Eigen::Matrix4d::Identity()).norm()<1e-3){
+                        ROS_WARN("G3Reg calles a failed registration.");
+                        // Cancel the called loop
+                        M  = 0;
+                        Mp = 0;
+                        target_dense_m.coarse_loop_number --;
+                    }
                     // std::cout<<"Pose estimation takes "<<tictoc_bk.toc()<<" ms\n";
-
+                
                     if(icp_refine && ref_cloud_ptr->HasPoints()){
                         if(!ref_cloud_ptr->HasNormals()) ref_cloud_ptr->EstimateNormals();
                         pred_pose = g3reg.icp_refine(src_cloud_ptr, ref_cloud_ptr, pred_pose);
                         ROS_WARN("ICP refine pose");
                     } 
 
-                    if(pose_average_window>1){
+                    if(pose_average_window>1){ // abandon
+                        assert(false);
                         tictoc_bk.tic();
                         gtsam::Pose3 cur_pred_pose(gtsam::Rot3(pred_pose.block<3,3>(0,0)),
                                                     gtsam::Point3(pred_pose.block<3,1>(0,3)));
@@ -630,10 +669,7 @@ int main(int argc, char **argv)
                 // I/O
                 std::vector <std::pair<fmfusion::InstanceId, fmfusion::InstanceId>> match_instances;
                 if(M>global_config->loop_detector.recall_nodes){ //IO
-                    fmfusion::IO::extract_instance_correspondences(src_graph->get_const_nodes(), 
-                                                                target_graph->get_const_nodes(), 
-                                                                pruned_match_pairs, pruned_match_scores, 
-                                                                src_centroids, ref_centroids);                
+              
                     fmfusion::IO::extract_match_instances(pruned_match_pairs, 
                                                         src_graph->get_const_nodes(), 
                                                         target_graph->get_const_nodes(), 
@@ -647,9 +683,21 @@ int main(int argc, char **argv)
                         T_local_remote = Eigen::Matrix4d::Identity();
                     else T_local_remote = viz.Transfrom_local_remote[target_agent];
 
+                    std::vector<bool> pred_masks;
+                    if(gt_ref_src_file.size()>0){
+                        float DIST_THRESHOLD = 0.5;
+                        fmfusion::mark_tp_instances(gt_T_ref_src, 
+                                                    src_centroids, ref_centroids, 
+                                                    pred_masks, DIST_THRESHOLD);
+                    }
+                    else{
+                        pred_masks.resize(src_centroids.size(), true);
+                    }
+
                     Visualization::correspondences(src_centroids, ref_centroids, 
-                                                viz.instance_match,LOCAL_AGENT,{},
+                                                viz.instance_match,LOCAL_AGENT,pred_masks,
                                                 T_local_remote);
+                                                
                     if(viz.src_map_aligned.getNumSubscribers()>0){
                         O3d_Cloud_Ptr aligned_src_pcd_ptr = std::make_shared<open3d::geometry::PointCloud>(*cur_active_instance_pcd);
                         aligned_src_pcd_ptr->Transform(pred_pose);
@@ -662,7 +710,9 @@ int main(int argc, char **argv)
                         O3d_Cloud_Ptr corr_ref_ptr = std::make_shared<open3d::geometry::PointCloud>(corr_ref_points);
                         open3d::io::WritePointCloudToPLY(loop_result_dir+"/"+frame_name+"_csrc.ply", *corr_src_ptr, {});
                         open3d::io::WritePointCloudToPLY(loop_result_dir+"/"+frame_name+"_cref.ply", *corr_ref_ptr, {});
-                        fmfusion::IO::save_corrs_match_indices(corr_match_indices, loop_result_dir+"/"+frame_name+"_cmatches.txt");
+                        fmfusion::IO::save_corrs_match_indices(corr_match_indices, 
+                                                            corr_scores_vec,
+                                                            loop_result_dir+"/"+frame_name+"_cmatches.txt");
                     }
                 }
                 loop_timing.record(tic_toc.toc());// I/O
@@ -674,6 +724,11 @@ int main(int argc, char **argv)
         
         }
         
+        if(seq_id-broadcast_frame_id>loop_duration && secondAgentScene=="fakeScene"){ // Save src pcd
+            open3d::io::WritePointCloudToPLY(output_folder+"/"+sequence_name+"/fakeScene/"+frame_name+"_src.ply", 
+                                            *cur_active_instance_pcd, {});  
+        }    
+
         // Visualization
         if(viz.rgb_image.getNumSubscribers()>0){
             auto rgb_cv = std::make_shared<cv::Mat>(color.height_,color.width_,CV_8UC3);
@@ -681,10 +736,27 @@ int main(int argc, char **argv)
             Visualization::render_image(*rgb_cv, viz.rgb_image, LOCAL_AGENT);
         }
         if(seq_id-broadcast_frame_id>loop_duration){
-            Visualization::instance_centroids(semantic_mapping.export_instance_centroids(sliding_window.get_window_start_frame()),
-                                            viz.src_centroids,LOCAL_AGENT,
+            std::vector<Eigen::Vector3d> src_instance_centroids;
+            std::vector<std::string> src_instance_annotations;
+
+            src_instance_centroids = semantic_mapping.export_instance_centroids(0);
+            src_instance_annotations = semantic_mapping.export_instance_annotations(0);
+            // std::cout<<"Extract "<<src_instance_centroids.size()<<" centroids\n";
+
+            Visualization::instance_centroids(src_instance_centroids,
+                                            viz.src_centroids,
+                                            LOCAL_AGENT,
                                             viz.param.centroid_size,
                                             viz.param.centroid_color);
+            
+            Visualization::node_annotation(src_instance_centroids,
+                                            src_instance_annotations,
+                                            viz.node_annotation,
+                                            LOCAL_AGENT,
+                                            viz.param.annotation_size,
+                                            viz.param.annotation_voffset,
+                                            viz.param.annotation_color);
+
             Visualization::render_point_cloud(cur_active_instance_pcd, viz.src_graph, LOCAL_AGENT);            
             broadcast_frame_id = seq_id;
             if(!render_initiated) ros::Duration(2.0).sleep();

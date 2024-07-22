@@ -175,7 +175,8 @@ void SemanticMapping::update_recent_instances(const int &frame_id,
 
 }
 
-int SemanticMapping::data_association(const std::vector<DetectionPtr> &detections, const std::vector<InstanceId> &active_instances,
+int SemanticMapping::data_association(const std::vector<DetectionPtr> &detections, 
+                                    const std::vector<InstanceId> &active_instances,
                                     Eigen::VectorXi &matches,
                                     std::vector<std::pair<InstanceId,InstanceId>> &ambiguous_pairs)
 {
@@ -548,6 +549,17 @@ std::vector<Eigen::Vector3d> SemanticMapping::export_instance_centroids(int earl
     return centroids;
 }
 
+std::vector<std::string> SemanticMapping::export_instance_annotations(int earliest_frame_id)const
+{
+    std::vector<std::string> annotations;
+    for(const auto &inst:instance_map){
+        if(inst.second->get_cloud_size()>mapping_config.shape_min_points &&
+            inst.second->frame_id_>=earliest_frame_id)
+            annotations.emplace_back(inst.second->get_predicted_class().first);
+    }
+    return annotations;
+}
+
 std::vector<std::shared_ptr<const open3d::geometry::Geometry>> SemanticMapping::get_geometries(bool point_cloud, bool bbox)
 {
     std::vector<std::shared_ptr<const open3d::geometry::Geometry>> viz_geometries;
@@ -759,6 +771,22 @@ void SemanticMapping::export_instances(
     }
     // std::cout<<msg.str()<<"\n";
 }
+
+bool SemanticMapping::query_instance_info(const std::vector<InstanceId> &names,
+                                        std::vector<Eigen::Vector3f> &centroids, 
+                                        std::vector<std::string> &labels)
+{
+    for(auto &name:names){
+        if(instance_map.find(name)==instance_map.end()) continue;
+        auto instance = instance_map[name];
+        centroids.emplace_back(instance->centroid.cast<float>());
+        labels.emplace_back(instance->get_predicted_class().first);
+    }
+
+    if(centroids.size()<1) return false;
+    else return true;
+}
+
 
 int SemanticMapping::merge_other_instances(std::vector<InstancePtr> &instances)
 {

@@ -410,6 +410,7 @@ namespace IO
     };
 
     bool save_corrs_match_indices(const std::vector<int> &corrs_match_indices,
+                                const std::vector<float> &corrs_match_scores,
                                 const std::string &output_file_dir)
     {
         std::ofstream file(output_file_dir);
@@ -418,9 +419,9 @@ namespace IO
             return false;
         }
 
-        file<<std::fixed<<std::setprecision(6);
+        file<<std::fixed<<std::setprecision(2);
         for(int i=0; i<corrs_match_indices.size(); i++){
-            file<<corrs_match_indices[i]<<"\n";
+            file<<corrs_match_indices[i]<<" "<<corrs_match_scores[i]<<std::endl;
         }
 
         file.close();
@@ -428,7 +429,8 @@ namespace IO
     };
 
     bool load_corrs_match_indices(const std::string &corrs_match_indices_file,
-                                std::vector<int> &corrs_match_indices)
+                                std::vector<int> &corrs_match_indices,
+                                std::vector<float> &corrs_match_scores)
     {
         std::ifstream file(corrs_match_indices_file);
         if (!file.is_open()){
@@ -438,7 +440,13 @@ namespace IO
 
         std::string line;
         while(std::getline(file,line)){
-            corrs_match_indices.push_back(std::stoi(line));
+            std::stringstream ss(line);
+            int index;
+            float score;
+            ss>>index>>score;
+            corrs_match_indices.push_back(index);
+            corrs_match_scores.push_back(score);
+            // corrs_match_indices.push_back(std::stoi(line));
         }
 
         std::cout<<"Load "<<corrs_match_indices.size()<<" correspodences match index.\n";
@@ -446,7 +454,88 @@ namespace IO
         file.close();
         return true;
     };
+
+    bool load_node_matches(const std::string &match_file_dir,
+                        std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
+                        std::vector<bool> &match_tp_masks,
+                        std::vector<Eigen::Vector3d> &src_centroids,
+                        std::vector<Eigen::Vector3d> &ref_centroids,
+                        bool verbose)
+    {
+        std::ifstream file(match_file_dir);
+        if (!file.is_open()){
+            std::cerr<<"Failed to open file: "<<match_file_dir<<std::endl;
+            return false;
+        }
+
+        std::string line;
+        while(std::getline(file,line)){
+            int src_id, ref_id;
+            int tp_mask;
+            Eigen::Vector3d src_centroid, ref_centroid;
+            if(line.find("#")!=std::string::npos) continue;
+
+            std::stringstream ss(line);
+            ss>>src_id>>ref_id>>tp_mask;
+            ss>>src_centroid[0]>>src_centroid[1]>>src_centroid[2];
+            ss>>ref_centroid[0]>>ref_centroid[1]>>ref_centroid[2];
+
+            match_pairs.push_back(std::make_pair(src_id,ref_id));
+            if (tp_mask==1) match_tp_masks.push_back(true);
+            else match_tp_masks.push_back(false);
+            src_centroids.push_back(src_centroid);
+            ref_centroids.push_back(ref_centroid);
+        }
+
+        std::cout<<"Load "<<src_centroids.size()<<" correspondences.\n";
+
+        return true;
+    }
     
+    bool load_single_col_mask(const std::string &mask_file_dir, std::vector<bool> &mask)
+    {
+        std::ifstream file(mask_file_dir);
+        if (!file.is_open()){
+            std::cerr<<"Failed to open file: "<<mask_file_dir<<std::endl;
+            return false;
+        }
+
+        std::string line;
+        while(std::getline(file,line)){
+            int mask_val;
+            if(line.find("#")!=std::string::npos) continue;
+            std::stringstream ss(line);
+            ss>>mask_val;
+            if (mask_val==1) mask.push_back(true);
+            else mask.push_back(false);
+        }
+
+        std::cout<<"Load "<<mask.size()<<" mask values.\n";
+
+        return true;
+    }
+
+    bool load_pose_file(const std::string &pose_file_dir, Eigen::Matrix4d &pose)
+    {
+        std::ifstream file(pose_file_dir);
+        if (!file.is_open()){
+            std::cerr<<"Failed to open file: "<<pose_file_dir<<std::endl;
+            return false;
+        }
+
+        std::string line;
+        for(int i=0; i<4; i++){
+            std::getline(file,line);
+            std::stringstream ss(line);
+            for(int j=0; j<4; j++){
+                ss>>pose(i,j);
+            }
+        }
+
+        std::cout<<"Load pose: \n"<<pose<<"\n";
+
+        return true;
+    }
 
 } // namespace name
 

@@ -153,7 +153,7 @@ The mapping node is used to reconstructe 3D semantic instances. It does not cons
 Run the executable program as follow,
 
 ```bash
-./cpp/IntegrateInstanceMap --config ../config/fusion_portable.yaml --root ${FusionPortableRoot}/scans/bday_03 --prediction prediction_no_augment --frame_gap 10 --output ${FusionPortableRoot}/output
+./cpp/IntegrateInstanceMap --config ../config/realsense.yaml --root ${SGSLAM_DATAROOT}/scans/ab0201_03a --prediction prediction_no_augment --frame_gap 2 --output ${SGSLAM_DATAROOT}/output
 ```
 
 The reconstructed instances should be saved int the output folder.

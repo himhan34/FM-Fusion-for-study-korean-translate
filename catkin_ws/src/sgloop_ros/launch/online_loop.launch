@@ -1,21 +1,23 @@
 <launch>
   <!-- agent A,B -->
-  <arg name="agentA_scene" default="uc0111_00a"/>
-  <arg name="agentB_scene" default="uc0111_00b"/>
+  <arg name="agentA_scene" default="ab0201_03c"/>
+  <arg name="agentB_scene" default="ab0201_03a"/>
+  <!-- <arg name="agentA_scene" default="uc0115_00a"/> -->
+  <!-- <arg name="agentB_scene" default="uc0115_00a"/> -->
   <arg name="agentC_scene" default="uc0115_00c"/>
 
   <!-- global settings  -->
   <arg name="dataroot" value="/data2/sgslam"/>
   <arg name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/realsense.yaml"/>
   <arg name="weights_folder" value="/home/cliuci/code_ws/OpensetFusion/torchscript"/>
-  <arg name="loop_duration" value="20"/>
+  <arg name="loop_duration" value="10"/>
   <arg name="sliding_widow_translation" value="30.0"/>
   <arg name="icp_refine" value="true"/>
   <arg name="verbose_level" value="0"/>
-  <arg name="output_folder" value="$(arg dataroot)/output/two_agent+"/>
+  <arg name="output_folder" value="$(arg dataroot)/output/v6"/>
 
   <arg name="agentA_agnetB_x" value="0.0"/>
-  <arg name="agentA_agentB_y" value="0.0"/>
+  <arg name="agentA_agentB_y" value="10.0"/>
   <arg name="agentA_agentB_z" value="0.0"/>
 
   <group ns="viz"> 
@@ -27,6 +29,7 @@
       <param name="centroid_color/r" value="0.0"/>
       <param name="centroid_color/g" value="0.0"/>
       <param name="centroid_color/b" value="0.0"/>
+      <param name="annotation_size" value="0.4"/>
   </group>
 
   <!-- inital tf to enable visulization -->
@@ -38,6 +41,7 @@
     <param name="agentB/x" value="$(arg agentA_agnetB_x)"/>
     <param name="agentB/y" value="$(arg agentA_agentB_y)"/>
     <param name="agentB/z" value="$(arg agentA_agentB_z)"/>
+    <param name="agentB/yaw" value="0.0"/>
 
     <param name="agentC/x" value="0.0"/>
     <param name="agentC/y" value="0.0"/>
@@ -52,10 +56,8 @@
     <param name="active_sequence_dir" value="$(arg dataroot)/scans/$(arg agentA_scene)"/>
     <param name="local_agent" value="agentA"/>
     <param name="second_agent" value="agentB"/>    
-    <param name="third_agent" value="agentC"/>
     <param name="second_agent_scene" value="$(arg agentB_scene)"/>
-    <param name="third_agent_scene" value="$(arg agentC_scene)"/>
-    <param name="frame_gap" value="2"/>
+    <param name="frame_gap" value="5"/>
     <param name="pose_average_size" value="-1"/>
     <param name="loop_duration" value="$(arg loop_duration)"/>
     <param name="visualization" value="1"/>
@@ -64,7 +66,8 @@
     <param name="icp_refine" value="$(arg icp_refine)"/>
     <param name="sliding_widow_translation" value="$(arg sliding_widow_translation)"/>
     <param name="dense_m_loops" value="1"/>
-    <param name="dense_m_frame_gap" value="2000"/>
+    <param name="dense_m_frame_gap" value="200"/>
+    <param name="gt_ref_src" value="$(arg dataroot)/gt/$(arg agentA_scene)-$(arg agentB_scene).txt"/>
   </node>
 
   <node pkg="sgloop_ros" name="agentB" type="OnlineLoop" output="screen" clear_params="true">
@@ -75,7 +78,7 @@
     <param name="local_agent" value="agentB"/>
     <param name="second_agent" value="agentZ"/>    
     <param name="second_agent_scene" value="fakeScene"/>
-    <param name="frame_gap" value="2"/>
+    <param name="frame_gap" value="5"/>
     <param name="loop_duration" value="$(arg loop_duration)"/>
     <param name="broadcast_sleep_time" value="1.0"/>
     <param name="sliding_widow_translation" value="$(arg sliding_widow_translation)"/>
@@ -106,9 +109,6 @@
 
   <node pkg="tf" type="static_transform_publisher" name="link_1st_agent" args="0 0 0 0 0 0 1 world agentA 100" />
   <node pkg="tf" type="static_transform_publisher" name="link_2nd_agent" args="$(arg agentA_agnetB_x) $(arg agentA_agentB_y) $(arg agentA_agentB_z) 0 0 0 1 world agentB 100" />
-  <!-- <node pkg="tf" type="static_transform_publisher" name="link_3rd_agent" args="0 0 0 0 0 0 1 world agentC 100" /> -->
-
-
-  <!-- <node pkg="tf" type="static_transform_publisher" name="link_2nd_agent" args="$(arg offset_x) $(arg offset_y) $(arg offset_z) 0 0 0 1 agentA agentB 100" /> -->
+  <node pkg="tf" type="static_transform_publisher" name="link_baselink" args="0 0 0 0 0 0 1 world base_link 100" />
 
 </launch>

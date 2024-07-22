@@ -58,10 +58,12 @@ namespace IO
                         const std::string &output_file_dir);
 
     bool save_corrs_match_indices(const std::vector<int> &corrs_match_indices,
+                                const std::vector<float> &corrs_match_scores,
                                 const std::string &output_file_dir);
     
     bool load_corrs_match_indices(const std::string &corrs_match_indices_file,
-                                std::vector<int> &corrs_match_indices);
+                                std::vector<int> &corrs_match_indices,
+                                std::vector<float> &corrs_match_scores);
 
     bool load_match_results(const std::string &match_file_dir,
                         Eigen::Matrix4d &pose,
@@ -69,7 +71,18 @@ namespace IO
                         std::vector<Eigen::Vector3d> &src_centroids,
                         std::vector<Eigen::Vector3d> &ref_centroids,
                         bool verbose=false);
-    
+
+    bool load_node_matches(const std::string &match_file_dir,
+                        std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
+                        std::vector<bool> &match_tp_masks,
+                        std::vector<Eigen::Vector3d> &src_centroids,
+                        std::vector<Eigen::Vector3d> &ref_centroids,
+                        bool verbose=false);
+
+    bool load_single_col_mask(const std::string &mask_file_dir, std::vector<bool> &mask);
+
+    bool load_pose_file(const std::string &pose_file_dir, Eigen::Matrix4d &pose);
+
     bool save_pose(const std::string &output_dir, const Eigen::Matrix4d &pose);
 
 }

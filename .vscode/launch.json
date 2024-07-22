@@ -10,9 +10,9 @@
             "args": [
                         "--consider_iou",
                         "--run_mode","online",
-                        "--split_file","multi_agent.txt",
+                        "--split_file","tmp.txt",
                         "--output_folder",
-                        "/data2/sgslam/output/two_agent+"
+                        "/data2/sgslam/output/v6"
                     ]
         },
         {
@@ -120,22 +120,22 @@
                 "${workspaceFolder}/config/realsense.yaml",
                 "--root",
                 // "/data2/matterport3d/v1/scans/EU6Fwq7SyZv",
-                "/data2/sgslam/scans/uc0111_00a",
+                "/data2/sgslam/scans/ab0401_00b",
                 // "/data2/3rscan_raw/10b17957-3938-2467-88a5-9e9254930dad",
                 "--prediction",
                 "prediction_no_augment",
                 // "--association","data_association.txt",
                 // "--trajectory","trajectory.log",
-                // "--max_frames","200",
+                "--max_frames","2000",
                 // "--save_gap","50000",
                 "--frame_gap",
                 "2",
                 // "--subseq","c",
                 "--output",
-                "/data2/sgslam/output/online_mapping",
+                // "/data2/sgslam/output/online_mapping",
                 // "--save_frame_gap","10",
                 // "--global_tsdf"
-                // "/data2/matterport3d/val",
+                "/data2/sgslam/val",
                 // "/data2/ScanNetGraph/train"
             ],
             "stopAtEntry": false,
@@ -164,7 +164,7 @@
             "args": [
                 "--root",
                 // "/data2/r3live/scans/hkust_campus_01_r3live",
-                "/data2/sgslam/scans/uc0204_00c",
+                "/data2/sgslam/scans/ab0401_00b",
                 // "/data2/ScanNet/val/scene0011_01",
                 // "/data2/matterport3d/v1/scans/8194nk5LbLH",
                 // "/data2/3rscan_raw/c12890d8-d3df-2d0d-87cc-da303a47b893",
@@ -177,7 +177,7 @@
                 "--depth_scale",
                 "1000",
                 "--max_depth",
-                "3.0",
+                "4.0",
                 "--resolution",
                 "256",
                 // "--save_pointcloud",

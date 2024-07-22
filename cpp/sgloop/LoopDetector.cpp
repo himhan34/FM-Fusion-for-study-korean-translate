@@ -111,8 +111,11 @@ namespace fmfusion
 
     bool LoopDetector::encode_concat_sgs(const std::string &ref_name,
                                         const int& Nr, const DataDict& ref_data_dict,
-                                        const int& Ns, const DataDict& src_data_dict,bool fused)
+                                        const int& Ns, const DataDict& src_data_dict,
+                                        float &encoding_time,
+                                        bool fused)
     {
+        encoding_time = 0.0;
         if(ref_graphs.find(ref_name)==ref_graphs.end()){
             open3d::utility::LogWarning("Reference graph name not found. Skip encoding");
             return false;
@@ -158,7 +161,10 @@ namespace fmfusion
         torch::Tensor stack_node_knn_features;
 
         shape_encoder->encode(xyz, length_vec, labels, centroids, nodes,
-                            stack_shape_features, stack_node_knn_points, stack_node_knn_features, true);
+                            stack_shape_features, 
+                            stack_node_knn_points, stack_node_knn_features, 
+                            encoding_time,
+                            true);
         
         assert(stack_shape_features.size(0)==Nr+Ns);
         assert(stack_node_knn_points.size(0)==Nr+Ns);

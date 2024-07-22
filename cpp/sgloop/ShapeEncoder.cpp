@@ -35,7 +35,10 @@ namespace fmfusion
     void ShapeEncoder::encode(const std::vector<Eigen::Vector3d> &xyz,  const std::vector<int> &length_vec, 
                               const std::vector<uint32_t> &labels,
                               const std::vector<Eigen::Vector3d> &centroids_, const std::vector<uint32_t> &nodes,
-                              torch::Tensor &node_shape_feats, torch::Tensor &node_knn_points, torch::Tensor &node_knn_feats,
+                              torch::Tensor &node_shape_feats, 
+                              torch::Tensor &node_knn_points, 
+                              torch::Tensor &node_knn_feats,
+                              float &encoding_time,
                               bool use_v2)
     {
         long X = xyz.size();        // point cloud number
@@ -132,7 +135,8 @@ namespace fmfusion
         node_shape_feats = torch::nn::functional::normalize(node_shape_feats, 
                                                             torch::nn::functional::NormalizeFuncOptions().p(2).dim(1));
         timer.Stop();
-        msg << "encode: " << timer.GetDurationInMillisecond() << " ms, ";
+        encoding_time = timer.GetDurationInMillisecond();
+        msg << "encode: " << encoding_time << " ms, ";
 
         //
         timer.Start();

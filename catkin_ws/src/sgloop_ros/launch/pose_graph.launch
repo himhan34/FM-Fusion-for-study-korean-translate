@@ -1,14 +1,16 @@
 <launch>
 
   <arg name="dataroot" value="/data2/sgslam"/>
-  <arg name="agentA_scene" value="uc0107_00a"/>
-  <arg name="agentB_scene" value="uc0107_00b"/>
+  <arg name="agentA_scene" value="uc0204_00a"/>
+  <arg name="agentB_scene" value="uc0204_00b"/>
+  <!-- <arg name="agentA_scene" value="ab0201_03a"/> -->
+  <!-- <arg name="agentB_scene" value="ab0201_03c"/> -->
 
   <!-- x=11 , yaw=3.14 -->
-  <arg name="agentA_agnetB_x" value="4.79"/>
-  <arg name="agentA_agentB_y" value="11.89"/>
-  <arg name="agentA_agentB_z" value="4.14"/>
-  <arg name="agentA_agentB_yaw" value="-1.07"/>
+  <arg name="agentA_agnetB_x" value="10.8"/>
+  <arg name="agentA_agentB_y" value="0.9"/>
+  <arg name="agentA_agentB_z" value="-4"/>
+  <arg name="agentA_agentB_yaw" value="3.14"/>
 
   <group ns="viz">
     <param name="edge_width" value="0.03"/>
@@ -33,16 +35,16 @@
   <node pkg="sgloop_ros" name="agentA" type="PoseGraphNode" output="screen" clear_params="true">
       <param name="src_name" value="agentA"/>
       <param name="ref_name" value="agentB"/>
-      <param name="camera_marker/r" value="1.0"/>
-      <param name="camera_marker/g" value="0.0"/>
-      <param name="camera_marker/b" value="0.0"/>
+      <param name="camera_marker/r" value="0.82"/>
+      <param name="camera_marker/g" value="0.2"/>
+      <param name="camera_marker/b" value="0.82"/>
       <param name="camera_marker/scale" value="0.2"/>
       <param name="camera_marker/line_width" value="0.05"/>
       <param name="pose_graph_folder" value="/data2/sfm/$(arg agentA_scene)-$(arg agentB_scene)/pose_graph"/>
       <param name="src_scene_dir" value="$(arg dataroot)/scans/$(arg agentA_scene)"/>
       <param name="gt_file" value="$(arg dataroot)/gt/$(arg agentA_scene)-$(arg agentB_scene).txt"/>
       <param name="frame_file_name" value="src_poses.txt"/>
-      <param name="ate_threshold" value="4.0"/>
+      <param name="ate_threshold" value="3.0"/>
 
   </node>
 
@@ -50,8 +52,8 @@
       <param name="src_name" value="agentB"/>
       <param name="ref_name" value="agentA"/>
       <param name="camera_marker/r" value="0.0"/>
-      <param name="camera_marker/g" value="0.0"/>
-      <param name="camera_marker/b" value="1.0"/>
+      <param name="camera_marker/g" value="1.0"/>
+      <param name="camera_marker/b" value="0.0"/>
       <param name="camera_marker/scale" value="0.2"/>
       <param name="camera_marker/line_width" value="0.05"/>
       <param name="frame_file_name" value="ref_poses.txt"/>
@@ -64,6 +66,6 @@
   </node>
 
   <node pkg="tf" type="static_transform_publisher" name="link_1st_agent" args="0 0 0 0 0 0 1 world agentA 100" />
-  <node pkg="tf" type="static_transform_publisher" name="link_2nd_agent" args="$(arg agentA_agnetB_x) $(arg agentA_agentB_y) $(arg agentA_agentB_z) -0.016 0.012 -0.511 0.8593 world agentB 100" />
+  <node pkg="tf" type="static_transform_publisher" name="link_2nd_agent" args="$(arg agentA_agnetB_x) $(arg agentA_agentB_y) $(arg agentA_agentB_z) 0 0 1 0 world agentB 100" />
 
 </launch>

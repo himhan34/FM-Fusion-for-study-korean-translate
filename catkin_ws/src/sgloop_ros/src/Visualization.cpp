@@ -15,6 +15,7 @@ namespace Visualization
         src_centroids = nh_private.advertise<visualization_msgs::Marker>("centroids", 1000);
         src_edges = nh_private.advertise<visualization_msgs::Marker>("edges", 1000);
         src_global_map = nh_private.advertise<sensor_msgs::PointCloud2>("global_map", 1000);
+        node_annotation = nh_private.advertise<visualization_msgs::MarkerArray>("node_annotation", 1000);
 
         // Loop
         instance_match = nh_private.advertise<visualization_msgs::Marker>("instance_match", 1000);
@@ -39,6 +40,7 @@ namespace Visualization
         param.centroid_color[0] = nh.param("viz/centroid_color/r", 0.0);
         param.centroid_color[1] = nh.param("viz/centroid_color/g", 0.0);
         param.centroid_color[2] = nh.param("viz/centroid_color/b", 0.0);
+        param.annotation_size = nh.param("viz/annotation_size", 0.2);
 
         // Agents relative transform
         for(auto agent: remote_agents){
@@ -115,7 +117,6 @@ namespace Visualization
                         std::string src_frame_id, 
                         std::vector<bool> pred_masks,
                         Eigen::Matrix4d T_local_remote)
-                        // Eigen::Vector3d t_local_remote)
     {
         if(pub.getNumSubscribers()==0) return false;
         visualization_msgs::Marker marker;
@@ -195,6 +196,46 @@ namespace Visualization
         }
 
         pub.publish(marker);
+        return true;
+    }
+
+    bool node_annotation(const std::vector<Eigen::Vector3d> &centroids,
+                        const std::vector<std::string> &annotations,
+                        ros::Publisher pub, 
+                        std::string frame_id, 
+                        float scale,
+                        float z_offset,
+                        std::array<float,3> color)
+    {
+        if(pub.getNumSubscribers()==0) return false;
+
+        visualization_msgs::MarkerArray marker_array;
+        int N = centroids.size();
+
+        for (int i=0;i<N;i++){
+            visualization_msgs::Marker marker;
+            marker.header.frame_id = frame_id;
+            marker.header.stamp = ros::Time::now();
+            marker.ns = "node_annotation";
+            marker.id = i;
+            marker.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+            marker.action = visualization_msgs::Marker::ADD;
+            marker.pose.orientation.w = 1.0;
+            marker.scale.z = scale;
+            marker.color.a = 1.0;
+            marker.color.r = color[0];
+            marker.color.g = color[1];
+            marker.color.b = color[2];
+            marker.text = annotations[i];
+            marker.pose.position.x = centroids[i].x();
+            marker.pose.position.y = centroids[i].y();
+            marker.pose.position.z = centroids[i].z() + z_offset;
+            marker_array.markers.push_back(marker);
+        }
+
+        // std::cout<<"Publish "<<marker_array.markers.size()<<" annotations."<<std::endl;
+        pub.publish(marker_array);
+
         return true;
     }
 

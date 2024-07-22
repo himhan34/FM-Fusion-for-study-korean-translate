@@ -6,7 +6,8 @@
 namespace fmfusion
 {
     
-    int maks_true_instance(const std::string &gt_file_dir, const std::vector<std::pair<uint32_t,uint32_t>> &pred_instances,
+    int maks_true_instance(const std::string &gt_file_dir, 
+                            const std::vector<std::pair<uint32_t,uint32_t>> &pred_instances,
                             std::vector<bool> &pred_masks)
                             // std::string &msg)
     {
@@ -48,6 +49,27 @@ namespace fmfusion
         return count_true;
     }    
 
+    int mark_tp_instances(const Eigen::Matrix4d & gt_pose,
+                        const std::vector<Eigen::Vector3d> &src_centroids,
+                        const std::vector<Eigen::Vector3d> &ref_centroids,
+                        std::vector<bool> &pred_masks,
+                        float dist_threshold = 0.5)
+    {
+        int M = ref_centroids.size();
+        int count_tp = 0;
+        for (int i=0; i<M; i++){
+            Eigen::Vector3d aligned_src
+                = gt_pose.block<3,3>(0,0)*src_centroids[i]+gt_pose.block<3,1>(0,3);
+            double dist = (ref_centroids[i] - aligned_src).norm();
+            if(dist<dist_threshold){
+                pred_masks.push_back(true);
+                count_tp++;
+            }
+            else pred_masks.push_back(false);
+        }
+        
+        return count_tp;
+    }
 
 } // namespace fmfusion
 

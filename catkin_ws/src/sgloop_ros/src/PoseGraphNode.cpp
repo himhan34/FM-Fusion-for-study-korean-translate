@@ -10,8 +10,29 @@
 
 #include "Visualization.h"
 #include "utility/CameraPoseVisualization.h"
+#include "mapping/SemanticMapping.h"
+#include "sgloop/Graph.h"
 
 typedef std::pair<std::string, std::string> LoopPair;
+
+bool read_entire_camera_poses(const std::string &scene_folder,
+                        std::vector<Eigen::Matrix4d> &src_poses_map)
+{
+    std::vector<fmfusion::IO::RGBDFrameDirs> src_rgbds;
+    std::vector<Eigen::Matrix4d> src_poses;
+
+    bool read_ret = fmfusion::IO::construct_preset_frame_table(
+        scene_folder,"data_association.txt","trajectory.log",src_rgbds,src_poses);
+    if(!read_ret) {
+        return false;
+    }
+
+    for (int i=0;i<src_rgbds.size();i++){
+        src_poses_map.push_back(src_poses[i]);
+    }
+
+    return true;
+}
 
 bool read_entire_camera_poses(const std::string &scene_folder,
                         std::unordered_map<std::string, Eigen::Matrix4d> &src_poses_map)
@@ -27,7 +48,7 @@ bool read_entire_camera_poses(const std::string &scene_folder,
 
     for (int i=0;i<src_rgbds.size();i++){
         std::string frame_name = open3d::utility::filesystem::GetFileNameWithoutDirectory(src_rgbds[i].first);
-        std::cout<<frame_name<<std::endl;
+        // std::cout<<frame_name<<std::endl;
         src_poses_map[src_rgbds[i].first] = src_poses[i];
     }
 
@@ -135,6 +156,18 @@ bool read_pose_file(const std::string &pose_file_dir,
     return true;
 }
 
+std::vector<bool> sampling_mask(int N, float ratio)
+{
+    std::vector<bool> mask(N, false);
+    int num = N * ratio;
+    for (int i=0;i<num;i++){
+        mask[i] = true;
+    }
+    std::random_shuffle(mask.begin(), mask.end());
+    return mask;
+}
+
+
 int main(int argc, char **argv)
 {
     using namespace open3d::utility;
@@ -148,59 +181,146 @@ int main(int argc, char **argv)
     ros::Publisher loop_edge_pub = nh_private.advertise<visualization_msgs::Marker>("loop_edge", 1000);
     std::string src_name, ref_name;
     std::string src_scene_dir;
+    std::string scene_result_folder;
     std::string loop_file;
     float camera_color[4];
 
+    // Params
     nh_private.getParam("src_name", src_name);
     nh_private.getParam("ref_name", ref_name);
     nh_private.getParam("src_scene_dir", src_scene_dir);
+    nh_private.getParam("scene_result_folder", scene_result_folder);
     camera_color[0] = nh_private.param("camera_marker/r", 1.0);
     camera_color[1] = nh_private.param("camera_marker/g", 0.0);
     camera_color[2] = nh_private.param("camera_marker/b", 0.0);
     camera_color[3] = nh_private.param("camera_marker/a", 1.0);
+
     float camera_scale = nh_private.param("camera_marker/scale", 0.1);
     float camera_line_width = nh_private.param("camera_marker/line_width", 0.01);
     float ate_threshold = nh_private.param("ate_threshold", 0.5);
     bool map_only = nh_private.param("map_only", false);
+    int iter_num = nh_private.param("iter_num", 2);
+    bool dense_corr = nh_private.param("dense_corr", false);
+    std::string map_name = nh_private.param("map_name", std::string("mesh_o3d.ply"));
     std::string pose_graph_folder = nh_private.param("pose_graph_folder", std::string(""));
     std::string gt_file = nh_private.param("gt_file", std::string(""));
     std::string frame_file_name = nh_private.param("frame_file_name", std::string("src_poses.txt"));
+    float corr_sampling_ratio = nh_private.param("corr_sampling_ratio", 0.1);
 
     // 
     Eigen::Vector3d t_src_ref;
     Eigen::Matrix4d T_src_ref_viz = Eigen::Matrix4d::Identity(); // src->ref incorporated for vizualization
 
-    t_src_ref[0] = nh.param("br/"+ref_name+"/x", 0.0);
-    t_src_ref[1] = nh.param("br/"+ref_name+"/y", 0.0);
-    t_src_ref[2] = nh.param("br/"+ref_name+"/z", 0.0);
-    float yaw_src_ref = nh.param("br/"+ref_name+"/yaw", 0.0);
-    T_src_ref_viz.block<3,1>(0,3) = t_src_ref;
-    T_src_ref_viz.block<3,3>(0,0) = Eigen::AngleAxisd(yaw_src_ref, Eigen::Vector3d::UnitZ()).toRotationMatrix();
-
+    { // Load src->ref transformation
+        t_src_ref[0] = nh.param("br/"+ref_name+"/x", 0.0);
+        t_src_ref[1] = nh.param("br/"+ref_name+"/y", 0.0);
+        t_src_ref[2] = nh.param("br/"+ref_name+"/z", 0.0);
+        float yaw_src_ref = nh.param("br/"+ref_name+"/yaw", 0.0);
+        T_src_ref_viz.block<3,1>(0,3) = t_src_ref;
+        T_src_ref_viz.block<3,3>(0,0) = Eigen::AngleAxisd(yaw_src_ref, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+    }
+    
     // Init viz tool
     Visualization::Visualizer viz(nh, nh_private);
     CameraPoseVisualization camera_pose_viz_Src(camera_color[0], camera_color[1], camera_color[2], camera_color[3]);
     camera_pose_viz_Src.setScale(camera_scale);
     camera_pose_viz_Src.setLineWidth(camera_line_width);
+    std::vector<Eigen::Vector3d> src_centroids_m, ref_centroids_m;
+    std::vector<Eigen::Vector3d> src_corrs_points, ref_corrs_points;
+    std::vector<bool> corr_mask;
+    std::vector<std::pair<uint32_t,uint32_t>> node_pairs;
+    std::vector<bool> node_tp_masks;
 
     // Load map
-    auto src_pcd = open3d::io::CreatePointCloudFromFile(src_scene_dir+"/mesh_o3d.ply");
+    Eigen::Matrix4d T_gt_ref_src;        
+    std::vector<Eigen::Vector3d> src_centroids;
+    std::shared_ptr<open3d::geometry::PointCloud> global_src_pcd;
+    global_src_pcd = open3d::io::CreatePointCloudFromFile(src_scene_dir+"/"+map_name);
+    std::cout<<"Global map has "<<global_src_pcd->points_.size()<<" points, "
+            <<"It is loaded  "<<src_scene_dir+"/"+map_name<<std::endl;
 
     // Visualization
     std_msgs::Header header_msg;
     header_msg.frame_id = src_name;
     header_msg.stamp = ros::Time::now();
 
-    // Load pose graph
-    if(map_only){
-        std::cout<<"Display map only!\n";
+    // Load
+    if(map_only){ // matches only
+        using namespace fmfusion;
+        std::vector<InstanceId> src_names;
+        std::vector<InstancePtr> src_instances;   
+        std::string config_file;
+
+        bool set_cfg = nh_private.getParam("cfg_file", config_file);
+        assert(set_cfg);
+        Config *sg_config = utility::create_scene_graph_config(config_file, true);
+        if(gt_file.size()>0){
+            read_pose_file(gt_file, T_gt_ref_src); // gt src->ref
+        }
+        else T_gt_ref_src.setIdentity();
+        std::cout<<"Load scene relative pose from "<<gt_file<<std::endl;
+
+        auto src_mapping = std::make_shared<SemanticMapping>(SemanticMapping(sg_config->mapping_cfg,sg_config->instance_cfg));
+        src_mapping->load(src_scene_dir);
+        src_mapping->extract_bounding_boxes();
+        src_mapping->export_instances(src_names,src_instances);
+
+
+        auto src_graph = std::make_shared<Graph>(sg_config->graph);
+        src_graph->initialize(src_instances);
+        src_graph->construct_edges();
+        src_graph->construct_triplets();
+
+        global_src_pcd->Clear();
+        src_centroids = src_graph->get_centroids();
+        global_src_pcd = src_graph->extract_global_cloud();
+        for(auto &center:src_centroids){
+            center = T_gt_ref_src.block<3,3>(0,0) * center + T_gt_ref_src.block<3,1>(0,3);
+        }
+
+        global_src_pcd->Transform(T_gt_ref_src);
+
+        if(scene_result_folder.size()>0){ // Load node match results
+            std::cout<<"Load match results from "<<scene_result_folder<<std::endl;
+            fmfusion::IO::load_node_matches(scene_result_folder+"/node_matches.txt",
+                                            node_pairs, node_tp_masks,
+                                            src_centroids_m, ref_centroids_m);
+            if(dense_corr){
+                auto corr_src_pcd = open3d::io::CreatePointCloudFromFile(scene_result_folder+"/corr_src.ply");
+                auto corr_ref_pcd = open3d::io::CreatePointCloudFromFile(scene_result_folder+"/corr_ref.ply");
+                auto src_corrs_points_ = corr_src_pcd->points_;
+                auto ref_corrs_points_ = corr_ref_pcd->points_;
+                std::vector<bool> corr_mask_;
+                std::cout<<"Load "<<src_corrs_points_.size()<<" dense correspondences"<<std::endl;
+
+                if(!fmfusion::IO::load_single_col_mask(scene_result_folder+"/corres_pos.txt",corr_mask_))
+                {
+                    corr_mask_.resize(src_corrs_points_.size(), true);
+                    std::cout<<"Set all point correspondences as correct"<<std::endl;
+                }
+
+                int C = src_corrs_points_.size();
+                std::vector<bool> corr_samples = sampling_mask(C, corr_sampling_ratio);
+                for (int k=0;k<C;k++){ // sampling mask
+                    if(corr_samples[k]){
+                        src_corrs_points.push_back(src_corrs_points_[k]);
+                        ref_corrs_points.push_back(ref_corrs_points_[k]);
+                        corr_mask.push_back(corr_mask_[k]);
+                    }
+
+
+                }
+
+            }
+
+        }
+
     }
-    else if (pose_graph_folder.size()<1){
+    else if (pose_graph_folder.size()<1){ // Seperate pose graph
         std::cout<<"No loop pose graph. Render sequence full pose graph."<<std::endl;
-    
         std::unordered_map<std::string, Eigen::Matrix4d> src_poses;
         bool read_ret = read_entire_camera_poses(src_scene_dir, src_poses);
-        std::cout<<"Load "<<src_poses.size()<<" poses"<<std::endl;
+        std::cout<<"Load "<<src_poses.size()<<" poses"<<std::endl;    
 
         for(const auto &pose:src_poses){
             Eigen::Vector3d p = pose.second.block<3,1>(0,3);
@@ -208,13 +328,12 @@ int main(int argc, char **argv)
             camera_pose_viz_Src.add_pose(p, q);
         }
     }
-    else{
+    else{ // Aligned pose graph
         std::cout<<"Render loop pose graph from file: "<<pose_graph_folder<<std::endl;
         std::unordered_map<std::string, Eigen::Matrix4d> src_frames_poses, ref_frames_poses;
         std::vector<LoopPair> loop_pairs;
         std::vector<Eigen::Matrix4d> loop_transformations;
         std::vector<Eigen::Vector3d> src_positions, ref_positions;
-        Eigen::Matrix4d T_gt_ref_src;        
 
         CameraPoseVisualization camera_pose_pnp_true(0.0, 1.0, 0.0, 1.0);
         CameraPoseVisualization camera_pose_pnp_false(1.0, 0.0, 0.0, 1.0);
@@ -261,7 +380,6 @@ int main(int argc, char **argv)
                                         Eigen::Quaterniond(frame_pose.second.block<3,3>(0,0)));
         }        
     
-        // for (const LoopPair &loop_pair:loop_pairs){ // Loops
         for (int loop_id=0;loop_id<loop_pairs.size();loop_id++){
             LoopPair loop_pair = loop_pairs[loop_id];
             std::string src_frame = loop_pair.first;
@@ -313,9 +431,33 @@ int main(int argc, char **argv)
     }
 
     // Pub    
-    for (int i=0;i<2;i++){
+    for (int i=0;i<iter_num ;i++){
         camera_pose_viz_Src.publish_by(src_camera_pose_pub, header_msg);        
-        Visualization::render_point_cloud(src_pcd, viz.src_global_map, src_name);
+        Visualization::render_point_cloud(global_src_pcd, viz.src_global_map, src_name);
+
+        std::vector<Eigen::Matrix4d> src_poses_viz;
+        read_entire_camera_poses(src_scene_dir, src_poses_viz);
+        std::cout<<"Generate path from "<<src_poses_viz.size()<<" poses"<<std::endl;
+    
+        //
+        nav_msgs::Path src_path_msg;
+        Visualization::render_path(src_poses_viz,
+                                    Eigen::Matrix4d::Identity(),
+                                    src_name,
+                                    src_path_msg,
+                                    viz.path);
+
+        Visualization::correspondences(src_centroids_m, ref_centroids_m, 
+                                        viz.instance_match, src_name, 
+                                        node_tp_masks, T_src_ref_viz);
+        if(map_only) Visualization::instance_centroids(src_centroids, viz.src_centroids, 
+                                                        src_name, 
+                                                        viz.param.centroid_size,
+                                                        viz.param.centroid_color);
+        if(map_only && dense_corr) Visualization::correspondences(src_corrs_points, ref_corrs_points, 
+                                        viz.point_match, src_name, 
+                                        corr_mask, T_src_ref_viz);
+
         ros::Duration(0.5).sleep();
         ros::spinOnce();
     }

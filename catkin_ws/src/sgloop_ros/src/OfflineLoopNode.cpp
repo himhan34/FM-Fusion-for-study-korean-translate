@@ -81,6 +81,7 @@ int main(int argc, char **argv)
     bool dense_msg = nh_private.param("dense_msg", true);
     bool icp_refine = nh_private.param("icp_refine", true);
     bool early_stop = nh_private.param("early_stop", false); // Stop after telecom
+    float distance_threshold = nh_private.param("distance_threshold", 0.5);
     std::string ref_agent_name = "agentB";
 
     // Publisher
@@ -250,9 +251,12 @@ int main(int argc, char **argv)
     }
     
     timer.Start();
+    float shape_encoding_time;
     bool shape_encode_ret = loop_detector->encode_concat_sgs(ref_agent_name,
                                         ref_graph->get_const_nodes().size(), ref_data_dict,
-                                        src_graph->get_const_nodes().size(), src_data_dict, fused);
+                                        src_graph->get_const_nodes().size(), src_data_dict, 
+                                        shape_encoding_time,
+                                        fused);
     timer.Stop();
     std::cout<<"Encode shape takes "<<std::fixed<<std::setprecision(3)
             <<timer.GetDurationInMillisecond()<<" ms\n";
@@ -302,10 +306,18 @@ int main(int argc, char **argv)
     fmfusion::O3d_Cloud_Ptr ref_cloud_ptr = ref_mapping->export_global_pcd(true, 0.05);
     Eigen::Matrix4d pred_pose;
 
-    g3reg::Config config;
+    G3RegAPI::Config config;
     config.set_noise_bounds({0.2, 0.3});
-    config.tf_solver  = "quatro";
+    config.tf_solver = "gnc";
+    config.ds_num = 9;
+    config.plane_resolution = 0.5;
     config.verify_mtd = "plane_based";
+
+    // config.search_radius = search_radius;
+    // config.icp_voxel = icp_voxel;
+    // config.ds_voxel = ds_voxel;
+
+
     G3RegAPI g3reg(config);
 
     std::cout<<"Estimate pose with "<<pruned_match_pairs.size()<<" nodes and"
@@ -353,6 +365,7 @@ int main(int argc, char **argv)
                 open3d::io::WritePointCloudToPLY(output_folder + "/" + pair_name + "_csrc.ply", *corr_src_pcd, {});
                 open3d::io::WritePointCloudToPLY(output_folder + "/" + pair_name + "_cref.ply", *corr_ref_pcd, {});
                 fmfusion::IO::save_corrs_match_indices(corr_match_indices, 
+                                                    corr_scores_vec,
                                                     output_folder + "/" + pair_name + "_cmatches.txt");
             }
         }
@@ -360,8 +373,13 @@ int main(int argc, char **argv)
 
     //
     if(gt_file.size()>0){
-        int count_true = fmfusion::maks_true_instance(gt_file, pred_instances, pred_masks);
-        std::cout<<"True instance match: "<<count_true<<"/"<<pred_instances.size()<<std::endl;
+        Eigen::Matrix4d T_gt;
+        fmfusion::IO::load_pose_file(gt_file, T_gt);
+        std::cout<<"Load gt pose from "<<gt_file<<std::endl;
+        int count_true = fmfusion::mark_tp_instances(T_gt, 
+                                                    src_centroids, ref_centroids, 
+                                                    pred_masks, distance_threshold);
+        std::cout<<"Marked "<<count_true<<" true positive instances\n";
     }
 
     if(visualization>0){
@@ -371,22 +389,43 @@ int main(int argc, char **argv)
         else
             Visualization::render_point_cloud(ref_mapping->export_global_pcd(true), viz.ref_graph,REMOTE_AGENT);
         ros::Duration(1.0).sleep();
-        Visualization::instance_centroids(ref_graph->get_centroids(),viz.ref_centroids,REMOTE_AGENT,viz.param.centroid_size,viz.param.centroid_color);
+        Visualization::instance_centroids(ref_graph->get_centroids(),
+                                        viz.ref_centroids,
+                                        REMOTE_AGENT,
+                                        viz.param.centroid_size,
+                                        viz.param.centroid_color);
 
+        std::vector<Eigen::Vector3d> src_all_centroids;
+        std::vector<std::string> src_all_annotations;
+
+        src_all_centroids = src_mapping->export_instance_centroids(0);
+        src_all_annotations = src_mapping->export_instance_annotations(0);
         Visualization::render_point_cloud(src_mapping->export_global_pcd(true), viz.src_graph, LOCAL_AGENT);
-        Visualization::instance_centroids(src_graph->get_centroids(),viz.src_centroids,LOCAL_AGENT,viz.param.centroid_size,viz.param.centroid_color);
+        Visualization::instance_centroids(src_all_centroids,
+                                        viz.src_centroids,
+                                        LOCAL_AGENT,
+                                        viz.param.centroid_size,
+                                        viz.param.centroid_color);
+        Visualization::node_annotation(src_all_centroids,
+                                        src_all_annotations,
+                                        viz.node_annotation,
+                                        LOCAL_AGENT,
+                                        viz.param.annotation_size,
+                                        viz.param.annotation_voffset,
+                                        viz.param.annotation_color);
+
         Visualization::inter_graph_edges(src_graph->get_centroids(), src_graph->get_edges(), viz.src_edges, viz.param.edge_width, viz.param.edge_color , LOCAL_AGENT);
 
         Visualization::correspondences(src_centroids, ref_centroids, 
                                         viz.instance_match,LOCAL_AGENT, 
                                         pred_masks, 
                                         viz.Transfrom_local_remote[ref_agent_name]);
-                                        // viz.t_local_remote[ref_agent_name]);
+
         Visualization::correspondences(corr_src_points, corr_ref_points, 
                                     viz.point_match, LOCAL_AGENT, 
                                     std::vector<bool> {}, 
                                     viz.Transfrom_local_remote[ref_agent_name]);
-                                    // viz.t_local_remote[ref_agent_name]);
+
 
         if(viz.src_map_aligned.getNumSubscribers()>0){
             ros::Duration(1.0).sleep();

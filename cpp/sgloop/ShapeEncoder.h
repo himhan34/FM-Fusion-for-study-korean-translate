@@ -37,6 +37,7 @@ namespace fmfusion
                     torch::Tensor &node_shape_feats, 
                     torch::Tensor &node_knn_points,
                     torch::Tensor &node_knn_feats,
+                    float &encoding_time,
                     bool use_v2=true);
 
     private:

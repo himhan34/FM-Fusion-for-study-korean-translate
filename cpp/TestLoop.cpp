@@ -293,9 +293,12 @@ int main(int argc, char *argv[]) {
 
     // Shape encoder
     timer.Start();
+    float shape_encoding_time;
     if (dense_match)
         loop_detector->encode_concat_sgs(ref_name, ref_graph->get_const_nodes().size(), ref_data_dict,
-                                         src_graph->get_const_nodes().size(), src_data_dict, fused);
+                                         src_graph->get_const_nodes().size(), src_data_dict, 
+                                         shape_encoding_time,
+                                         fused);
     timer.Stop();
     std::cout << "Encode stacked graph takes " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond()
               << " ms\n";
@@ -340,9 +343,9 @@ int main(int argc, char *argv[]) {
     if (dense_match && M > 0) { // Dense match
         timer.Start();
         C = loop_detector->match_instance_points(ref_name,
-                                                 pruned_match_pairs, 
+                                                 pruned_match_pairs,
                                                  corr_src_points,
-                                                 corr_ref_points, 
+                                                 corr_ref_points,
                                                  corr_match_indices,
                                                  corr_scores_vec);
         timer.Stop();
@@ -364,7 +367,7 @@ int main(int argc, char *argv[]) {
     src_cloud_ptr = src_map->export_global_pcd(true, ds_voxel_size);
     ref_cloud_ptr = ref_map->export_global_pcd(true, ds_voxel_size);
 
-    g3reg::Config config;
+    G3RegAPI::Config config;
 //    noise bound的取值
     config.set_noise_bounds({0.2, 0.3});
 //    位姿求解优化器的类型
@@ -437,8 +440,8 @@ int main(int argc, char *argv[]) {
             fmfusion::O3d_Cloud_Ptr corr_ref_pcd = std::make_shared<fmfusion::O3d_Cloud>(corr_ref_points);
             open3d::io::WritePointCloudToPLY(output_folder + "/" + pair_name + "_csrc.ply", *corr_src_pcd, {});
             open3d::io::WritePointCloudToPLY(output_folder + "/" + pair_name + "_cref.ply", *corr_ref_pcd, {});
-            fmfusion::IO::save_corrs_match_indices(corr_match_indices, 
-                                                    output_folder + "/" + pair_name + "_cmatches.txt");
+            fmfusion::IO::save_corrs_match_indices(corr_match_indices, corr_scores_vec,
+                                                   output_folder + "/" + pair_name + "_cmatches.txt");
         }
 
         std::cout << "Save output result to " << output_folder << std::endl;

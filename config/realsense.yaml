@@ -59,8 +59,8 @@ ShapeEncoder:
 
 LoopDetector:
   fuse_shape: 1 # set to 1 if fuse node feature with shape feature
-  lcd_nodes: 10
-  recall_nodes: 8
+  lcd_nodes: 15
+  recall_nodes: 10
 
 Registration:
   noise_bound: 1.0
