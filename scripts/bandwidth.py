@@ -30,7 +30,15 @@ class BandwidthEvaluator():
                 count += 1
                 
             print('Update {} frames of bandwidth from {}'.format(count, dir))
-            
+    
+    def calculate(self, num_nodes, num_points):
+        sum_bw_nodes = ((num_nodes * self.dim_nodes_float * 4 ) +
+                        (num_nodes * self.dim_nodes_int16 * 2)) / 1024
+        sum_bw_points = ((num_points * self.dim_points_float * 4 ) +
+                         (num_points * self.dim_points_int16 * 2)) / 1024
+        
+        return sum_bw_nodes, sum_bw_points    
+    
     def get_bandwidth(self):
         ''' get the average bandwidth of the scene'''
         if len(self.nodes)<1: 
@@ -38,23 +46,25 @@ class BandwidthEvaluator():
             return
         nodes = np.array(self.nodes)
         points = np.array(self.points)
-        COARSE_ONLY = False
-        
-        if COARSE_ONLY: # remove those dense frames
-            dense_frames_maks = points>0
-            nodes = nodes[~dense_frames_maks]
-            points = points[~dense_frames_maks]
         
         print('---------- Summary Bandwidth {} frames -----------'.format(nodes.shape[0]))
 
         # bandwidth in KBytes
-        sum_bw_nodes = ((np.sum(nodes) * self.dim_nodes_float * 4 ) + 
-                        (np.sum(nodes) * self.dim_nodes_int16 * 2))  / 1024
-        sum_bw_points = ((np.sum(points) * self.dim_points_float * 4 ) + 
-                         (np.sum(points) * self.dim_points_int16 * 2)) / 1024
+        sum_bw_nodes, sum_bw_points = self.calculate(np.sum(nodes), np.sum(points))
         total_bw = sum_bw_points + sum_bw_nodes
         
         print('{} nodes, {} points'.format(np.sum(nodes), np.sum(points)))
-        print('Node Bandwidth: {:.1f} KB, Points Bandwidth: {:.1f} KB, Total: {:.1f} KB'.format(
-            sum_bw_nodes, sum_bw_points,total_bw))
+        print('Our Node Bandwidth: {:.1f} KB, Points Bandwidth: {:.1f} KB, Total: {:.1f} KB, Ave: {:.1f}'.format(
+            sum_bw_nodes, sum_bw_points,total_bw,total_bw/nodes.shape[0]))
 
+        dense_frames_maks = points>0
+        nodes = nodes[~dense_frames_maks]
+        points = points[~dense_frames_maks]
+        sum_bw_nodes, sum_bw_points = self.calculate(np.sum(nodes), np.sum(points))
+        total_bw = sum_bw_points + sum_bw_nodes
+        
+        coarse_frame_number = nodes.shape[0] - dense_frames_maks.sum()
+        print('Coarse frames: ', (nodes.shape[0]-dense_frames_maks.sum()))
+        print('Coarse mode: {} nodes, {} points'.format(np.sum(nodes), np.sum(points)))
+        print('Coarse Node Bandwidth: {:.1f} KB, Points Bandwidth: {:.1f} KB, Total: {:.1f} KB, Avr: {:.1f}'.format(
+            sum_bw_nodes, sum_bw_points,total_bw, total_bw/coarse_frame_number))

@@ -1,0 +1,1 @@
+build/cpp/TestRegister --config config/realsense.yaml --output_folder /data2/sgslam/output/v7 --gt_folder /data2/sgslam/gt --export_folder /data2/sgslam/output/offline_register_quatro --src_scene ab0302_00a --ref_scene ab0302_00b --frame_name frame-000608 --ref_frame_map_dir /data2/sgslam/output/v7/ab0302_00b/fakeScene/frame-000709_src.ply

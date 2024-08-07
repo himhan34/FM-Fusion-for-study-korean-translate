@@ -13,21 +13,24 @@ if __name__ == "__main__":
     ########
     # The three folders should be downloaded from OneDrive
     output_folder = os.path.join(dataroot, "output", "v6")
-    # gt_iou_folder = os.path.join(
-    #     dataroot, "output", "gt_iou"
-    # )  # Pre-saved map to compute iou.
     gt_folder = os.path.join(dataroot, "gt")
+    TF_SOLVER = 'gnc' # 'gnc' or 'quadtro'
     ########
 
-    export_folder = os.path.join(dataroot, "output", "offline_register")
+    cfg_file = 'config/realsense.yaml'
+    export_folder = os.path.join(dataroot, "output", "offline_register_quatro")
     scan_pairs = [
-        # ["uc0110_00a", "uc0110_00b"],
-        # ["uc0110_00a", "uc0110_00c"],  # opposite trajectory
-        # ["uc0115_00a", "uc0115_00b"],  # opposite trajectory
-        # ["uc0204_00a", "uc0204_00b"],  # opposite trajectory
-        # ["uc0204_00a", "uc0204_00c"],
-        # ["uc0107_00a", "uc0107_00b"],
+        ["uc0110_00a", "uc0110_00b"],
+        ["uc0110_00a", "uc0110_00c"],  # opposite trajectory
+        ["uc0115_00a", "uc0115_00b"],  # opposite trajectory
+        ["uc0115_00a", "uc0115_00c"],
+        ["uc0204_00a", "uc0204_00b"],  # opposite trajectory
+        ["uc0204_00a", "uc0204_00c"],
+        ["uc0111_00a", "uc0111_00b"],
         ["ab0201_03c", "ab0201_03a"],
+        ["ab0302_00a", "ab0302_00b"],
+        ["ab0401_00a", "ab0401_00b"],
+        ["ab0403_00c", "ab0403_00d"],
     ]
     exe_dir = "build/cpp/TestRegister"
 
@@ -64,8 +67,9 @@ if __name__ == "__main__":
                 ref_maps["indices"], ref_maps["dirs"], ref_frame_id
             )
 
-            cmd = "{} --output_folder {} --gt_folder {} --export_folder {} --src_scene {} --ref_scene {} --frame_name {} --ref_frame_map_dir {}".format(
+            cmd = "{} --config {} --output_folder {} --gt_folder {} --export_folder {} --src_scene {} --ref_scene {} --frame_name {} --ref_frame_map_dir {}".format(
                 exe_dir,
+                cfg_file,
                 output_folder,
                 gt_folder,
                 pair_export_folder,
@@ -74,6 +78,8 @@ if __name__ == "__main__":
                 frame_name,
                 ref_map_dir,
             )
+            cmd +=" --tf_solver {}".format(TF_SOLVER)
+            
             print(cmd)
             subprocess.run(cmd, stdin=subprocess.PIPE, shell=True)
 
@@ -85,8 +91,7 @@ if __name__ == "__main__":
 
             # break
 
-        # break
 
     # Evaluation
     print("******** Evaluate All ***********")
-    eval_offline_register(export_folder, gt_folder, scan_pairs, True, output_folder)
+    # eval_offline_register(export_folder, gt_folder, scan_pairs, True, output_folder)

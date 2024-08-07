@@ -136,13 +136,16 @@ target_sources(testTwoAgentsPGO PRIVATE testTwoAgentsPGO.cpp)
 target_link_libraries(testTwoAgentsPGO PRIVATE Open3D::Open3D ${OpenCV_LIBS} fmfusion gtsam KimeraRPGO -ltbb)
 
 if (LOOP_DETECTION)
-    add_executable(TestLoop)
-    target_sources(TestLoop PRIVATE TestLoop.cpp)
-    target_link_libraries(TestLoop PRIVATE ${ALL_TARGET_LIBRARIES} fmfusion)
+    add_executable( "ibraries(TestLoop PRIVATE ${ALL_TARGET_LIBRARIES} fmfusion)
 
     add_executable(TestRegister)
     target_sources(TestRegister PRIVATE TestRegister.cpp)
     target_link_libraries(TestRegister PRIVATE ${ALL_TARGET_LIBRARIES} fmfusion)
+
+    add_executable(Test3RScanRegister)
+    target_sources(Test3RScanRegister PRIVATE Test3RscanRegister.cpp)
+    target_link_libraries(Test3RScanRegister PRIVATE ${ALL_TARGET_LIBRARIES} fmfusion)
+
 
 endif ()
 
@@ -177,6 +180,7 @@ if (INSTALL_FMFUSION)
             sgloop/ShapeEncoder.h
             sgloop/LoopDetector.h
             sgloop/BertBow.h
+            sgloop/Initialization.h
             DESTINATION include/fmfusion/sgloop
     )
     install(FILES

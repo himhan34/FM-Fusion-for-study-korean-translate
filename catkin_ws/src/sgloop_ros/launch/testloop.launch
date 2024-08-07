@@ -9,7 +9,7 @@
   <arg name="agentB_scene" value="uc0204_00b"/>
 
   <arg name="test_communication" value="true"/>
-  <arg name="dense_msg" value="false"/>
+  <arg name="dense_msg" value="true"/>
   <arg name="icp_refine" value="true"/>
   <arg name="visualization" value="1"/>
 

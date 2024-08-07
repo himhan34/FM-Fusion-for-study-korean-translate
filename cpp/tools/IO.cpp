@@ -330,6 +330,7 @@ namespace IO
     
 
     bool load_match_results(const std::string &match_file_dir,
+                            float &timestamp,
                             Eigen::Matrix4d &pose,
                             std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
                             std::vector<Eigen::Vector3d> &src_centroids,
@@ -344,7 +345,11 @@ namespace IO
 
         std::string line;
         std::getline(file,line);
+
         if(line.find("# timetstamp")!=std::string::npos){
+
+            timestamp = std::stof(line.substr(line.find(":")+1, line.find(";")));
+
             for(int i=0; i<4; i++){
                 std::getline(file,line);
                 std::stringstream ss(line);
@@ -353,7 +358,8 @@ namespace IO
                 }
             }
             if(verbose)
-                std::cout<<"Load pose: \n"<<pose<<"\n";
+                std::cout<<"Load timestamp: "<<timestamp<<"\n"
+                        <<"Load pose: \n"<<pose<<"\n";
         }
 
         while(std::getline(file,line)){
@@ -383,7 +389,8 @@ namespace IO
             }
         }
 
-        std::cout<<"Load "<<src_centroids.size()<<" correspondences.\n";
+        if(verbose)
+            std::cout<<"Load "<<src_centroids.size()<<" correspondences.\n";
 
         file.close();
         return true;
@@ -534,6 +541,126 @@ namespace IO
 
         std::cout<<"Load pose: \n"<<pose<<"\n";
 
+        return true;
+    }
+
+    bool read_loop_transformations(const std::string &loop_file_dir,
+                        std::vector<LoopPair> &loop_pairs,
+                        std::vector<Eigen::Matrix4d> &loop_transformations)
+    {
+        std::ifstream loop_file(loop_file_dir);
+        if (!loop_file.is_open()){
+            std::cerr<<"Cannot open loop file: "<<loop_file_dir<<std::endl;
+            return false;
+        }
+
+        std::string line;
+        while (std::getline(loop_file, line)){
+            if(line.find("#")!=std::string::npos){
+                continue;
+            }
+            std::istringstream iss(line);
+            Eigen::Vector3d t_vec;
+            Eigen::Quaterniond quat;
+            std::string src_frame, ref_frame;
+
+            iss>>src_frame>>ref_frame;
+            iss>>t_vec[0]>>t_vec[1]>>t_vec[2]>>quat.x()>>quat.y()>>quat.z()>>quat.w();
+
+            Eigen::Matrix4d transformation;
+            transformation.setIdentity();
+
+            transformation.block<3,1>(0,3) = t_vec;
+            transformation.block<3,3>(0,0) = quat.toRotationMatrix();
+            // std::cout<<src_frame<<"->"<<ref_frame<<std::endl;
+
+            loop_pairs.push_back(std::make_pair(src_frame, ref_frame));
+            loop_transformations.push_back(transformation);
+        }
+
+        std::cout<<"Load "<<loop_transformations.size()<<" loop transformations"<<std::endl;
+
+        return true;
+    }
+
+    bool read_frames_poses(const std::string &frame_pose_file,
+                    std::unordered_map<std::string, Eigen::Matrix4d> &frame_poses)
+    {
+        std::ifstream pose_file(frame_pose_file);
+        if (!pose_file.is_open()){
+            std::cerr<<"Cannot open pose file: "<<frame_pose_file<<std::endl;
+            return false;
+        }
+
+        std::string line;
+        while (std::getline(pose_file, line)){
+            if(line.find("#")!=std::string::npos){
+                continue;
+            }
+            std::istringstream iss(line);
+            std::string frame_name;
+            Eigen::Vector3d p;
+            Eigen::Quaterniond q;
+            Eigen::Matrix4d pose;
+            iss>>frame_name;
+            iss>>p[0]>>p[1]>>p[2]>>q.x()>>q.y()>>q.z()>>q.w();
+            pose.setIdentity();
+            pose.block<3,1>(0,3) = p;
+            pose.block<3,3>(0,0) = q.toRotationMatrix();
+
+            frame_poses[frame_name] = pose;
+        }
+
+        return true;
+    }
+
+    bool read_entire_camera_poses(const std::string &scene_folder,
+                        std::unordered_map<std::string, Eigen::Matrix4d> &src_poses_map)
+    {
+        std::vector<RGBDFrameDirs> src_rgbds;
+        std::vector<Eigen::Matrix4d> src_poses;
+
+        bool read_ret = construct_preset_frame_table(
+            scene_folder,"data_association.txt","trajectory.log",src_rgbds,src_poses);
+        if(!read_ret) {
+            return false;
+        }
+
+        for (int i=0;i<src_rgbds.size();i++){
+            std::string frame_file_name = open3d::utility::filesystem::GetFileNameWithoutDirectory(src_rgbds[i].first);
+            std::string frame_name = frame_file_name.substr(0, frame_file_name.size()-4);
+            // std::cout<<frame_name<<std::endl;
+            // src_poses_map[src_rgbds[i].first] = src_poses[i];
+            src_poses_map[frame_name] = src_poses[i];
+        }
+
+        return true;
+    }
+
+
+    bool save_graph_centroids(const std::vector<Eigen::Vector3d> &src_centroids, 
+                            const std::vector<Eigen::Vector3d> &ref_centroids,
+                            const std::string &output_dir)
+    {
+        std::ofstream file(output_dir);
+        if (!file.is_open()){
+            std::cerr<<"Failed to open file: "<<output_dir<<std::endl;
+            return false;
+        }
+
+        file<<"# src graph: "<<src_centroids.size()<< " nodes\n";
+
+        file<<std::fixed<<std::setprecision(3);
+        for(int i=0; i<src_centroids.size(); i++){
+            file<<src_centroids[i][0]<<" "<<src_centroids[i][1]<<" "<<src_centroids[i][2]<<std::endl;
+        }
+
+        file << "# ref graph: " << ref_centroids.size() << " nodes\n";
+        for (int i = 0; i < ref_centroids.size(); i++) {
+            file << ref_centroids[i][0] << " " << ref_centroids[i][1] << " " << ref_centroids[i][2] << std::endl;
+        }
+
+        file.close();
         return true;
     }
 

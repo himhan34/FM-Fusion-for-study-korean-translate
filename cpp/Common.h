@@ -206,6 +206,7 @@ typedef open3d::geometry::Geometry O3d_Geometry;
 typedef std::shared_ptr<const open3d::geometry::Geometry> O3d_Geometry_Ptr;
 typedef std::shared_ptr<open3d::geometry::Image> O3d_Image_Ptr;
 typedef std::pair<uint32_t, uint32_t> NodePair;
+typedef std::pair<std::string, std::string> LoopPair;
 
 }
 

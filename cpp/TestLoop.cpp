@@ -13,6 +13,7 @@
 
 #include "sgloop/Graph.h"
 #include "sgloop/LoopDetector.h"
+#include "sgloop/Initialization.h"
 
 typedef fmfusion::NodePair NodePair;
 
@@ -162,7 +163,21 @@ int main(int argc, char *argv[]) {
     std::string debug_str = utility::GetProgramOptionAsString(argc, argv, "--debug");
     int verbose = utility::GetProgramOptionAsInt(argc, argv, "--verbose", 2);
     float ds_voxel_size = utility::GetProgramOptionAsDouble(argc, argv, "--ds_voxel_size", 0.05);
+    double nms_thd = utility::GetProgramOptionAsDouble(argc, argv, "--nms_thd", 0.05);
     std::string ref_name = "agentB";
+
+    // registration parameters
+    double verify_voxel = utility::GetProgramOptionAsDouble(argc, argv, "--verify_voxel", 0.5);
+    double search_radius = utility::GetProgramOptionAsDouble(argc, argv, "--search_radius", 0.5);
+    double icp_voxel = utility::GetProgramOptionAsDouble(argc, argv, "--icp_voxel", 0.2);
+    double ds_voxel = utility::GetProgramOptionAsDouble(argc, argv, "--ds_voxel", 0.5);
+    int ds_num = utility::GetProgramOptionAsInt(argc, argv, "--ds_num", 9);
+    double inlier_threshold = utility::GetProgramOptionAsDouble(argc, argv, "--inlier_threshold", 0.3);
+    int max_corr_number = utility::GetProgramOptionAsInt(argc, argv, "--max_corr_number", 1000);
+
+    // initialization
+    std::string init_src_scene = utility::GetProgramOptionAsString(argc, argv, "--init_src");
+    std::string init_ref_scene = utility::GetProgramOptionAsString(argc, argv, "--init_ref");
 
     bool fused = true;
     open3d::utility::SetVerbosityLevel(open3d::utility::VerbosityLevel(verbose));
@@ -231,7 +246,7 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    // Encode using SgNet
+    // Declare loop detector
     assert(cuda_number < torch::cuda::device_count());
     auto loop_detector = std::make_shared<fmfusion::LoopDetector>(fmfusion::LoopDetector(sg_config->loop_detector,
                                                                                          sg_config->shape_encoder,
@@ -240,10 +255,32 @@ int main(int argc, char *argv[]) {
                                                                                          cuda_number,
                                                                                          {ref_name}));
 
+    // Activation
+    std::shared_ptr<fmfusion::Graph> init_graph_src, init_graph_ref;
+    if (init_src_scene.size() > 0 && init_ref_scene.size() > 0) {
+        for (int itr = 0; itr < n_iter; itr++) {
+            utility::LogWarning("Activation: {}", itr);
+            float init_shape_timing;
+            init_scene_graph(*sg_config, src_map_dir, init_graph_src);
+            init_scene_graph(*sg_config, ref_map_dir, init_graph_ref);
+            loop_detector->encode_src_scene_graph(init_graph_src->get_const_nodes());
+            loop_detector->encode_ref_scene_graph(ref_name, init_graph_ref->get_const_nodes());
+            loop_detector->encode_concat_sgs(ref_name, init_graph_ref->get_const_nodes().size(),
+                                             init_graph_ref->extract_data_dict(),
+                                             init_graph_src->get_const_nodes().size(),
+                                             init_graph_src->extract_data_dict(),
+                                             init_shape_timing,
+                                             fused);
+            utility::LogWarning("Activation shape encoder takes {} ms", init_shape_timing);
+
+        }
+        utility::LogWarning("Activation done");
+    }
+
     torch::Tensor ref_nodes_feats, src_nodes_feats;
     torch::Tensor tmp_feats;
 
-    for (int itr = 0; itr < n_iter; itr++) {
+    for (int itr = 0; itr < 1; itr++) {
         utility::LogWarning("Iteration: {}", itr);
         timer.Start();
         loop_detector->encode_src_scene_graph(src_graph->get_const_nodes());
@@ -257,6 +294,18 @@ int main(int argc, char *argv[]) {
         std::cout << "Encode ref GNN " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond()
                   << " ms\n";
 
+        // Shape encoder
+        timer.Start();
+        float shape_encoding_time;
+        if (dense_match)
+            loop_detector->encode_concat_sgs(ref_name, ref_graph->get_const_nodes().size(), ref_data_dict,
+                                             src_graph->get_const_nodes().size(), src_data_dict,
+                                             shape_encoding_time,
+                                             fused);
+        timer.Stop();
+        std::cout << "Encode stacked graph takes " << std::fixed << std::setprecision(3)
+                  << timer.GetDurationInMillisecond()
+                  << " ms, shape encoding time: " << shape_encoding_time << " ms\n";
     }
 
     if (false) {   // test tensor->vector conversion
@@ -291,17 +340,7 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    // Shape encoder
-    timer.Start();
-    float shape_encoding_time;
-    if (dense_match)
-        loop_detector->encode_concat_sgs(ref_name, ref_graph->get_const_nodes().size(), ref_data_dict,
-                                         src_graph->get_const_nodes().size(), src_data_dict, 
-                                         shape_encoding_time,
-                                         fused);
-    timer.Stop();
-    std::cout << "Encode stacked graph takes " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond()
-              << " ms\n";
+
 
     // Hierachical matching
     std::vector<NodePair> match_pairs;
@@ -348,6 +387,8 @@ int main(int argc, char *argv[]) {
                                                  corr_ref_points,
                                                  corr_match_indices,
                                                  corr_scores_vec);
+        downsample_corr_nms(corr_src_points, corr_ref_points, corr_scores_vec, nms_thd);
+        downsample_corr_topk(corr_src_points, corr_ref_points, corr_scores_vec, ds_voxel, max_corr_number);
         timer.Stop();
         std::cout << "Match points takes " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond()
                   << " ms\n";
@@ -371,29 +412,41 @@ int main(int argc, char *argv[]) {
 //    noise bound的取值
     config.set_noise_bounds({0.2, 0.3});
 //    位姿求解优化器的类型
-    config.tf_solver = "quatro";
+    config.ds_num = ds_num;
+    config.plane_resolution = verify_voxel;
+    config.max_corr_num = max_corr_number;
 //    基于点到平面的距离做验证
     config.verify_mtd = "plane_based";
+    config.search_radius = search_radius;
+//    ICP
+    config.icp_voxel = icp_voxel;
+    config.ds_voxel = ds_voxel;
+
     G3RegAPI g3reg(config);
 
     std::cout << "G3Reg "
               << pruned_match_pairs.size() << " nodes, "
               << corr_src_points.size() << " points\n";
     timer.Start();
-    g3reg.estimate_pose(src_graph->get_const_nodes(),
-                        ref_graph->get_const_nodes(),
-                        pruned_match_pairs,
-                        corr_scores_vec,
-                        corr_src_points,
-                        corr_ref_points,
-                        src_cloud_ptr,
-                        ref_cloud_ptr,
-                        pred_pose);
+
+    double inlier_ratio = g3reg.estimate_pose_gnc(src_centroids, ref_centroids,
+                                                  corr_src_points, corr_ref_points, corr_scores_vec);
+
+    if (inlier_ratio < 0.4)
+        g3reg.estimate_pose(src_centroids,
+                            ref_centroids,
+                            corr_src_points,
+                            corr_ref_points,
+                            corr_scores_vec,
+                            src_cloud_ptr,
+                            ref_cloud_ptr);
+    pred_pose = g3reg.reg_result.tf;
+
     timer.Stop();
     double g3reg_time = timer.GetDurationInMillisecond();
     timer.Start();
-    std::cout << "Continue to use ICP to refine the pose\n";
     pred_pose = g3reg.icp_refine(src_cloud_ptr, ref_cloud_ptr, pred_pose);
+    std::cout << "Continue to use ICP to refine the pose\n";
     timer.Stop();
     std::cout << "Total time: " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond() + g3reg_time
               << " ms, G3Reg time: " << std::fixed << std::setprecision(3) << g3reg_time << " ms, ICP time: "

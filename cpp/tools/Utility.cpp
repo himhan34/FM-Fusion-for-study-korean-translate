@@ -98,6 +98,8 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
         auto shape_fs = fs["ShapeEncoder"];
         config->shape_encoder.init_voxel_size = shape_fs["init_voxel_size"];
         config->shape_encoder.init_radius = shape_fs["init_radius"];
+        config->shape_encoder.K_shape_samples = shape_fs["K_shape_samples"];
+        config->shape_encoder.K_match_samples = shape_fs["K_match_samples"];
         shape_fs["padding"] >> config->shape_encoder.padding;
 
         //

@@ -45,7 +45,9 @@ class TimeAnalysis():
             msg += '  Sum\n'
 
             for i in range(S):
-                msg += '  {:.1f}  '.format(average_data[i])
+                msg += '  {:.1f}   '.format(average_data[i])
             msg += '  {:.1f} \n'.format(average_frame_sum_time)
             
             print(msg)
+
+        return summary_data_matrix

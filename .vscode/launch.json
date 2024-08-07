@@ -10,9 +10,11 @@
             "args": [
                         "--consider_iou",
                         "--run_mode","online",
-                        "--split_file","tmp.txt",
+                        "--rmse_threshold","0.2",
+                        // "--dense","false",
+                        "--split_file","multi_agent.txt",
                         "--output_folder",
-                        "/data2/sgslam/output/v6"
+                        "/data2/sgslam/output/v8"
                     ]
         },
         {
@@ -60,16 +62,18 @@
                 "--weights_folder",
                 "${workspaceRoot}/torchscript",
                 "--ref_scene",
-                "/data2/sgslam/val/uc0110_00a",
+                // "/data2/sgslam/val/uc0110_00b",
+                "/data2/RioGraph/val/scene0107_00c",
                 "--src_scene",
-                "/data2/sgslam/val/uc0110_00b",
+                // "/data2/sgslam/val/uc0110_00a",
+                "/data2/RioGraph/val/scene0107_00a",
                 "--prune_instance",
                 // "--n_iter","10",
                 // "--cuda_number","1",
                 // "--debug","test bert",
                 "--dense_match",
                 "--output_folder",
-                "/data2/sgslam/output/v5+",
+                "/data2/sgslam/output/coarse_register",
             ],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",

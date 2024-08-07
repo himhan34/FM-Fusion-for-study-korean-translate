@@ -258,6 +258,8 @@ int main(int argc, char **argv)
                                         shape_encoding_time,
                                         fused);
     timer.Stop();
+
+    std::cout<<"Shape network takes "<< shape_encoding_time<<" ms\n";
     std::cout<<"Encode shape takes "<<std::fixed<<std::setprecision(3)
             <<timer.GetDurationInMillisecond()<<" ms\n";
 
@@ -308,33 +310,49 @@ int main(int argc, char **argv)
 
     G3RegAPI::Config config;
     config.set_noise_bounds({0.2, 0.3});
-    config.tf_solver = "gnc";
     config.ds_num = 9;
     config.plane_resolution = 0.5;
     config.verify_mtd = "plane_based";
+    config.search_radius = 0.5;
+    config.max_corr_num = 300;
+    config.icp_voxel = 0.25;
+    config.ds_voxel = 0.5;
 
-    // config.search_radius = search_radius;
-    // config.icp_voxel = icp_voxel;
-    // config.ds_voxel = ds_voxel;
-
+    std::vector<Eigen::Vector3d> src_centroids, ref_centroids;
+    fmfusion::IO::extract_instance_correspondences(src_graph->get_const_nodes(), 
+                                                    ref_graph->get_const_nodes(), 
+                                                    pruned_match_pairs, pruned_match_scores, 
+                                                    src_centroids, ref_centroids);
 
     G3RegAPI g3reg(config);
 
-    std::cout<<"Estimate pose with "<<pruned_match_pairs.size()<<" nodes and"
-                <<corr_src_points.size()<<" points\n";
-    g3reg.estimate_pose(src_graph->get_const_nodes(),
-                        ref_graph->get_const_nodes(),
-                        pruned_match_pairs,
-                        corr_scores_vec,
-                        corr_src_points,
-                        corr_ref_points,
-                        src_cloud_ptr,
-                        ref_cloud_ptr,
-                        pred_pose);
+    {   // G3Reg
+        std::cout<<"Estimate pose with "<<pruned_match_pairs.size()<<" nodes and"
+                    <<corr_src_points.size()<<" points\n";
+        timer.Start();
+        double inlier_ratio = 0.0;
+        g3reg.estimate_pose(src_centroids,ref_centroids,
+                            corr_src_points, corr_ref_points,
+                            inlier_ratio);
+        if(inlier_ratio<0.3){
+            g3reg.estimate_pose(src_centroids, 
+                            ref_centroids,
+                            corr_src_points,
+                            corr_ref_points,
+                            corr_scores_vec,
+                            src_cloud_ptr,
+                            ref_cloud_ptr);
+            ROS_WARN("Dnese Reg by G3Reg\n");
+        }
+        pred_pose = g3reg.reg_result.tf;
+        timer.Stop();
+        std::cout<<"G3Reg takes "<<std::fixed<<std::setprecision(3)<<timer.GetDurationInMillisecond()<<" ms\n";
+    }
 
-    std::cout<<"trying icp\n";
+
     timer.Start();
     if(icp_refine){
+        std::cout<<"trying icp\n";
         if(!ref_cloud_ptr->HasNormals()) ref_cloud_ptr->EstimateNormals();
         pred_pose = g3reg.icp_refine(src_cloud_ptr, ref_cloud_ptr, pred_pose);  
     }      
@@ -344,12 +362,11 @@ int main(int argc, char **argv)
     // Export
     std::vector<std::pair<fmfusion::InstanceId,fmfusion::InstanceId>> pred_instances;
     std::vector<bool> pred_masks;
-    std::vector<Eigen::Vector3d> src_centroids, ref_centroids;
+
+
     {
         fmfusion::IO::extract_match_instances(
             pruned_match_pairs, src_graph->get_const_nodes(), ref_graph->get_const_nodes(), pred_instances);
-        fmfusion::IO::extract_instance_correspondences(
-            src_graph->get_const_nodes(), ref_graph->get_const_nodes(), pruned_match_pairs, pruned_match_scores, src_centroids, ref_centroids);
 
         if(output_folder.size()>1){
             std::cout<<"output size: "<<output_folder.size()<<std::endl;

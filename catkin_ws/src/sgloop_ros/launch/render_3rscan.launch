@@ -1,9 +1,10 @@
 <launch>
 
   <arg name="dataroot" value="/data2/RioGraph"/>
-  <arg name="agentA_scene" value="scene0104_00d"/>
-  <arg name="agentB_scene" value="scene0104_00a"/>
-  <arg name="result_folder" value="ours"/>
+  <arg name="agentA_scene" value="scene0108_00c"/>
+  <arg name="agentB_scene" value="scene0108_00a"/>
+  <!-- <arg name="result_folder" value="sgpgm"/> -->
+  <arg name="result_folder" value="ours_geotransformer_filter0009"/>
 
   <!-- x=11 , yaw=3.14 -->
   <arg name="agentA_agnetB_x" value="-3"/>
@@ -50,7 +51,9 @@
       <param name="map_name" value="instance_map.ply"/>
       <param name="iter_num" value="5"/>
       <param name="dense_corr" value="true"/>
-      <param name="corr_sampling_ratio" value="0.1"/>
+      <param name="mode" value="0"/>
+      <param name="corr_sampling_ratio" value="0.2"/>
+      <param name="render_pose" value="false"/>
   </node>
 
   <node pkg="sgloop_ros" name="agentB" type="PoseGraphNode" output="screen" clear_params="true">
@@ -69,6 +72,8 @@
       <param name="map_only" value="true"/>
       <param name="map_name" value="instance_map.ply"/>
       <param name="iter_num" value="5"/>
+      <param name="mode" value="0"/>
+      <param name="render_pose" value="false"/>
   </node>
 
   <node pkg="tf" type="static_transform_publisher" name="link_1st_agent" args="0 0 0 0 0 0 1 world agentA 100" />

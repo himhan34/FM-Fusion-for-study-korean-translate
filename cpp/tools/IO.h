@@ -66,6 +66,7 @@ namespace IO
                                 std::vector<float> &corrs_match_scores);
 
     bool load_match_results(const std::string &match_file_dir,
+                        float &timestamp,
                         Eigen::Matrix4d &pose,
                         std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
                         std::vector<Eigen::Vector3d> &src_centroids,
@@ -83,8 +84,22 @@ namespace IO
 
     bool load_pose_file(const std::string &pose_file_dir, Eigen::Matrix4d &pose);
 
+    bool read_loop_transformations(const std::string &loop_file_dir,
+                        std::vector<LoopPair> &loop_pairs,
+                        std::vector<Eigen::Matrix4d> &loop_transformations);
+
+    bool read_frames_poses(const std::string &frame_pose_file,
+                    std::unordered_map<std::string, Eigen::Matrix4d> &frame_poses);
+
+    bool read_entire_camera_poses(const std::string &scene_folder,
+                        std::unordered_map<std::string, Eigen::Matrix4d> &src_poses_map);
+
     bool save_pose(const std::string &output_dir, const Eigen::Matrix4d &pose);
 
+    /// \brief  Save the all of the centroids from two graph to the output directory.
+    bool save_graph_centroids(const std::vector<Eigen::Vector3d> &src_centroids, 
+                            const std::vector<Eigen::Vector3d> &ref_centroids,
+                            const std::string &output_dir);
 }
 
 }

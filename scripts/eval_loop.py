@@ -78,7 +78,57 @@ def read_instance_match_result(dir):
     
     return pose, pred_nodes, pred_scores
 
+def read_centroids(dir):
+    with open(dir,'r') as f:
+        src_centroids = []
+        ref_centroids = []
+        read_ref = False
+        for line in f.readlines()[1:]:
+            if '# ref' in line:
+                read_ref = True
+                continue
+            eles = line.strip().split(' ')
+            centroid = [float(x) for x in eles]
+            
+            if read_ref:
+                ref_centroids.append(centroid)
+            else:
+                src_centroids.append(centroid)
+        f.close()
+        
+        src_centroids = np.array(src_centroids)
+        ref_centroids = np.array(ref_centroids)
+        
+        return src_centroids, ref_centroids
 
+def compute_gt_matches(src_centroids, ref_centroids, dist_threshold=1.0):
+    n = src_centroids.shape[0]
+    m = ref_centroids.shape[0]
+    dist_map = np.zeros((n, m))
+    
+    for i in range(n):
+        for j in range(m):
+            dist_map[i,j] = np.linalg.norm(src_centroids[i] - ref_centroids[j])
+    
+    # select the top-1 for each row
+    row_max_map = np.zeros((n, m), dtype=bool)
+    col_max_map = np.zeros((n, m), dtype=bool)
+    for i in range(n):
+        min_idx = np.argmin(dist_map[i,:])
+        row_max_map[i, min_idx] = True
+    
+    for j in range(m):
+        min_idx = np.argmin(dist_map[:,j])
+        col_max_map[min_idx, j] = True
+    
+    gt_map = np.logical_and(row_max_map, col_max_map)    
+    valid_mask = dist_map < dist_threshold
+    gt_map = np.logical_and(gt_map, valid_mask)
+    
+    gt_matches = np.argwhere(gt_map)
+    
+    return gt_matches, gt_matches.shape[0]
+    
 def isRotationIdentitiy(pose: np.ndarray):
     return np.allclose(pose[:3, :3], np.eye(3))
 
@@ -155,6 +205,16 @@ def apply_transform(points: torch.Tensor, transform: torch.Tensor):
 
     return points
 
+def apply_transform_np(points: np.ndarray, transform: np.ndarray):
+    
+    rotation = transform[:3, :3]
+    translation = transform[:3, 3]
+    points_shape = points.shape
+    points = points.reshape(-1, 3)
+    points = np.matmul(points, rotation.transpose(-1, -2)) + translation
+    points = points.reshape(*points_shape)
+
+    return points
 
 def check_sequence_output(scene_dir):
     if os.path.exists(os.path.join(scene_dir, "config.txt")):
@@ -191,20 +251,32 @@ def compute_cloud_overlap(
 
 
 class RegistrationEvaluator:
-    def __init__(self):
+    def __init__(self, rmse_threshold=0.2):
         self.tps = []
         self.fps = []
         self.counts = []
+        self.gts = []
+        self.irs = []
         self.rmses = []
         self.ious = []
-        self.rmse_threshold = 0.2
-        self.segment = [0.0, 0.4, 0.7, 1.0]  # difficult, median and easy
+        self.rmse_threshold = rmse_threshold
+        self.segment = [0.1, 0.4, 0.7, 1.0]  # difficult, median and easy
 
-    def update(self, tp_, count_, rmse_, iou_):
+    def update(self, tp_, count_, rmse_, iou_, ir_):
         self.tps.append(tp_)
         self.counts.append(count_)
         self.rmses.append(rmse_)
         self.ious.append(iou_)
+        self.irs.append(ir_)
+
+    def compensate_frames(self, frame_count):
+        for i in range(frame_count):
+            self.tps.append(0)
+            self.counts.append(1)
+            self.gts.append(1)
+            self.ious.append(0.01)
+            self.rmses.append(50.0)
+            self.irs.append(0.0)
 
     def analysis(self, msg=None):
         if len(self.rmses) < 1:
@@ -213,6 +285,8 @@ class RegistrationEvaluator:
         self.counts = np.array(self.counts)
         self.rmses = np.array(self.rmses)
         self.ious = np.array(self.ious)
+        self.irs = np.array(self.irs)
+        self.gts = np.array(self.gts)
 
         if msg is not None:
             print(msg)
@@ -220,6 +294,7 @@ class RegistrationEvaluator:
         NUM_SEGMENT = len(self.segment) - 1
         segment_names = ["difficult", "median", "easy"]
 
+        print('rmse threshold: ', self.rmse_threshold)
         for k in range(NUM_SEGMENT):
             iou_lb = self.segment[k]
             iou_hb = self.segment[k + 1]
@@ -227,23 +302,29 @@ class RegistrationEvaluator:
             if selection.sum() == 0:
                 continue
 
-            registration_tp = np.sum(self.rmses[selection] < self.rmse_threshold)
+            tp_masks = self.rmses[selection] < self.rmse_threshold
+            registration_tp = np.sum(tp_masks)
             registration_recall = registration_tp / np.sum(selection)
-            avg_rmse = np.mean(self.rmses[selection])
+            avg_rmse = np.mean(self.rmses[selection][tp_masks])
 
             instances_tp = np.sum(self.tps[selection])
             instances_count = np.sum(self.counts[selection])
+            instances_gt = np.sum(self.gts[selection])
+            instance_recall = instances_tp / instances_gt
             instance_precision = instances_tp / instances_count
+            inlier_rate = np.mean(self.irs[selection])
 
             print(
-                "{} Segment: [{:.1f},{:.1f}], {:d} frames, Registration recall: {:.3f}, Avg. RMSE: {:.3f}, Instance precision: {:.3f}".format(
+                "{} Segment: [{:.1f},{:.1f}], {:d} frames, RR: {:.3f}, RMSE: {:.3f}, NR :{:.3F}, NP: {:.3f}, IR: {:.3f}".format(
                     segment_names[k],
                     iou_lb,
                     iou_hb,
                     selection.sum(),
                     registration_recall,
                     avg_rmse,
+                    instance_recall,
                     instance_precision,
+                    inlier_rate,
                 )
             )
 
@@ -402,12 +483,12 @@ def eval_offline_loop(dataroot, scan_pairs, output_folder):
     print("registration recall:{}/{}".format(registration_tp, len(scan_pairs)))
 
 
-def read_frames_map(gt_scene_folder):
+def read_frames_map(gt_scene_folder, posfix = '.ply'):
     """The folder contains a sequence of frames that have the src map stored.
     Return,
     frames_map: {'indices':[], 'dirs':[]}
     """
-    gt_maps = glob.glob(gt_scene_folder + "/*.ply")
+    gt_maps = glob.glob(gt_scene_folder + "/*{}".format(posfix))
     gt_maps = sorted(gt_maps)
     frames_map = {"indices": [], "dirs": []}
 
@@ -530,7 +611,7 @@ def write_eval_data(outdir, tp_instances, count_instances, rmse_list, iou):
 #         |-- ${output_folder}
 #     |-- gt
 def eval_online_loop(
-    dataroot, scan_pairs, output_folder, consider_iou, write_log=False
+    dataroot, scan_pairs, output_folder, consider_iou, write_log=False, rmse_threshold=0.5
 ):
     """
     Evaluate online loop results.
@@ -546,22 +627,24 @@ def eval_online_loop(
     CONSIDER_IOU = consider_iou
     EVAL_COMM = True
     RMSE_THRESHOLD = 0.1
+    COMPENSATE_FRAME = -1
     print("Evaluate online loop results")
 
     broadcast_runtime = TimeAnalysis(["SgCreate SgEncode Pub"])
     map_runtime = TimeAnalysis(["Load SemanticMapping"])
     coarse_loop_runtime = TimeAnalysis(
-        ["Subscribe ShapeEncoder ShapeTotal C-Match D-Match Reg I/O"]
+        ["Subscribe ShapeEncoder ShapeTotal  C-Match  D-Match  G3Reg  ICP  I/O"]
     )
     dense_loop_runtime = TimeAnalysis(
-        ["Subscribe ShapeEncoder ShapeTotal C-Match D-Match Reg I/O"]
+        ["Subscribe ShapeEncoder ShapeTotal  C-Match  D-Match  G3Reg  ICP  I/O"]
     )
-    coarse_evaluator = RegistrationEvaluator()
-    dense_evaluator = RegistrationEvaluator()
+    coarse_evaluator = RegistrationEvaluator(rmse_threshold)
+    dense_evaluator = RegistrationEvaluator(rmse_threshold)
     bw_evaluator = BandwidthEvaluator()
 
     summary_header = ["tp", "count", "rmse", "dense", "iou"]
     summary_data = []
+    count_pairs = 0
 
     for pair in scan_pairs:
         if check_sequence_output(os.path.join(output_folder, pair[0])) == False:
@@ -591,14 +674,20 @@ def eval_online_loop(
 
         if CONSIDER_IOU:
             # ref_maps = read_frames_map(os.path.join(dataroot, "output", "gt_iou", pair[1]))
-            ref_maps = read_frames_map(os.path.join(output_folder, pair[1],'fakeScene'))
+            ref_maps = read_frames_map(
+                os.path.join(output_folder, pair[1], "fakeScene")
+            )
 
         if EVAL_COMM:
             bw_evaluator.update(os.path.join(output_folder, pair[0], "sub_logs.txt"))
 
+        pair_folder = os.path.join(output_folder, pair[0], pair[1])
         loop_frames = glob.glob(
             os.path.join(output_folder, pair[0], pair[1], "frame*.txt")
         )
+        loop_frames = [frame_dir for frame_dir in loop_frames if "centroids" not in frame_dir]
+        loop_frames = [frame_dir for frame_dir in loop_frames if "cmatches" not in frame_dir]
+        
         loop_frames = sorted(loop_frames)
 
         gt_pose = np.loadtxt(
@@ -611,16 +700,26 @@ def eval_online_loop(
         instance_count = []
         rmse_list = []
         ir_list = []
+        count_frames = 0
 
         for frame in loop_frames:
-            if "cmatches" in frame:
-                continue
+            # if "cmatches" in frame or 'centroids' in frame:
+            #     continue
             src_frame_name = os.path.basename(frame).split(".")[0]
             src_pcd = o3d.io.read_point_cloud(
                 os.path.join(
                     output_folder, pair[0], pair[1], "{}_src.ply".format(src_frame_name)
                 )
             )
+            if src_pcd.has_points() == False:
+                continue
+            
+            src_node_centroids, ref_node_centroids = read_centroids(
+                                                    os.path.join(pair_folder, "{}_centroids.txt".format(src_frame_name)))
+            src_node_centroids = apply_transform_np(src_node_centroids, gt_pose)
+            # src_node_centroids = apply_transform(torch.from_numpy(src_node_centroids).float(), 
+            #                                      torch.from_numpy(gt_pose).float()).numpy()
+            gt_matches, _= compute_gt_matches(src_node_centroids, ref_node_centroids, dist_threshold=1.0)
 
             (
                 pred_pose,
@@ -637,8 +736,8 @@ def eval_online_loop(
                 src_centroids, ref_centroids, gt_pose, acceptance_radius=INSTANCE_RADIUS
             )
             rmse = eval_registration_error(src_pcd, pred_pose, gt_pose)
-            msg = "{}: {}/{} true instance matches, rmse {:.3f}".format(
-                src_frame_name, inst_mask.sum(), len(src_centroids), rmse
+            msg = "{}: {}/{} true instance matches, gt {}, rmse {:.3f}".format(
+                src_frame_name, inst_mask.sum(), len(src_centroids), gt_matches.shape[0], rmse
             )
             frame_data = [
                 inst_mask.sum().item(),
@@ -652,22 +751,29 @@ def eval_online_loop(
             ref_corr_dir = os.path.join(
                 output_folder, pair[0], pair[1], "{}_cref.ply".format(src_frame_name)
             )
-            if os.path.exists(src_corr_dir) and os.path.exists(ref_corr_dir):
+            corr_match_dir = os.path.join(
+                output_folder, pair[0], pair[1], "{}_cmatches.txt".format(src_frame_name)
+            )
+            
+            corr_src_pcd = o3d.io.read_point_cloud(src_corr_dir)
+            corr_ref_pcd = o3d.io.read_point_cloud(ref_corr_dir)
+            precision, corr_tp_mask = evaluate_fine(
+                np.asarray(corr_src_pcd.points),
+                np.asarray(corr_ref_pcd.points),
+                gt_pose,
+                acceptance_radius=RMSE_THRESHOLD,
+            )       
+                 
+            if os.path.exists(corr_match_dir):
                 msg += " dense "
                 dense_mode = True
                 frame_data.append(1)
-                
-                corr_src_pcd = o3d.io.read_point_cloud(src_corr_dir)
-                corr_ref_pcd = o3d.io.read_point_cloud(ref_corr_dir)
-                precision, corr_tp_mask = evaluate_fine(np.asarray(corr_src_pcd.points),
-                                                        np.asarray(corr_ref_pcd.points),
-                                                        gt_pose,
-                                                        acceptance_radius=RMSE_THRESHOLD)
                 ir_list.append(precision)
             else:
                 msg += " coars "
                 dense_mode = False
                 frame_data.append(0)
+                # precision = 0.0
 
             if ref_frame_id > 0:
                 msg += " refFrame:{}".format(ref_frame_id)
@@ -682,22 +788,28 @@ def eval_online_loop(
                     ref_pcd = o3d.io.read_point_cloud(ref_map_dir)
                     src_pcd.transform(gt_pose)
                     iou, _ = compute_cloud_overlap(src_pcd, ref_pcd, 0.2)
-                    msg += ", iou: {:.3f}".format(iou)
+
+
                     if dense_mode:
                         dense_evaluator.update(
                             inst_mask.sum().item(),
                             len(src_centroids),
                             rmse.float().item(),
                             iou,
+                            precision,
                         )
+                        dense_evaluator.gts.append(gt_matches.shape[0])
                     else:
                         coarse_evaluator.update(
                             inst_mask.sum().item(),
                             len(src_centroids),
                             rmse.float().item(),
                             iou,
+                            precision,
                         )
+                        coarse_evaluator.gts.append(gt_matches.shape[0])
 
+                    msg += ", iou: {:.3f}".format(iou)
                 else:
                     iou = -1.0
             else:
@@ -706,8 +818,9 @@ def eval_online_loop(
 
             if np.allclose(pred_pose[:3, :3], np.eye(3)):
                 msg += " nanPred"
-            
-            if dense_mode: msg+= " IR: {:.3f}".format(precision)
+
+            # if dense_mode:
+            msg += " IR: {:.3f}".format(precision)
             print(msg)
 
             # I/O
@@ -716,6 +829,7 @@ def eval_online_loop(
             rmse_list.append(rmse)
             ious.append(iou)
             summary_data.append(np.array(frame_data))
+            count_frames += 1
 
         if write_log:
             write_eval_data(
@@ -726,13 +840,22 @@ def eval_online_loop(
                 ious,
             )
 
-        break
-    
+        if COMPENSATE_FRAME>0:
+            beginning_frame = os.path.basename(loop_frames[0]).split(".")[0]
+            beginning_frame_id = int(beginning_frame.split("-")[-1])
+            compensate_size = (beginning_frame_id - COMPENSATE_FRAME)//10
+            coarse_evaluator.compensate_frames(compensate_size)
+            count_frames += compensate_size
+
+        count_pairs += 1
+        print('Summarize {} loop frames for pair {}-{}'.format(count_frames,pair[0],pair[1]))
+        # break
+
     # Runtime summary
     map_runtime.analysis(verbose=True)
     broadcast_runtime.analysis(verbose=True)
     coarse_loop_runtime.analysis(verbose=True)
-    dense_loop_runtime.analysis(verbose=True)
+    summary_dense_timing = dense_loop_runtime.analysis(verbose=True)
 
     if len(summary_data) > 0:
 
@@ -750,16 +873,18 @@ def eval_online_loop(
             fmt="%.3f",
         )
 
-    if len(ir_list)>0:
+    print("Summary: {} pairs of scenes".format(count_pairs))
+    if len(ir_list) > 0:
         ir_list = np.array(ir_list)
-        print('IR mean: {:.3f}'.format(ir_list.mean()))
+        print("IR mean: {:.3f}".format(ir_list.mean()))
+
 
 def eval_offline_register(
     export_folder,
     gt_folder,
     scan_pairs,
     consider_iou=False,
-    result_folder = None,
+    result_folder=None,
     verbose=True,
 ):
 
@@ -774,9 +899,12 @@ def eval_offline_register(
             os.path.join(gt_folder, "{}-{}.txt".format(pair[0], pair[1]))
         )
         frame_files = glob.glob(pair_export_folder + "/frame*.txt")
+        frame_count = 0
 
         if consider_iou:
-            ref_maps = read_frames_map(os.path.join(result_folder,pair[1],'fakeScene'))
+            ref_maps = read_frames_map(
+                os.path.join(result_folder, pair[1], "fakeScene")
+            )
             # assert gt_iou_folder is not None
             # ref_maps = read_frames_map(os.path.join(gt_iou_folder, pair[1]))
 
@@ -785,8 +913,8 @@ def eval_offline_register(
                 continue
             if "newpose" in frame_file:
                 continue
-            if verbose:
-                print("Eval frame: {}".format(frame_file))
+            # if verbose:
+                # print("Eval frame: {}".format(frame_file))
             msg = "{} ".format(frame_file.split("/")[-1].split(".")[0])
             (
                 pred_pose,
@@ -820,15 +948,19 @@ def eval_offline_register(
 
             if os.path.exists(src_corr_dir) and os.path.exists(ref_corr_dir):
                 dense_mode = True
-                dense_evaluator.update(0, len(src_centroids), rmse, iou)
+                dense_evaluator.update(0, len(src_centroids), rmse, iou, -1.0)
                 msg += "dense mode "
             else:
                 dense_mode = False
-                coarse_evaluator.update(0, len(src_centroids), rmse, iou)
+                coarse_evaluator.update(0, len(src_centroids), rmse, iou, -1.0)
                 msg += "coars mode "
             msg += "rmse: {:.3f}, iou: {:.3f}".format(rmse, iou)
+            frame_count += 1
+            if dense_mode: msg+=' dense'
             if verbose:
                 print(msg)
+    
+        print('Summarize {} frames for scene pairs {}-{}'.format(frame_count,pair[0],pair[1]))
     # Summary
 
     coarse_evaluator.analysis("*** Summary coarse registrations ***")
@@ -884,6 +1016,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--run_mode", type=str, default="offline", help="offline, online, reg"
     )
+    parser.add_argument(
+        "--rmse_threshold", type=float, default=0.2, help="rmse threshold for success"
+    )
+    
     args = parser.parse_args()
 
     config_file = args.config_file
@@ -891,7 +1027,6 @@ if __name__ == "__main__":
     output_folder = args.output_folder
     split = args.split
     split_file = args.split_file
-    RMSE_THRESHOLD = 0.2
     INLINER_RADIUS = 0.1
     RUN_MODE = args.run_mode  # 'offline', 'online','reg'
 
@@ -906,7 +1041,7 @@ if __name__ == "__main__":
         eval_offline_loop(args.dataroot, scan_pairs, args.output_folder)
     elif RUN_MODE == "online":
         eval_online_loop(
-            args.dataroot, scan_pairs, args.output_folder, args.consider_iou
+            args.dataroot, scan_pairs, args.output_folder, args.consider_iou, False, args.rmse_threshold
         )
     elif RUN_MODE == "reg":
         summary_registration_result(scan_pairs, args.output_folder)

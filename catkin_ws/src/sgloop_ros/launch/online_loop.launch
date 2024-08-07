@@ -1,20 +1,20 @@
 <launch>
   <!-- agent A,B -->
-  <arg name="agentA_scene" default="ab0201_03c"/>
-  <arg name="agentB_scene" default="ab0201_03a"/>
-  <!-- <arg name="agentA_scene" default="uc0115_00a"/> -->
-  <!-- <arg name="agentB_scene" default="uc0115_00a"/> -->
+  <arg name="agentA_scene" default="ab0401_00a"/>
+  <arg name="agentB_scene" default="ab0401_00b"/>
+  <!-- <arg name="agentA_scene" default="uc0204_00a"/> -->
+  <!-- <arg name="agentB_scene" default="uc0204_00b"/> -->
   <arg name="agentC_scene" default="uc0115_00c"/>
 
   <!-- global settings  -->
   <arg name="dataroot" value="/data2/sgslam"/>
   <arg name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/realsense.yaml"/>
   <arg name="weights_folder" value="/home/cliuci/code_ws/OpensetFusion/torchscript"/>
-  <arg name="loop_duration" value="10"/>
+  <arg name="loop_duration" value="8"/>
   <arg name="sliding_widow_translation" value="30.0"/>
   <arg name="icp_refine" value="true"/>
   <arg name="verbose_level" value="0"/>
-  <arg name="output_folder" value="$(arg dataroot)/output/v6"/>
+  <arg name="output_folder" value="$(arg dataroot)/output/v10"/>
 
   <arg name="agentA_agnetB_x" value="0.0"/>
   <arg name="agentA_agentB_y" value="10.0"/>
@@ -57,7 +57,7 @@
     <param name="local_agent" value="agentA"/>
     <param name="second_agent" value="agentB"/>    
     <param name="second_agent_scene" value="$(arg agentB_scene)"/>
-    <param name="frame_gap" value="5"/>
+    <param name="frame_gap" value="2"/>
     <param name="pose_average_size" value="-1"/>
     <param name="loop_duration" value="$(arg loop_duration)"/>
     <param name="visualization" value="1"/>
@@ -65,9 +65,17 @@
     <param name="debug_mode" value="false"/>
     <param name="icp_refine" value="$(arg icp_refine)"/>
     <param name="sliding_widow_translation" value="$(arg sliding_widow_translation)"/>
-    <param name="dense_m_loops" value="1"/>
-    <param name="dense_m_frame_gap" value="200"/>
+    <param name="dense_m_loops" value="3"/>
+    <param name="dense_m_frame_gap" value="80"/>
     <param name="gt_ref_src" value="$(arg dataroot)/gt/$(arg agentA_scene)-$(arg agentB_scene).txt"/>
+    <param name="cool_down_sleep" value="0.2"/>
+    <param name="g3reg/max_corr_number" value="300"/>
+    <param name="g3reg/icp_voxel" value="0.25"/>
+    <param name="g3reg/ir_threshold" value="0.3"/>
+    <param name="g3reg/enable_coarse_gnc" value="true"/>
+    <param name="init_iter" value="0"/>
+    <param name="init_src_scene" value="/data2/sgslam/val/uc0204_00a"/>
+    <param name="init_ref_scene" value="/data2/sgslam/val/uc0204_00b"/>
   </node>
 
   <node pkg="sgloop_ros" name="agentB" type="OnlineLoop" output="screen" clear_params="true">
@@ -78,34 +86,14 @@
     <param name="local_agent" value="agentB"/>
     <param name="second_agent" value="agentZ"/>    
     <param name="second_agent_scene" value="fakeScene"/>
-    <param name="frame_gap" value="5"/>
-    <param name="loop_duration" value="$(arg loop_duration)"/>
-    <param name="broadcast_sleep_time" value="1.0"/>
-    <param name="sliding_widow_translation" value="$(arg sliding_widow_translation)"/>
-    <param name="visualization" value="1"/>
-    <param name="o3d_verbose_level" value="$(arg verbose_level)"/>
-    <!-- <param name="create_gt_iou" value="true"/> -->
-  </node>
-
-  <!-- <node pkg="sgloop_ros" name="agentC" type="OnlineLoop" output="screen" clear_params="true">
-    <param name="cfg_file" value="$(arg cfg_file)"/>
-    <param name="weights_folder" value="$(arg weights_folder)"/>
-    <param name="output_folder" value="$(arg output_folder)"/>
-    <param name="active_sequence_dir" value="$(arg dataroot)/scans/$(arg agentC_scene)"/>
-    <param name="local_agent" value="agentC"/>
-    <param name="second_agent" value="agentZ"/>    
-    <param name="second_agent_scene" value="fakeScene"/>
     <param name="frame_gap" value="2"/>
     <param name="loop_duration" value="$(arg loop_duration)"/>
     <param name="broadcast_sleep_time" value="1.0"/>
     <param name="sliding_widow_translation" value="$(arg sliding_widow_translation)"/>
     <param name="visualization" value="1"/>
     <param name="o3d_verbose_level" value="$(arg verbose_level)"/>
-
-    <param name="viz/local_frame_offset/x" value="-$(arg offset_x)"/>
-    <param name="viz/local_frame_offset/y" value="-$(arg offset_y)"/>
-    <param name="viz/local_frame_offset/z" value="-$(arg offset_z)"/>
-  </node> -->
+    <param name="cool_down_sleep" value="0.3"/>
+  </node>
 
   <node pkg="tf" type="static_transform_publisher" name="link_1st_agent" args="0 0 0 0 0 0 1 world agentA 100" />
   <node pkg="tf" type="static_transform_publisher" name="link_2nd_agent" args="$(arg agentA_agnetB_x) $(arg agentA_agentB_y) $(arg agentA_agentB_z) 0 0 0 1 world agentB 100" />

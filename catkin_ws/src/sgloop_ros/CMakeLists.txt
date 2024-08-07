@@ -27,6 +27,8 @@ find_package(Open3D REQUIRED)
 find_package(Torch REQUIRED)
 
 add_subdirectory(thirdparty/G3Reg)
+# add_subdirectory(thirdparty/Kimera-RPGO)
+# include_directories("thirdparty/Kimera-RPGO/include")
 
 message(STATUS "TORCH_LIBRARIES: ${TORCH_LIBRARIES}")
 message(STATUS "TORCH_INCLUDE_DIRS: ${TORCH_INCLUDE_DIRS}")
@@ -73,6 +75,7 @@ set(ALL_TARGET_LINK_LIBARIES
   ${OpenCV_LIBS}
   G3REG::g3reg
   gtsam
+  # KimeraRPGO
 )
 
 add_library(sgloop_ros SHARED

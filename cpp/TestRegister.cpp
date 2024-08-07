@@ -20,10 +20,35 @@ bool check_file_exists(const std::string &name) {
     return f.good();
 }
 
+//def eval_registration_error(src_cloud, pred_tf, gt_tf):
+//    src_points = np.asarray(src_cloud.points)
+//    src_points = torch.from_numpy(src_points).float()
+//    pred_tf = torch.from_numpy(pred_tf).float()
+//    gt_tf = torch.from_numpy(gt_tf).float()
+//
+//    realignment_transform = torch.matmul(torch.inverse(gt_tf), pred_tf)
+//    realigned_src_points_f = apply_transform(src_points, realignment_transform)
+//    rmse = torch.linalg.norm(realigned_src_points_f - src_points, dim=1).mean()
+//    return rmse
+
+double eval_registration_error(const fmfusion::O3d_Cloud_Ptr &src_cloud, const Eigen::Matrix4d &pred_tf,
+                               const Eigen::Matrix4d &gt_tf) {
+    Eigen::Matrix4d realignment_transform = gt_tf.inverse() * pred_tf;
+    double rmse = 0.0;
+    for (int i = 0; i < src_cloud->points_.size(); i++) {
+        Eigen::Vector3d src_point = src_cloud->points_[i];
+        Eigen::Vector3d realigned_src_point =
+                realignment_transform.block<3, 3>(0, 0) * src_point + realignment_transform.block<3, 1>(0, 3);
+        rmse += (realigned_src_point - src_cloud->points_[i]).norm();
+    }
+    return rmse / src_cloud->points_.size();
+}
+
 int main(int argc, char *argv[]) {
     using namespace open3d;
 
     // The output folder saves online registration results
+    std::string config_file = utility::GetProgramOptionAsString(argc, argv, "--config");
     std::string output_folder = utility::GetProgramOptionAsString(argc, argv, "--output_folder");
     std::string src_frame_name = utility::GetProgramOptionAsString(argc, argv, "--frame_name");
     std::string ref_frame_map_dir = utility::GetProgramOptionAsString(argc, argv, "--ref_frame_map_dir");
@@ -38,8 +63,13 @@ int main(int argc, char *argv[]) {
     double icp_voxel = utility::GetProgramOptionAsDouble(argc, argv, "--icp_voxel", 0.2);
     double ds_voxel = utility::GetProgramOptionAsDouble(argc, argv, "--ds_voxel", 0.5);
     int ds_num = utility::GetProgramOptionAsInt(argc, argv, "--ds_num", 9);
+    double nms_thd = utility::GetProgramOptionAsDouble(argc, argv, "--nms_thd", 0.05);
+    double inlier_threshold = utility::GetProgramOptionAsDouble(argc, argv, "--inlier_threshold", 0.3);
+    int max_corr_number = utility::GetProgramOptionAsInt(argc, argv, "--max_corr_number", 1000);
+    // std::string tf_solver_type = utility::GetProgramOptionAsString(argc, argv, "--tf_solver", "quatro");
 
     bool visualization = utility::ProgramOptionExists(argc, argv, "--visualization");
+    bool register_sg = utility::ProgramOptionExists(argc, argv, "--register_sg"); // Keep it off. The function is still in developing.
 
     std::string corr_folder = output_folder + "/" + src_scene + "/" + ref_scene;
 
@@ -50,6 +80,13 @@ int main(int argc, char *argv[]) {
     std::cout << "Load ref pcd size: " << recons_ref_pcd->points_.size() << std::endl;
     std::cout << "Load src pcd size: " << recons_src_pcd->points_.size() << std::endl;
 
+    // Load reconstructed scene graph
+    auto sg_config = fmfusion::utility::create_scene_graph_config(config_file, false);
+    if (sg_config == nullptr) {
+        utility::LogWarning("Failed to create scene graph config.");
+        return 0;
+    }
+
     // Load gt
     Eigen::Matrix4d gt_pose; // T_ref_src
     bool read_gt = fmfusion::IO::read_transformation(gt_folder + "/" + src_scene + "-" + ref_scene + ".txt", gt_pose);
@@ -57,49 +94,78 @@ int main(int argc, char *argv[]) {
 
     // Load hierarchical correspondences
     Eigen::Matrix4d pred_pose;
-    std::vector<std::pair<uint32_t, uint32_t>> match_pairs; // Matched instances
+    std::vector<std::pair<uint32_t, uint32_t>> match_pairs; // Matched instances id
     std::vector<Eigen::Vector3d> src_centroids, ref_centroids; // Matched centroids
     fmfusion::O3d_Cloud_Ptr corr_src_pcd(new fmfusion::O3d_Cloud()), corr_ref_pcd(new fmfusion::O3d_Cloud());
 
     // Coarse matches
+    float ref_frame_timestamp;
     bool load_results = fmfusion::IO::load_match_results(
             corr_folder + "/" + src_frame_name + ".txt",
+            ref_frame_timestamp,
             pred_pose, match_pairs,
             src_centroids, ref_centroids,
             false);
-    std::cout << "Load match pairs: " << match_pairs.size() << std::endl;
-    std::cout << "Load centroids: " << src_centroids.size() << std::endl;
-    int M = match_pairs.size();
+
     if (!load_results) {
         utility::LogError("Failed to load match results.");
         return 0;
+    }
+    int M = match_pairs.size();
+    std::cout << "Load match pairs: " << match_pairs.size() << std::endl;
+    std::cout << "Load centroids: " << src_centroids.size() << std::endl;
+
+    // Access instance points and bbox
+    // The function is in developing.
+    std::vector<fmfusion::InstanceId> src_names, ref_names;
+    std::vector<fmfusion::InstancePtr> src_instances, ref_instances;
+    if(register_sg){ //! Use centroid and bbox to register. Not developed yet.
+        auto ref_map = std::make_shared<fmfusion::SemanticMapping>(
+                fmfusion::SemanticMapping(sg_config->mapping_cfg, sg_config->instance_cfg));
+        auto src_map = std::make_shared<fmfusion::SemanticMapping>(
+                fmfusion::SemanticMapping(sg_config->mapping_cfg, sg_config->instance_cfg));
+
+        std::cout << "Load ref map: " << output_folder + "/" + ref_scene << std::endl;
+        ref_map->load(output_folder + "/" + ref_scene);
+        src_map->load(output_folder + "/" + src_scene);
+        ref_map->extract_bounding_boxes();
+        src_map->extract_bounding_boxes();
+
+        for (int i = 0; i < match_pairs.size(); i++) {
+            src_instances.push_back(src_map->get_instance(match_pairs[i].first));
+            ref_instances.push_back(ref_map->get_instance(match_pairs[i].second));
+        }
     }
 
     // Current dense map
     // The reference point cloud is only available in dense mode
     fmfusion::O3d_Cloud_Ptr src_pcd = io::CreatePointCloudFromFile(corr_folder + "/" + src_frame_name + "_src.ply");
-    fmfusion::O3d_Cloud_Ptr ref_pcd;
+    fmfusion::O3d_Cloud_Ptr ref_pcd = io::CreatePointCloudFromFile(ref_frame_map_dir);
+    std::cout<<"load ref_pcd size: "<<ref_pcd->points_.size()<<std::endl;
+    assert(ref_pcd->points_.size() > 0);
 
     // Dense matches
     std::vector<float> corr_scores_vec;
     std::map<int, std::vector<int>> ins_corr_map;
     bool dense_mode = false;
-    if (check_file_exists(corr_folder + "/" + src_frame_name + "_csrc.ply") &&
-        check_file_exists(corr_folder + "/" + src_frame_name + "_cref.ply")) {
+    corr_src_pcd = io::CreatePointCloudFromFile(corr_folder + "/" + src_frame_name + "_csrc.ply");
+    corr_ref_pcd = io::CreatePointCloudFromFile(corr_folder + "/" + src_frame_name + "_cref.ply");
+    int C = corr_src_pcd->points_.size();
+    assert(C == corr_ref_pcd->points_.size());
+    std::cout << "Load " << corr_src_pcd->points_.size() << " dense corrs" << std::endl;
+
+    // Dense mode
+    if (check_file_exists(corr_folder + "/" + src_frame_name + "_cmatches.txt")) {
         std::cout << "Load dense correspondences." << std::endl;
         dense_mode = true;
-        ref_pcd = io::CreatePointCloudFromFile(ref_frame_map_dir);
         std::cout << "load ref_pcd size: " << ref_pcd->points_.size() << std::endl;
-
-        corr_src_pcd = io::CreatePointCloudFromFile(corr_folder + "/" + src_frame_name + "_csrc.ply");
-        corr_ref_pcd = io::CreatePointCloudFromFile(corr_folder + "/" + src_frame_name + "_cref.ply");
 
         std::vector<int> corr_match_indces;
         fmfusion::IO::load_corrs_match_indices(corr_folder + "/" + src_frame_name + "_cmatches.txt",
                                                corr_match_indces,
                                                corr_scores_vec);
-        int C = corr_src_pcd->points_.size();
-        assert(C == corr_ref_pcd->points_.size());
+        downsample_corr_nms(corr_src_pcd->points_, corr_ref_pcd->points_, corr_scores_vec, nms_thd);
+        downsample_corr_topk(corr_src_pcd->points_, corr_ref_pcd->points_, corr_scores_vec, ds_voxel, max_corr_number);
         assert(C == corr_match_indces.size());
 
         std::cout << "Load dense corrs, src: " << corr_src_pcd->points_.size()
@@ -114,10 +180,8 @@ int main(int argc, char *argv[]) {
             }
             ins_corr_map[match_index].push_back(i);
         }
-    } else {
+    } else { // coarse mode
         std::cout << "This is a coarse loop frame. No dense correspondences." << std::endl;
-        ref_pcd = std::make_shared<fmfusion::O3d_Cloud>();
-        std::cout << "load ref_pcd size: " << ref_pcd->points_.size() << std::endl;
     }
 
     // Refine the registration
@@ -126,9 +190,9 @@ int main(int argc, char *argv[]) {
 //    noise bound的取值
     config.set_noise_bounds({0.2, 0.3});
 //    位姿求解优化器的类型
-    config.tf_solver = "quatro"; // gnc quatro
     config.ds_num = ds_num;
     config.plane_resolution = verify_voxel;
+    config.max_corr_num = max_corr_number;
 //    基于点到平面的距离做验证
     config.verify_mtd = "plane_based";
     config.search_radius = search_radius;
@@ -146,15 +210,16 @@ int main(int argc, char *argv[]) {
 
     if (corr_src_pcd->points_.size() > 0) {
         // dense registration
-        double inlier_ratio = 0.0;
-        g3reg.estimate_pose(src_centroids, ref_centroids, corr_src_pcd->points_, corr_ref_pcd->points_, inlier_ratio);
-        if (inlier_ratio < 0.4) {
+        double inlier_ratio = g3reg.estimate_pose_gnc(src_centroids, ref_centroids, corr_src_pcd->points_,
+                                                      corr_ref_pcd->points_, corr_scores_vec);
+        std::cout << "Inlier ratio: " << inlier_ratio << std::endl;
+        if (inlier_ratio < inlier_threshold) {
             g3reg.estimate_pose(src_centroids, ref_centroids, corr_src_pcd->points_, corr_ref_pcd->points_,
                                 corr_scores_vec, src_pcd, ref_pcd);
         }
     } else {
-        g3reg.estimate_pose(src_centroids, ref_centroids, corr_src_pcd->points_, corr_ref_pcd->points_,
-                            corr_scores_vec, src_pcd, ref_pcd);
+        g3reg.estimate_pose_by_gems(src_instances, ref_instances, src_pcd, ref_pcd);
+//        g3reg.estimate_pose(src_centroids, ref_centroids, src_pcd, ref_pcd);
     }
 
     std::vector<Eigen::Matrix4d> candidates = g3reg.reg_result.candidates;
@@ -166,11 +231,13 @@ int main(int argc, char *argv[]) {
         std::cout << "Continue to use ICP to refine the pose\n";
         pred_pose = g3reg.icp_refine(src_pcd, ref_pcd, pred_pose);
     }
+//    pred_pose = g3reg.icp_refine(src_pcd, ref_pcd, pred_pose);
     timer.Stop();
     std::cout << "Total time: " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond() + g3reg_time
               << " ms, G3Reg time: " << std::fixed << std::setprecision(3) << g3reg_time << " ms, ICP time: "
               << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond() << " ms\n";
 
+    std::cout << "RMSE: " << eval_registration_error(src_pcd, pred_pose, gt_pose) << std::endl;
 
     if (visualization) {
         src_pcd->Transform(pred_pose);
