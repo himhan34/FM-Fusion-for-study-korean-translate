@@ -26,7 +26,7 @@ Mapping:
   max_box_area_ratio: 0.9 # box_area/image_area
   query_depth_vx_size: -1.0
   dilate_kernal: 3 
-  min_iou: 0.5
+  min_iou: 0.2
   search_radius: 4.0
 
   # merge over-segmentation
@@ -37,7 +37,7 @@ Mapping:
   update_period: 20
 
   # export
-  shape_min_points: 500 # export and bbox extract
+  shape_min_points: 100 # export and bbox extract
 
   save_da_dir: "" #"/data2/sgslam/output/da"
 # 
@@ -45,7 +45,7 @@ Graph:
   edge_radius_ratio: 2.0
   voxel_size: 0.02
   involve_floor_edge: 1
-  ignore_labels: "ceiling." # Append " floor. carpet." if ignore floors
+  ignore_labels: "ceiling" # Append " floor. carpet." if ignore floors
 
 SGNet:
   triplet_number: 20

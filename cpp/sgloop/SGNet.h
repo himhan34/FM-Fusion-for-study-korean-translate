@@ -67,6 +67,8 @@ public:
 
     bool is_online_bert()const{return !enable_bert_bow;};
 
+    bool save_hidden_features(const std::string &dir);
+
 private:
     /// @brief  Run the SGNet with fake tensor data to warm up the model.
     /// @param iter iteration number

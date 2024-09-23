@@ -33,6 +33,10 @@ class BertBow
                                     
         bool is_loaded() const {return load_success;};
 
+        void get_word2int(std::map<std::string, int>& word2int_map)const{
+            word2int_map = word2int;
+        }
+
     private:
         bool load_word2int(const std::string &word2int_file);
         bool load_word_features(const std::string &word_features_file);

@@ -7,14 +7,11 @@
 #include "open3d/Open3D.h"
 #include "Detection.h"
 #include "Common.h"
+#include "SubVolume.h"
 
 namespace fmfusion {
 
     namespace o3d_utility = open3d::utility;
-    typedef uint32_t InstanceId;
-    typedef open3d::geometry::PointCloud O3d_Cloud;
-    typedef std::shared_ptr<open3d::geometry::PointCloud> O3d_Cloud_Ptr;
-
 
     class Instance {
 
@@ -38,11 +35,10 @@ namespace fmfusion {
         void merge_with(const O3d_Cloud_Ptr &other_cloud,
                         const std::unordered_map<std::string, float> &label_measurements, const int &observations_);
 
-        std::shared_ptr<open3d::geometry::PointCloud> extract_point_cloud() const;
+        void extract_write_point_cloud();
 
-        std::shared_ptr<open3d::geometry::PointCloud> extract_write_point_cloud();
-
-        open3d::pipelines::integration::InstanceTSDFVolume *get_volume() { return volume_; }
+        // open3d::pipelines::integration::InstanceTSDFVolume
+        SubVolume *get_volume() { return volume_; }
 
         LabelScore get_predicted_class() const { return predicted_label; }
 
@@ -50,7 +46,7 @@ namespace fmfusion {
 
         size_t get_cloud_size() const;
 
-        std::shared_ptr<open3d::geometry::PointCloud> get_complete_cloud() const;
+        O3d_Cloud_Ptr get_complete_cloud() const;
 
         InstanceConfig get_config() const { return config_; }
 
@@ -84,14 +80,18 @@ namespace fmfusion {
 
         void change_id(InstanceId new_id) { id_ = new_id; }
 
+        O3d_Cloud_Ptr get_point_cloud() const;
+
     public:
         unsigned int frame_id_; // latest integration frame id
         unsigned int update_frame_id; // update point cloud and bounding box
         Eigen::Vector3d color_;
         std::shared_ptr<cv::Mat> observed_image_mask; // Poject volume on image plane;
-        open3d::pipelines::integration::InstanceTSDFVolume *volume_;
+        // open3d::pipelines::integration::InstanceTSDFVolume *volume_;
+        SubVolume *volume_;
         O3d_Cloud_Ptr point_cloud;
         Eigen::Vector3d centroid;
+        Eigen::Vector3d normal;
         std::shared_ptr<open3d::geometry::OrientedBoundingBox> min_box;
 
     private:

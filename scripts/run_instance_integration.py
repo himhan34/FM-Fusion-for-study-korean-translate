@@ -23,11 +23,13 @@ def instance_integration_process(args):
     #     data_association = 'data_association_{}.txt'.format(subseq)
     #     trajectory = 'trajectory_{}.log'.format(subseq)
 
-    cmd = "{} --config {} --root {} --output {} --prediction prediction_no_augment --frame_gap 2 --global_tsdf --max_frames 8000".format(
+    cmd = "{} --config {} --root {} --output {} ".format(
         exe_dir, 
         config_file,
         scene_dir,
         output_folder)
+    cmd +='--save_frame_instances 1 '
+    cmd +='--prediction prediction_no_augment --frame_gap 2 --global_tsdf --max_frames 8000 '
     
     if subseq!='':
         cmd += ' --subseq {}'.format(subseq)
@@ -84,7 +86,7 @@ if __name__ == '__main__':
         graphroot = dataroot
         split_file = 'tmp'
         scene_folder = os.path.join(dataroot,'scans')
-        output_folder = os.path.join(graphroot,'val_swap')
+        output_folder = os.path.join(graphroot,'output', 'online_mapping')
         
     #
     scans = read_scans(os.path.join(dataroot, 'splits', '{}.txt'.format(split_file)))
@@ -102,6 +104,7 @@ if __name__ == '__main__':
         arg_list2.append((dense_exe_dir,os.path.join(scene_folder,scene_name)))
         instance_integration_process((instance_exe_dir,config_file,os.path.join(scene_folder,scene_name),output_folder,''))
         # dense_integration_process((dense_exe_dir,os.path.join(scene_folder,scene_name)))
+        # break
     print('find {} scans and {} sub-sequences to process'.format(len(scans),len(arg_list)))
     
     # print(arg_list2)

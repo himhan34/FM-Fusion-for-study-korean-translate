@@ -42,8 +42,6 @@ int main(int argc, char **argv) {
     // SFM_DIR/SRC-REF or SGSLAM/output/v9/SRC/REF
     std::string input_folder = utility::GetProgramOptionAsString(argc, argv, "--input_folder"); 
     std::string output_folder = utility::GetProgramOptionAsString(argc, argv, "--output_folder");
-    // std::string src_scene_folder = utility::GetProgramOptionAsString(argc, argv, "--src_scene_folder");
-    // std::string ref_scene_folder = utility::GetProgramOptionAsString(argc, argv, "--ref_scene_folder");
     std::string anchor_frame = utility::GetProgramOptionAsString(argc, argv, "--anchor_frame");
     std::string frame_list = utility::GetProgramOptionAsString(argc, argv, "--frame_list", ""); // frame-xxxxxx frame-xxxxxx ...
     bool sfm = utility::ProgramOptionExists(argc, argv, "--sfm");

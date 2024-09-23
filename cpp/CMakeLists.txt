@@ -6,14 +6,17 @@ set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 set(CMAKE_PREFIX_PATH "/home/cliuci/tools/libtorch")
-option(ENABLE_TORCH ON)
-option(LOOP_DETECTION ON)
-option(INSTALL_FMFUSION ON)
+# option(ENABLE_TORCH OFF)
+option(LOOP_DETECTION OFF)
+option(INSTALL_FMFUSION OFF)
+option(RUN_HYDRA OFF)
 
 find_package(jsoncpp REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Open3D REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(GLOG REQUIRED)
+find_package(GTest REQUIRED)
 add_subdirectory(thirdparty/G3Reg)
 add_subdirectory(thirdparty/Kimera-RPGO)
 include_directories("thirdparty/Kimera-RPGO/include")
@@ -24,6 +27,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(${Open3D_INCLUDE_DIRS})
 include_directories(${GTSAM_INCLUDE_DIR})
 include_directories(${EIGEN3_INCLUDE_DIR})
+include_directories(${GLOG_INCLUDE_DIRS})
 
 ##
 # print open3d directories
@@ -33,6 +37,7 @@ message(STATUS "Eigen library: ${EIGEN3_INCLUDE_DIR}")
 message(STATUS "CMake install prefix: ${CMAKE_INSTALL_PREFIX}")
 
 set(FMFUSION_HEADER
+        mapping/SubVolume.h
         mapping/Detection.h
         mapping/Instance.h
         mapping/SemanticMapping.h
@@ -46,6 +51,7 @@ set(FMFUSION_HEADER
 )
 
 set(FMFUSION_SRC
+        mapping/SubVolume.cpp
         mapping/Detection.cpp
         mapping/Instance.cpp
         mapping/SemanticMapping.cpp
@@ -62,12 +68,13 @@ set(ALL_TARGET_LIBRARIES
         gtsam
         G3REG::g3reg
         KimeraRPGO
+        ${GLOG_LIBRARIES}
 )
 
 message(STATUS "GTSAM VERSION: ${GTSAM_VERSION} ${GTSAM_INCLUDE_DIR} ${gtsam}")
 
 # FMFusion
-if (ENABLE_TORCH)
+if (LOOP_DETECTION)
     set(LIB_UTF8PROC "/usr/local/lib/libutf8proc.so")
     add_subdirectory(tokenizer)
     add_subdirectory(thirdparty/extensions)
@@ -127,14 +134,6 @@ add_executable(MapMerger)
 target_sources(MapMerger PRIVATE MapMerger.cpp)
 target_link_libraries(MapMerger PRIVATE Open3D::Open3D ${OpenCV_LIBS} fmfusion)
 
-add_executable(robustPoseAvg)
-target_sources(robustPoseAvg PRIVATE robustPoseAvg.cpp)
-target_link_libraries(robustPoseAvg PRIVATE Open3D::Open3D ${OpenCV_LIBS} fmfusion gtsam -ltbb)
-
-add_executable(testTwoAgentsPGO)
-target_sources(testTwoAgentsPGO PRIVATE testTwoAgentsPGO.cpp)
-target_link_libraries(testTwoAgentsPGO PRIVATE Open3D::Open3D ${OpenCV_LIBS} fmfusion gtsam KimeraRPGO -ltbb)
-
 if (LOOP_DETECTION)
     add_executable( "ibraries(TestLoop PRIVATE ${ALL_TARGET_LIBRARIES} fmfusion)
 
@@ -145,9 +144,31 @@ if (LOOP_DETECTION)
     add_executable(Test3RScanRegister)
     target_sources(Test3RScanRegister PRIVATE Test3RscanRegister.cpp)
     target_link_libraries(Test3RScanRegister PRIVATE ${ALL_TARGET_LIBRARIES} fmfusion)
+        
+    add_executable(robustPoseAvg)
+    target_sources(robustPoseAvg PRIVATE robustPoseAvg.cpp)
+    target_link_libraries(robustPoseAvg PRIVATE Open3D::Open3D ${OpenCV_LIBS} fmfusion gtsam -ltbb)
 
+    add_executable(testTwoAgentsPGO)
+    target_sources(testTwoAgentsPGO PRIVATE testTwoAgentsPGO.cpp)
+    target_link_libraries(testTwoAgentsPGO PRIVATE Open3D::Open3D ${OpenCV_LIBS} fmfusion gtsam KimeraRPGO -ltbb)
 
 endif ()
+
+if (RUN_HYDRA)
+    find_package(DBoW2 REQUIRED)
+    add_library(DBoW2::DBoW2 INTERFACE IMPORTED)
+    set_target_properties(DBoW2::DBoW2 PROPERTIES
+                        INTERFACE_LINK_LIBRARIES "${DBoW2_LIBRARIES}"
+                        INTERFACE_INCLUDE_DIRECTORIES "${DBoW2_INCLUDE_DIRS}")
+
+    add_executable(TestHydra)
+    target_sources(TestHydra PRIVATE TestHydra.cpp)
+    target_link_libraries(TestHydra PRIVATE ${ALL_TARGET_LIBRARIES} 
+                                        fmfusion 
+                                        DBoW2::DBoW2
+                                        GTest::gtest_main)
+endif()
 
 # Install fmfusion library
 if (INSTALL_FMFUSION)
@@ -169,6 +190,8 @@ if (INSTALL_FMFUSION)
             DESTINATION include/fmfusion/cluster
     )
     install(FILES
+            mapping/SemanticDict.h
+            mapping/SubVolume.h
             mapping/Detection.h
             mapping/Instance.h
             mapping/SemanticMapping.h

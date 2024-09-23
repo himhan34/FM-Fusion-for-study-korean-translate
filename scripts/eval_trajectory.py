@@ -5,6 +5,7 @@ import argparse
 
 from eval_loop import read_match_centroid_result
 from run_test_loop import read_scan_pairs
+from run_pose_average import read_pose_file
 
 def relative_pos_error(pred_pos:np.ndarray, gt_pos:np.ndarray):
     err = pred_pos - gt_pos # (N,3)
@@ -82,26 +83,45 @@ def write_scene_result(frames, ate_array, output_dir, ate_threshold=0.2):
                 
         f.write('TP: {}/{} frames, threshold: {}m \n'.format(count_tp, len(frames),ate_threshold))
         f.close()
+
+def write_scene_result_new(data_dict, output_dir):
+    N = None
+    header = '# '
+    
+    for k,v in data_dict.items():
+        header += '{} '.format(k)
+        if N is not None:assert N == len(v)
+        N = len(v)
+    
+    with open(output_dir, 'w') as f:
+        f.write(header+'\n')
+        for i in range(N):
+            for k,v in data_dict.items():
+                if isinstance(v[i], str):
+                    f.write('{} '.format(v[i]))
+                elif isinstance(v[i], int):
+                    f.write('{} '.format(v[i]))
+                else:
+                    f.write('{:.3f} '.format(v[i]))
+            f.write('\n')
+        f.close()
+    
+    print('Scene result is saved in ', output_dir)     
         
-def compute_success_rate(frames, pes, threshold=0.2):
+def compute_success_rate(frames, rpe_array, threshold=0.2):
     print('Compute success rate')
     N = len(frames)
     frames_success_rate = []
-    frame_numbers = []
+    frame_idxs = []
     
     for i in range(N):
         frame_idx = int(frames[i][6:12])
         frame_number = frame_idx
-        frame_numbers.append(frame_number)
-        
-        # count_tp = pes[:i+1]<threshold
-        # success_rate = count_tp.sum()/(i+1)
+        frame_idxs.append(frame_number)
     
-        # frames_success_rate.append([frame_number, success_rate])
-    
-    frame_numbers = np.array(frame_numbers)
-    tp_masks = pes<threshold
-    frames_success_rate = np.concatenate([frame_numbers.reshape(-1,1), tp_masks.reshape(-1,1), pes.reshape(-1,1)], axis=1)
+    frame_idxs = np.array(frame_idxs)
+    tp_masks = rpe_array<threshold
+    frames_success_rate = np.concatenate([frame_idxs.reshape(-1,1), tp_masks.reshape(-1,1), rpe_array.reshape(-1,1)], axis=1)
     
     # sorted by frame number
     # frames_success_rate = frames_success_rate[frames_success_rate[:,0].argsort()]
@@ -161,7 +181,7 @@ def compute_iou(out_result_folder, src_scene, ref_scene, src_frames, gt_pose, SF
 class TrajectoryAnalysis:
     def __init__(self, scene_dir, gt_source, rpe_threshold) -> None:
         self.src_scene = os.path.basename(scene_dir)
-        self.src_poses = self.load_camera_poses(os.path.join(scene_dir,'pose')) # {frame_name: T_src_c}
+        self.src_poses, self.beginning_src_frame = self.load_camera_poses(os.path.join(scene_dir,'pose')) # {frame_name: T_src_c}
         self.pred_poses = {} # pred poses, {frame_name: T_ref_c}
         self.gt_poses = {} # gt poses, {frame_name: T_ref_c}
         self.gt_source = gt_source # icp, tag or optitrack
@@ -189,13 +209,14 @@ class TrajectoryAnalysis:
         frames_pose_dirs = glob.glob(dir+'/*.txt')
         frames_pose_dirs = sorted(frames_pose_dirs)
         poses = {}
+        begining_frame_name = os.path.basename(frames_pose_dirs[0]).split('.')[0]
         for frame in frames_pose_dirs:
             frame_name = os.path.basename(frame).split('.')[0]
             pose = np.loadtxt(frame)
             poses[frame_name] = pose
             
         print('Load {} camera poses in {}'.format(len(poses), self.src_scene))
-        return poses
+        return poses, begining_frame_name
 
     def update_aligned_poses(self, output_folder, ref_scene):
         ''' Update pred poses in reference frame. Only the last loop frame is used. '''
@@ -219,16 +240,22 @@ class TrajectoryAnalysis:
         src_scene_output = os.path.join(output_folder, self.src_scene)
         loop_frames = glob.glob(src_scene_output+'/'+ref_scene+'/*.txt')
         loop_frames = sorted(loop_frames)
+        query2match_frames = {}
+        print('Update pred poses from ', src_scene_output,'/', ref_scene)
+        
         if len(loop_frames)==0:
             print('No loop frames found in ', src_scene_output)
             return None
         for frame in loop_frames:
             if 'centroids' in frame or 'cmatches' in frame: continue
             frame_name = os.path.basename(frame).split('.')[0]
-            T_ref_src, _, _ ,_ = read_match_centroid_result(frame)
+            T_ref_src, _, _ ,ref_timestamp = read_match_centroid_result(frame)
             self.pred_poses[frame_name] = T_ref_src @ self.src_poses[frame_name] # T_ref_c
-            # self.pred_poses[frame_name] = T_ref_src
-        
+            ref_frame_id = (ref_timestamp - 12000.0) / 0.1
+            ref_frame_id = int(round(ref_frame_id))
+            query2match_frames[frame_name] = 'frame-{:06d}'.format(int(ref_frame_id))
+            # print('{}_frame-{}'.format(frame_name, ref_frame_id))
+            
         if compensate:
             beginning_frame = loop_frames[0]
             beginning_frame_name = os.path.basename(beginning_frame).split('.')[0]
@@ -239,12 +266,16 @@ class TrajectoryAnalysis:
                 frame_name = 'frame-{:06d}'.format(idx)
                 self.pred_poses[frame_name] = np.eye(4)
                 idx -=10
+                query2match_frames[frame_name] = frame_name
             
         print('update pred pose graph using {} loop frames'.format(len(self.pred_poses)))
+        return query2match_frames
         
     def update_our_average_poses(self, pose_Average_folder, compensate=True):
+        self.pred_poses.clear()
         loop_frames = glob.glob(pose_Average_folder+'/*.txt')
         loop_frames = sorted(loop_frames)
+        print('Overwrite using pose average in ', pose_Average_folder)
         
         if len(loop_frames)==0:
             print('No loop frames found in ', pose_Average_folder)
@@ -277,6 +308,7 @@ class TrajectoryAnalysis:
         self.src_poses.clear()
         self.src_poses = load_pose_file(os.path.join(pg_folder, 'src_poses.txt'))
         self.ref_poses = load_pose_file(os.path.join(pg_folder, 'ref_poses.txt'))
+        query2match_frames = {}
         
         with open(pred_file, 'r') as f:
             lines = f.readlines()
@@ -308,14 +340,57 @@ class TrajectoryAnalysis:
                     self.pred_poses[src_frame] = T_ref_src @ self.src_poses[src_frame] # T_ref_c = T_ref_src @ T_src_c
                 else:
                     raise ValueError('Unknown pose graph file name')
-            
-            
+                query2match_frames[src_frame] = ref_frame
+                
             print(' update {} pred poses from HLoc'.format(len(self.pred_poses)))
             
             if compensate:
                 for frame_name, pose in self.src_poses.items():
                     if frame_name not in self.pred_poses:
                         self.pred_poses[frame_name] = self.src_poses[frame_name]
+                        query2match_frames[frame_name] = frame_name
+            return query2match_frames
+        
+    def update_hydra_framewise_poses(self, ref_scene_dir, pnp_folder, compensate=True):
+        pnp_files = glob.glob(pnp_folder+'/*.txt')
+        query2match_frames = {}
+        print('Upload Hydra result from ', pnp_folder)
+        pnp_files = sorted(pnp_files)
+        
+        for pnp_file in pnp_files:
+            # T_c1_c0 = np.loadtxt(pnp_file)
+            pnp_dict = read_pose_file(pnp_file)[0]
+            
+            filename = os.path.basename(pnp_file).split('.')[0]
+            src_frame = pnp_dict['src'] # filename.split('_')[0]
+            ref_frame = pnp_dict['ref'] # filename.split('_')[1]
+            query2match_frames[src_frame] = ref_frame
+            # print(frame_pair)
+            T_ref_c1 = np.loadtxt(os.path.join(ref_scene_dir, 'pose', ref_frame+'.txt'))
+            T_ref_c0 = T_ref_c1 @ pnp_dict['pose']
+            self.pred_poses[src_frame] = T_ref_c0
+            # print(T_ref_c0)
+
+        if compensate:            
+            beginning_query_frame = os.path.basename(pnp_files[0]).split('.')[0].split('_')[0]
+            beginning_query_frame_id = int(beginning_query_frame[6:12])
+            idx = beginning_query_frame_id - 10
+            first_frame_id = max(1, int(self.beginning_src_frame.split('-')[1]))
+            print('Compenseate until frame-{:06d}'.format(first_frame_id))
+            
+            while(idx>first_frame_id):
+                frame_name = 'frame-{:06d}'.format(idx)
+                if os.path.exists(os.path.join(ref_scene_dir, 'pose', frame_name+'.txt'))==False:
+                    continue
+                
+                self.pred_poses[frame_name] = np.eye(4)
+                idx -= 10
+                query2match_frames[frame_name] = 'frame-{:06d}'.format(idx)
+                
+        print('Update {} pred poses using Hydra'.format(len(self.pred_poses)))
+        
+        return query2match_frames
+
 
     def update_icp_gt_poses(self, gt_pose_file):
         
@@ -375,7 +450,15 @@ class TrajectoryAnalysis:
 
         pred_pos_arr = pred_pos_arr[rpe_tp]
         gt_pos_arr = gt_pos_arr[rpe_tp]
+        tp_frames = [frames[i] for i in range(len(frames)) if rpe_tp[i]]
         ate, _ = position_ate(pred_pos_arr, gt_pos_arr)
+        
+        if True:
+            print('TP frames are: ')
+            for i in range(len(frames)):
+                if rpe_tp[i]:
+                    print('{}: {:.3f}m'.format(frames[i], rpe_array[i]))
+
         
         print('threshold: ', self.rpe_threshold)
         print('{} kf have gt. ATE: {:.3f}m, {}/{} tp'.format(gt_pos_arr.shape[0],ate, rpe_tp.sum(), rpe_tp.shape[0]))
@@ -478,15 +561,18 @@ if __name__=='__main__':
     args = parser.parse_args()
     PE_THREAHOLD = 0.2
     SFM_DATAROOT = '/data2/sfm/multi_agent'
-    EVAL_SFM = False
-    POSE_AVERAGE = True
+    HYDRA_RESULT_FOLDER = '/data2/sgslam/output/hydra_lcd'
+    EVAL_METHOD = 'ours' # hydra, hloc and ours
+    POSE_AVERAGE = False
+    WINDOW_SIZE = 3
     CONSIDER_IOU = False
-    SR_FILENAME = 'success_rate_pa5.txt'
+    SR_FILENAME = 'success_rate_pa.txt'
 
     if POSE_AVERAGE:
         SFM_PG_FILE = 'summary_pose_average_pa5.txt'
         # SFM_PG_FILE = 'summary_pgo.txt'
-        output_posfix = 'ave'
+        SR_FILENAME = 'success_rate_pa{}.txt'.format(WINDOW_SIZE)
+        output_posfix = 'ave{}'.format(WINDOW_SIZE)
     else:
         SFM_PG_FILE = 'loop_transformations.txt'
         output_posfix = 'raw'
@@ -495,22 +581,23 @@ if __name__=='__main__':
     
     scan_pairs = [
         # ["uc0110_00a", "uc0110_00b"], # similar trajectory
-        ["uc0204_00a", "uc0204_00c"],  # opposite trajectory
-        ["uc0110_00a", "uc0110_00c"],  # opposite trajectory
-        ["uc0115_00a", "uc0115_00b"],  # opposite trajectory
-        ["uc0115_00a", "uc0115_00c"],  # opposite trajectory
+        # ["uc0204_00a", "uc0204_00c"],  # opposite trajectory
+        # ["uc0110_00a", "uc0110_00c"],  # opposite trajectory
+        # ["uc0115_00a", "uc0115_00b"],  # opposite trajectory
+        # ["uc0115_00a", "uc0115_00c"],  # opposite trajectory
         ["uc0204_00a", "uc0204_00b"],  # opposite trajectory
-        ["uc0111_00a", "uc0111_00b"],
-        ["ab0201_03c", "ab0201_03a"], # opposite trajectory
-        ["ab0302_00a", "ab0302_00b"],
-        ["ab0401_00a", "ab0401_00b"], # opposite trajectory
-        ["ab0403_00c", "ab0403_00d"], # opposite trajectory
+        # ["uc0111_00a", "uc0111_00b"],
+        # ["ab0201_03c", "ab0201_03a"], # opposite trajectory
+        # ["ab0302_00a", "ab0302_00b"],
+        # ["ab0401_00a", "ab0401_00b"], # opposite trajectory
+        # ["ab0403_00c", "ab0403_00d"], # opposite trajectory
     ]
     
     summary_pred_poses = []
     summary_gt_poses = []
     summary_pes = []
-    summary_frames_success = [] # (N,2) frame_number, success_rate
+    summary_tp_mask = []
+    summary_frames_results = [] # (N,2) frame_number, success_rate
     count_sequence = 0
 
     for pair in scan_pairs:
@@ -518,28 +605,38 @@ if __name__=='__main__':
         scene_trajectory = TrajectoryAnalysis(os.path.join(args.dataroot, 'scans', pair[0]),'icp',PE_THREAHOLD)
         # organize_our_pose_avg(os.path.join(args.output_folder, pair[0]), pair[1])
         # compensate_our_frames(os.path.join(args.output_folder, pair[0], pair[1]), GAP=10)
-
-        if EVAL_SFM:
+        query2match_frames = None
+        
+        if EVAL_METHOD=='hloc':
             scene_folder = os.path.join(SFM_DATAROOT, '{}-{}'.format(pair[0], pair[1]))
-            loop_file = os.path.join(SFM_DATAROOT, '{}-{}'.format(pair[0], pair[1]), 
-                                     'pose_graph', 'loop_transformations.txt')
-            if os.path.exists(loop_file)==False: continue
-            scene_trajectory.update_hloc_framewise_poses(os.path.join(scene_folder,'pose_graph'), SFM_PG_FILE)
-        else:
+            query2match_frames = scene_trajectory.update_hloc_framewise_poses(os.path.join(scene_folder,'pose_graph'), 
+                                                         SFM_PG_FILE, True)
+        elif EVAL_METHOD=='ours':
             scene_folder = os.path.join(args.output_folder, pair[0])
             pair_output_folder = os.path.join(args.output_folder, pair[0], pair[1])
             if os.path.exists(pair_output_folder)==False:
                 continue
+            query2match_frames = scene_trajectory.update_ours_framewise_poses(args.output_folder, pair[1])
             if POSE_AVERAGE:
                 scene_trajectory.update_our_average_poses(os.path.join(scene_folder, 'pose_average_{}'.format(pair[1])))
-            else:            
-                scene_trajectory.update_ours_framewise_poses(args.output_folder, pair[1])
-                
+        
+        elif EVAL_METHOD=='hydra':
+            scene_folder = os.path.join(HYDRA_RESULT_FOLDER, '{}-{}'.format(pair[0], pair[1]))
+            res_folder = os.path.join(scene_folder, 'pnp')
+            if POSE_AVERAGE:
+                res_folder = os.path.join(scene_folder, 'pnp_averaged_{}'.format(WINDOW_SIZE))
+            query2match_frames = scene_trajectory.update_hydra_framewise_poses(os.path.join(args.dataroot, 'scans', pair[1]), 
+                                                                               res_folder, 
+                                                                               True)
+        else:
+            raise ValueError('Unknown evaluation method')
+             
         if args.gt_source=='icp':
             gt_pose = scene_trajectory.update_icp_gt_poses(os.path.join(args.dataroot, 
                                                         'gt', '{}-{}.txt'.format(pair[0], pair[1])))
             
         elif args.gt_source=='tag':
+            assert False, 'Abandon tag evaluation'
             scene_trajectory.update_aligned_poses(args.output_folder, pair[1])
             exist_tag = scene_trajectory.update_tag_gt_poses(os.path.join(args.dataroot, 'scans', pair[0], 'apriltag'),
                                                  os.path.join(args.dataroot, 'scans', pair[1], 'apriltag'))
@@ -547,23 +644,35 @@ if __name__=='__main__':
                 print('Skip tag evaluation')
                 continue
         # break
-        ate, frames, pred_poses, gt_poses, ate = scene_trajectory.evaluate()
-        if ate is None:continue
-        
+        _, query_frames, pred_poses, gt_poses, rpe_array = scene_trajectory.evaluate()
+        if rpe_array is None:continue
         if args.gt_source=='icp':
-            scene_frames_success = compute_success_rate(frames, ate, PE_THREAHOLD)
+            scene_result = compute_success_rate(query_frames, rpe_array, PE_THREAHOLD)
             
             if CONSIDER_IOU:
-                ious = compute_iou(args.output_folder, pair[0], pair[1], frames, gt_pose, EVAL_SFM)
-                scene_frames_success = np.concatenate([scene_frames_success, ious.reshape(-1,1)], axis=1)
-            scene_frames_success = scene_frames_success[scene_frames_success[:,0].argsort()]
+                ious = compute_iou(args.output_folder, pair[0], pair[1], query_frames, gt_pose, EVAL_METHOD=='hloc')
+                scene_result = np.concatenate([scene_result, ious.reshape(-1,1)], axis=1)
+            scene_result = scene_result[scene_result[:,0].argsort()]
             
-            summary_frames_success.append(scene_frames_success)
-            print('max frames: ', scene_frames_success[-1,0])
+            summary_frames_results.append(scene_result)
+            print('max frames: ', scene_result[-1,0])
+            
+            # match_frames = [query2match_frames[frame] for frame in query_frames]
+            match_frames = []
+            for frame in query_frames:
+                if frame in query2match_frames:
+                    match_frames.append(query2match_frames[frame])
+                else:
+                    match_frames.append(frame)
+            
+            write_scene_result_new({'src_frame': query_frames,
+                                    'match_frames': match_frames,
+                                    'tp':scene_result[:,1]}, 
+                                os.path.join(scene_folder, 'loops_tp_{}.txt'.format(output_posfix)))
             # write_scene_result(frames, rte, os.path.join(scene_folder, 'ate_{}-{}_{}.txt'.format(pair[0],pair[1],output_posfix)))
         summary_pred_poses.append(pred_poses)
         summary_gt_poses.append(gt_poses)
-        summary_pes.append(ate)
+        summary_pes.append(rpe_array)
         count_sequence += 1
         # break        
 
@@ -577,18 +686,28 @@ if __name__=='__main__':
         summary_pes_tp = summary_pes<PE_THREAHOLD
         final_ate, _ = position_ate(summary_pred_poses, summary_gt_poses)
 
-        print('Evaluate {} pair of scenes {} poses. Final ATE: {:.3f}m'.format(
+        print('Evaluate {} pair of scenes {} poses. Overall ATE: {:.3f}m'.format(
             count_sequence,summary_gt_poses.shape[0],final_ate))
         print('{}/{} true predictions'.format(np.sum(summary_pes_tp), summary_pes_tp.shape[0]))
     
-    if len(summary_frames_success)>0:
-        summary_succes_rate = np.concatenate(summary_frames_success, axis=0)
-        if EVAL_SFM:
-            np.savetxt(os.path.join(SFM_DATAROOT, SR_FILENAME), 
-                       summary_succes_rate, fmt='%.3f')
+    if len(summary_frames_results)>0:
+        if CONSIDER_IOU:
+            header_msg = 'frame tp_mask rpe iou'
         else:
-            np.savetxt(os.path.join(args.output_folder, SR_FILENAME), 
-                       summary_succes_rate, fmt='%.3f')
+            header_msg = 'frame tp_mask rpe'
+            
+        summary_succes_rate = np.concatenate(summary_frames_results, axis=0)
+        if EVAL_METHOD=='hloc':
+            output_file_dir = os.path.join(SFM_DATAROOT, SR_FILENAME)
+        elif EVAL_METHOD=='ours':
+            output_file_dir = os.path.join(args.output_folder, SR_FILENAME)
+        elif EVAL_METHOD=='hydra':
+            output_file_dir = os.path.join(HYDRA_RESULT_FOLDER, SR_FILENAME)
+
+        np.savetxt(output_file_dir, 
+                   summary_succes_rate, fmt='%.3f',
+                   header=header_msg)
+        
         success_rate = summary_succes_rate[:,1].sum() / summary_succes_rate.shape[0]
         print('Save {}/{} success frames. success rate {:.3f}'.format(
                         summary_succes_rate[:,1].sum(), summary_succes_rate.shape[0], success_rate))

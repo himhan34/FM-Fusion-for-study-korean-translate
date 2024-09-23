@@ -11,6 +11,8 @@ catkin_ws/src/sgloop_ros/thirdparty
 install
 eval/fmfusion
 tmp
+hydra_lcd
+images
 
 # Ignore files 
 *.pyc

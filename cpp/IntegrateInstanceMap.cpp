@@ -31,8 +31,6 @@ int main(int argc, char *argv[])
             utility::GetProgramOptionAsString(argc, argv, "--output","./");
     std::string output_subseq = 
             utility::GetProgramOptionAsString(argc, argv, "--subseq","");
-    int begin_frames = 
-            utility::GetProgramOptionAsInt(argc, argv, "--begin_frames", 0);
     int max_frames =
             utility::GetProgramOptionAsInt(argc, argv, "--max_frames", 5000);
     int verbose = 
@@ -43,9 +41,13 @@ int main(int argc, char *argv[])
             utility::ProgramOptionExists(argc,argv,"--global_tsdf");
     int frame_gap = 
             utility::GetProgramOptionAsInt(argc, argv, "--frame_gap", 1);
-    int save_gap = 
-            utility::GetProgramOptionAsInt(argc, argv, "--save_gap", 50000);
-    int save_frame_gap = utility::GetProgramOptionAsInt(argc, argv, "--save_frame_gap", -1);
+    int save_instances_gap = 
+            utility::GetProgramOptionAsInt(argc, argv, "--save_instance_gap", 50000);
+    int save_global_map_gap = 
+            utility::GetProgramOptionAsInt(argc, argv, "--save_global_map_gap", -1);
+    // Save the frame-wise instance centroid and semantic label
+    int save_frame_instances = 
+            utility::GetProgramOptionAsInt(argc, argv, "--save_frame_instances", -1);
 
     utility::SetVerbosityLevel((utility::VerbosityLevel)verbose);
     utility::LogInfo("Read configuration from {:s}",config_file);
@@ -53,6 +55,11 @@ int main(int argc, char *argv[])
     std::string sequence_name = *utility::filesystem::GetPathComponents(root_dir).rbegin();
     std::string scene_output = output_folder+"/"+sequence_name+output_subseq;
     if(!utility::filesystem::DirectoryExists(scene_output)) utility::filesystem::MakeDirectory(scene_output);
+
+    if (save_frame_instances>0){
+        if(!utility::filesystem::DirectoryExists(root_dir+"/hydra_lcd")) 
+            utility::filesystem::MakeDirectory(root_dir+"/hydra_lcd");
+    }
 
     // Load frames information
     std::vector<RGBDFrameDirs> rgbd_table;
@@ -63,14 +70,14 @@ int main(int argc, char *argv[])
         // utility::LogInfo("find {:d} rgb-d frame with pose",rgbd_table.size());
         if(rgbd_table.size()>4000) return 0;
     }
-    else{//todo
+    else{
         bool read_ret = fmfusion::IO::construct_preset_frame_table(root_dir,association_name,trajectory_name,rgbd_table,pose_table);
         if(!read_ret) return 0;
     }
 
     visualization::Visualizer vis;
 
-    if (visualize_flag) vis.CreateVisualizerWindow("Open3D", 1600, 900);
+    // if (visualize_flag) vis.CreateVisualizerWindow("Open3D", 1600, 900);
     
     //
     auto global_config = fmfusion::utility::create_scene_graph_config(config_file, true);
@@ -119,11 +126,8 @@ int main(int argc, char *argv[])
         if(global_config->dataset==fmfusion::Config::DATASET_TYPE::REALSENSE || global_config->dataset==fmfusion::Config::DATASET_TYPE::SCANNET)
             frame_id = stoi(frame_name.substr(frame_name.find_last_of("-")+1));
         else if(global_config->dataset==fmfusion::Config::DATASET_TYPE::RIO){
-            // std::cout<<"cc\n";
             frame_name = frame_name.substr(0,12);
             frame_id = stoi(frame_name.substr(6,12));
-            // std::cout<<"ww\n";
-
         }
         else 
             frame_id = stoi(frame_name);
@@ -150,16 +154,9 @@ int main(int argc, char *argv[])
         if(global_tsdf)
             global_volume.Integrate(*rgbd, global_config->instance_cfg.intrinsic, pose_table[k].inverse().cast<double>());
         tic_toc_seq.toc();
-        prev_frame_id = frame_id;
-        {
-            std::vector<fmfusion::InstanceId> active_names;
-            std::vector<fmfusion::InstancePtr> active_instances;
-            semantic_mapping.export_instances(active_names, active_instances);
-            utility::LogWarning("Active instances: {:d}",active_names.size());
-        }
-        tic_toc_seq.toc();
 
-        if(save_gap>0 && frame_id>0 && frame_id%save_gap==0){
+        if(save_instances_gap>0 && frame_id>0 && frame_id%save_instances_gap==0){ 
+            // Save instance points
             semantic_mapping.extract_point_cloud();
             semantic_mapping.merge_overlap_instances();
             semantic_mapping.merge_overlap_structural_instances();
@@ -168,7 +165,8 @@ int main(int argc, char *argv[])
             utility::LogWarning("Save sequence at frame {:d}",frame_id);
         }
 
-        if(save_frame_gap>0 && frame_id>300 && (frame_id - prev_save_frame)>save_frame_gap){
+        if(save_global_map_gap>0 && frame_id>300 && (frame_id - prev_save_frame)>save_global_map_gap){ 
+            // Save global points
             semantic_mapping.extract_point_cloud();
             auto global_instance_pcd = semantic_mapping.export_global_pcd(true,0.02);
             global_instance_pcd->colors_.clear();
@@ -179,20 +177,32 @@ int main(int argc, char *argv[])
             prev_save_frame = frame_id;
         }
 
+        if(save_frame_instances>0){
+            std::vector<Eigen::Vector3d> instance_centroids = semantic_mapping.export_instance_centroids(0);
+            std::vector<std::string> instance_annotations = semantic_mapping.export_instance_annotations(0); 
+            assert(instance_centroids.size()==instance_annotations.size());
+            fmfusion::IO::save_instance_info(instance_centroids,instance_annotations,
+                                            root_dir+"/hydra_lcd/"+frame_name+".txt");
+
+        }
+
+        prev_frame_id = frame_id;
     }
-    utility::LogWarning("Finished sequence");
-    if(save_frame_gap>0) return 0;
+    utility::LogWarning("Finished sequence with {:d} frames",rgbd_table.size());
+    if(save_global_map_gap>0) return 0;
 
     // Post-process
     semantic_mapping.extract_point_cloud();
+    semantic_mapping.merge_floor();
     semantic_mapping.merge_overlap_instances();
-    semantic_mapping.merge_overlap_structural_instances(true);
+    // semantic_mapping.merge_overlap_structural_instances(true);
     semantic_mapping.extract_bounding_boxes();
 
     // Visualize
-    // auto geometries = semantic_mapping.get_geometries(true,true);
-    // open3d::visualization::DrawGeometries(geometries, sequence_name+subseq, 1920, 1080);
-
+    if(visualize_flag){
+        auto geometries = semantic_mapping.get_geometries(true,true);
+        open3d::visualization::DrawGeometries(geometries, sequence_name+output_subseq, 1920, 1080);
+    }
     // Save
     semantic_mapping.Save(output_folder+"/"+sequence_name+output_subseq);
     if(global_tsdf){

@@ -3,10 +3,9 @@
   <arg name="dataroot" value="/data2/sgslam"/>
   <!-- <arg name="agentA_scene" value="uc0204_00a"/> -->
   <!-- <arg name="agentB_scene" value="uc0204_00b"/> -->
-  <arg name="agentA_scene" value="ab0401_00a"/>
-  <arg name="agentB_scene" value="ab0401_00b"/>
+  <arg name="agentA_scene" value="ab0201_03a"/>
+  <arg name="agentB_scene" value="ab0201_03a"/>
 
-  <!-- x=11 , yaw=3.14 -->
   <arg name="agentA_agnetB_x" value="0"/>
   <arg name="agentA_agentB_y" value="0"/>
   <arg name="agentA_agentB_z" value="-4.0"/>
@@ -36,26 +35,27 @@
       <param name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/realsense.yaml"/>
       <param name="src_name" value="agentA"/>
       <param name="ref_name" value="agentB"/>
-      <param name="camera_marker/r" value="0.82"/>
-      <param name="camera_marker/g" value="0.2"/>
-      <param name="camera_marker/b" value="0.82"/>
+      <param name="camera_marker/r" value="0.8"/>
+      <param name="camera_marker/g" value="0.0"/>
+      <param name="camera_marker/b" value="0.8"/>
       <param name="camera_marker/scale" value="0.3"/>
       <param name="camera_marker/line_width" value="0.05"/>
       <param name="map_name" value="mesh_o3d.ply"/>
-      <!-- <param name="pose_graph_folder" value="/data2/sfm/multi_agent/$(arg agentA_scene)-$(arg agentB_scene)/pose_graph"/> -->
-      <param name="pose_graph_folder" value="/data2/sfm/multi_agent/$(arg agentA_scene)-$(arg agentB_scene)"/>
+      <!-- <param name="map_name" value="frame-000671_src.ply"/> -->
+      <!-- <param name="select_frame" value="frame-000671"/> -->
+      <param name="mode" value="15"/>
+      <param name="loop_filename" value="loops_tp_raw.txt"/>
+      <!-- <param name="pose_graph_folder" value="/data2/sgslam/output/v9/$(arg agentA_scene)/$(arg agentB_scene)"/> -->
+      <param name="pose_graph_folder" value="/data2/sgslam/output/v9/$(arg agentA_scene)"/>
       <param name="src_scene_dir" value="$(arg dataroot)/scans/$(arg agentA_scene)"/>
       <param name="ref_scene_dir" value="$(arg dataroot)/scans/$(arg agentB_scene)"/>
       <param name="gt_file" value="$(arg dataroot)/gt/$(arg agentA_scene)-$(arg agentB_scene).txt"/>
-      <param name="frame_file_name" value="src_poses.txt"/>
-      <param name="loop_filename" value="loops_tp_raw.txt"/>
-      <param name="mode" value="15"/>
       <param name="ate_threshold" value="0.2"/>
       <param name="render_loops" value="true"/>
-      <param name="render_trajectory" value="false"/>
+      <param name="render_trajectory" value="true"/>
   </node>
 
-  <node pkg="sgloop_ros" name="agentB" type="PoseGraphNode" output="screen" clear_params="true">
+  <!-- <node pkg="sgloop_ros" name="agentB" type="PoseGraphNode" output="screen" clear_params="true">
       <param name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/realsense.yaml"/>
       <param name="src_name" value="agentB"/>
       <param name="ref_name" value="agentA"/>
@@ -64,17 +64,15 @@
       <param name="camera_marker/b" value="1.0"/>
       <param name="camera_marker/scale" value="0.3"/>
       <param name="camera_marker/line_width" value="0.05"/>
-      <param name="frame_file_name" value="ref_poses.txt"/>
       <param name="map_name" value="mesh_o3d.ply"/>
-      <!-- <param name="gt_file" value="$(arg dataroot)/gt/$(arg agentA_scene)-$(arg agentB_scene).txt"/> -->
-      <param name="pose_graph_folder" value="/data2/sfm/multi_agent/$(arg agentA_scene)-$(arg agentB_scene)/pose_graph"/>
       <param name="mode" value="99"/>
-      <param name="render_loops" value="false"/>
+      <param name="pose_graph_folder" value="/data2/sgslam/output/v9/$(arg agentB_scene)/fakeScene"/>
       <param name="src_scene_dir" value="$(arg dataroot)/scans/$(arg agentB_scene)"/>
-  </node>
+      <param name="render_loops" value="false"/>
+      <param name="render_trajectory" value="true"/>
+  </node> -->
 
   <node pkg="tf" type="static_transform_publisher" name="link_1st_agent" args="0 0 0 0 0 0 1 world agentA 100" />
   <node pkg="tf" type="static_transform_publisher" name="link_2nd_agent" args="$(arg agentA_agnetB_x) $(arg agentA_agentB_y) $(arg agentA_agentB_z) 0 0 0 1 world agentB 100" />
-  <!-- <node pkg="tf" type="static_transform_publisher" name="link_2nd_agent" args="$(arg agentA_agnetB_x) $(arg agentA_agentB_y) $(arg agentA_agentB_z) -0.013 0.008 -0.84 0.542 world agentB 100" /> -->
 
 </launch>

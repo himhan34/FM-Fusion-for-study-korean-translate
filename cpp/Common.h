@@ -53,7 +53,7 @@ struct MappingConfig{
     // merge
     double merge_iou;
     double merge_inflation;
-    int cleanup_period=20; // in frames
+    // int cleanup_period=20; // in frames
     int recent_window_size = 200; // in frames
 
     //
@@ -77,7 +77,6 @@ struct MappingConfig{
         msg<<" - shape_min_points: "<<shape_min_points<<std::endl;
         msg<<" - merge_iou: "<<merge_iou<<std::endl;
         msg<<" - merge_inflation: "<<merge_inflation<<std::endl;
-        msg<<" - cleanup_period: "<<cleanup_period<<std::endl;
         msg<<" - update_period: "<<update_period<<std::endl;
         msg<<" - recent_window_size: "<<recent_window_size<<std::endl;
 
@@ -207,6 +206,11 @@ typedef std::shared_ptr<const open3d::geometry::Geometry> O3d_Geometry_Ptr;
 typedef std::shared_ptr<open3d::geometry::Image> O3d_Image_Ptr;
 typedef std::pair<uint32_t, uint32_t> NodePair;
 typedef std::pair<std::string, std::string> LoopPair;
+
+typedef uint32_t InstanceId;
+typedef std::vector<InstanceId> InstanceIdList;
+typedef open3d::geometry::PointCloud O3d_Cloud;
+typedef std::shared_ptr<open3d::geometry::PointCloud> O3d_Cloud_Ptr;
 
 }
 

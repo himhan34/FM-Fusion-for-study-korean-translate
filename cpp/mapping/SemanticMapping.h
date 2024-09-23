@@ -8,6 +8,7 @@
 #include "tools/Color.h"
 #include "tools/Utility.h"
 #include "Instance.h"
+#include "SemanticDict.h"
 
 namespace fmfusion {
 
@@ -24,10 +25,12 @@ namespace fmfusion {
 
         void merge_overlap_instances(std::vector<InstanceId> instance_list = std::vector<InstanceId>());
 
+        int merge_floor();
+
         int merge_overlap_structural_instances(bool merge_all = true);
 
         int merge_other_instances(std::vector<InstancePtr> &instances);
-
+        
         void extract_point_cloud(const std::vector<InstanceId> instance_list = std::vector<InstanceId>());
 
         /// \brief  Extract and update bounding box for each instance.
@@ -86,6 +89,9 @@ namespace fmfusion {
 
         void update_active_instances(const std::vector<InstanceId> &active_instances);
 
+        /// @brief  clean all and update all.
+        void refresh_all_semantic_dict();
+
         void update_recent_instances(const int &frame_id,
                                      const std::vector<InstanceId> &active_instances,
                                      const std::vector<InstanceId> &new_instances);
@@ -113,6 +119,7 @@ namespace fmfusion {
         InstanceConfig instance_config;
         std::unordered_map<InstanceId, InstancePtr> instance_map;
         std::unordered_map<std::string, std::vector<InstanceId>> label_instance_map;
+        SemanticDictServer semantic_dict_server;
         InstanceId latest_created_instance_id;
         int last_cleanup_frame_id;
         int last_update_frame_id;

@@ -208,7 +208,7 @@ namespace Visualization
                         std::array<float,3> color)
     {
         if(pub.getNumSubscribers()==0) return false;
-
+        assert(centroids.size()==annotations.size());
         visualization_msgs::MarkerArray marker_array;
         int N = centroids.size();
 

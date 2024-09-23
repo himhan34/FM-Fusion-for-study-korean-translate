@@ -41,16 +41,20 @@ namespace fmfusion
                                         const std::vector<std::vector<float>> &coarse_features_vec,
                                         torch::Tensor coarse_features);
 
-        /// Concatenate the point cloud and instance points from two scene graphs to encode.
+        /// \brief the point cloud and instance points from two scene graphs to encode.
+        /// @param hidden_feat_dir: the directory to save the input sent to shape encoder.
         bool encode_concat_sgs(const std::string &ref_name, 
                                 const int &Nr, const DataDict& ref_data_dict,
                                 const int& Ns, const DataDict& src_data_dict,
                                 float &encoding_time,
-                                bool fused=false);
+                                bool fused=false,
+                                std::string hidden_feat_dir="");
 
         int match_nodes(const std::string &ref_name,
                         std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
-                        std::vector<float> &match_scores,bool fused=false);
+                        std::vector<float> &match_scores,
+                        bool fused=false,
+                        std::string dir="");
 
         /// \brief  Match the points of the corresponding instances.
         /// \param  match_pairs         The matched node pairs.
@@ -63,7 +67,8 @@ namespace fmfusion
                                 std::vector<Eigen::Vector3d> &corr_src_points,
                                 std::vector<Eigen::Vector3d> &corr_ref_points,
                                 std::vector<int> &corr_match_indices,
-                                std::vector<float> &corr_scores_vec);
+                                std::vector<float> &corr_scores_vec,
+                                std::string dir="");
 
         // void clear();
 
@@ -108,6 +113,8 @@ namespace fmfusion
                 return ref_graphs.at(ref_name).shape_embedded;
             }
         }
+
+        bool save_middle_features(const std::string &dir);
 
     private:
         bool encode_scene_graph(const std::vector<NodePtr> &nodes, ImplicitGraph &graph_features);

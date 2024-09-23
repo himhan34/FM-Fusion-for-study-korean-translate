@@ -251,18 +251,21 @@ int main(int argc, char **argv)
     bool map_only = nh_private.param("map_only", false);
     int iter_num = nh_private.param("iter_num", 2);
     bool dense_corr = nh_private.param("dense_corr", false);
-    std::string map_name = nh_private.param("map_name", std::string("mesh_o3d.ply"));
+    std::string map_name = nh_private.param("map_name", std::string(""));
     std::string pose_graph_folder = nh_private.param("pose_graph_folder", std::string(""));
     std::string gt_file = nh_private.param("gt_file", std::string(""));
     std::string frame_file_name = nh_private.param("frame_file_name", std::string("src_poses.txt"));
     std::string select_frame_name = nh_private.param("select_frame", std::string(""));
+    std::string loop_filename = nh_private.param("loop_filename", std::string(""));
+    std::string hydra_centroid_file = nh_private.param("hydra_centroid_file", std::string(""));
     float corr_sampling_ratio = nh_private.param("corr_sampling_ratio", 0.1);
     int mode = nh_private.param("mode",0);
     bool render_trajectory = nh_private.param("render_trajectory", false);
     bool render_loops = nh_private.param("render_loops", true);
     bool render_pose = nh_private.param("render_pose", true);
     bool render_superpoint = nh_private.param("render_superpoint", false);
-
+    bool pseudo_corr = nh_private.param("pseudo_corr", false);
+    bool paint_all_floor = nh_private.param("paint_all_floor", false);
     // 
     Eigen::Vector3d t_src_ref;
     Eigen::Matrix4d T_src_ref_viz = Eigen::Matrix4d::Identity(); // src->ref incorporated for vizualization
@@ -286,6 +289,8 @@ int main(int argc, char **argv)
     std::vector<bool> corr_mask;
     std::vector<std::pair<uint32_t,uint32_t>> node_pairs;
     std::vector<bool> node_tp_masks;
+    std::vector<bool> loop_correct_masks;
+    std::vector<Eigen::Vector3d> loop_src_point, loop_ref_point;
 
     // Load map
     Eigen::Matrix4d T_gt_ref_src;   
@@ -294,11 +299,6 @@ int main(int argc, char **argv)
     std::vector<Eigen::Vector3d> src_centroids;
     std::vector<std::string> src_instance_annotations;
     std::shared_ptr<open3d::geometry::PointCloud> global_src_pcd;
-    global_src_pcd = open3d::io::CreatePointCloudFromFile(src_scene_dir+"/"+map_name);
-    ROS_WARN("Global map is loaded from %s", (src_scene_dir+"/"+map_name).c_str());
-    std::cout<<"Global map has "<<global_src_pcd->points_.size()<<" points, "
-            <<"It is loaded  "<<src_scene_dir+"/"+map_name<<std::endl;
-
     // Visualization
     std_msgs::Header header_msg;
     header_msg.frame_id = src_name;
@@ -326,7 +326,7 @@ int main(int argc, char **argv)
         }
         bool set_cfg = nh_private.getParam("cfg_file", config_file);
         assert(set_cfg);
-        Config *sg_config = utility::create_scene_graph_config(config_file, true);
+        Config *sg_config = utility::create_scene_graph_config(config_file, false);
         if(gt_file.size()>0){
             read_pose_file(gt_file, T_gt_ref_src); // gt src->ref
         }
@@ -342,6 +342,7 @@ int main(int argc, char **argv)
         src_mapping->load(src_scene_dir);
         src_mapping->extract_bounding_boxes();
         src_mapping->export_instances(src_names,src_instances);
+        global_src_pcd = src_mapping->export_global_pcd(true,0.05);
 
         src_graph = std::make_shared<Graph>(sg_config->graph);
         src_graph->initialize(src_instances);
@@ -349,14 +350,22 @@ int main(int argc, char **argv)
         src_graph->construct_triplets();
 
         src_centroids = src_graph->get_centroids();
-        for(auto &center:src_centroids){
-            center = T_gt_ref_src.block<3,3>(0,0) * center + T_gt_ref_src.block<3,1>(0,3);
-        }
-
         auto src_nodes = src_graph->get_const_nodes();
-        for(auto node: src_nodes){
+
+        for(auto node: src_nodes)
             src_instance_annotations.push_back(node->semantic);
+        
+        if(hydra_centroid_file.size()>0){
+            assert(render_superpoint==false);
+            src_centroids.clear();
+            src_instance_annotations.clear();
+            fmfusion::IO::load_instance_info(hydra_centroid_file, 
+                                            src_centroids, src_instance_annotations);
+            ROS_WARN("Load %d centroids from %s", src_centroids.size(), hydra_centroid_file.c_str());
         }
+        for(auto &center:src_centroids)
+            center = T_gt_ref_src.block<3,3>(0,0) * center + T_gt_ref_src.block<3,1>(0,3);
+
         // assert(src_centroids.size()==src_instance_annotations.size());
         // std::cout<<"Load "<<src_centroids.size()<<" centroids and "
         //         <<src_instance_annotations.size()<<" annotations"<<std::endl;
@@ -372,29 +381,77 @@ int main(int argc, char **argv)
 
     }
 
+    if (map_name!=""){
+        global_src_pcd = open3d::io::CreatePointCloudFromFile(src_scene_dir+"/"+map_name);
+        ROS_WARN("%s loads global map from %s and overwrite", 
+                    src_name.c_str(),(src_scene_dir+"/"+map_name).c_str());
+    }
+
+    if(mode==1 || mode==15 || mode==99){ // Render src camera poses
+        const int frame_gap_ = 10;
+        int idx = 0;
+        for(const auto &pose:src_poses){ // Src camera poses
+            if(idx%frame_gap_!=0){
+                idx++;
+                continue;
+            }
+            Eigen::Matrix4d viz_pose = T_gt_ref_src * pose.second;
+
+            Eigen::Vector3d p = viz_pose.block<3,1>(0,3);
+            Eigen::Quaterniond q(viz_pose.block<3,3>(0,0));
+            camera_pose_viz_Src.add_pose(p, q);
+            idx++;
+        }
+    }
+
     // Load
     if(mode==0){ // matches only
-        global_src_pcd->Clear();
-        global_src_pcd = src_graph->extract_global_cloud();
-        global_src_pcd->Transform(T_gt_ref_src);
+        if (paint_all_floor){
+            Eigen::Vector3d floor_color(200,200,200);
+            src_graph->paint_all_floor(floor_color/255.0);
+        }
+
+        if(map_name==""){
+            // global_src_pcd->Clear();
+            global_src_pcd = src_graph->extract_global_cloud();
+            global_src_pcd->Transform(T_gt_ref_src);
+        }
 
 
 
         if(scene_result_folder.size()>0){ // Load node match results
             std::cout<<"Load match results from "<<scene_result_folder<<std::endl;
-            fmfusion::IO::load_node_matches(scene_result_folder+"/node_matches.txt",
+            std::string file_name = "/node_matches.txt";
+            if (render_superpoint)
+                file_name = "/superpoint_matches.txt";
+
+            fmfusion::IO::load_node_matches(scene_result_folder+file_name,
                                             node_pairs, node_tp_masks,
                                             src_centroids_m, ref_centroids_m);
             if(dense_corr){
-                auto corr_src_pcd = open3d::io::CreatePointCloudFromFile(scene_result_folder+"/corr_src.ply");
-                auto corr_ref_pcd = open3d::io::CreatePointCloudFromFile(scene_result_folder+"/corr_ref.ply");
+                std::string src_corr_filname, ref_corr_filename;
+                std::string corr_mask_filename;
+                if (pseudo_corr){
+                    src_corr_filname = scene_result_folder+"/pseudo_corr_src.ply";
+                    ref_corr_filename = scene_result_folder+"/pseudo_corr_ref.ply";
+                    corr_mask_filename = scene_result_folder+"/pseudo_corres_pos.txt";
+                }
+                else{
+                    src_corr_filname = scene_result_folder+"/corr_src.ply";
+                    ref_corr_filename = scene_result_folder+"/corr_ref.ply";
+                    corr_mask_filename = scene_result_folder+"/corres_pos.txt";
+                }
+
+
+                auto corr_src_pcd = open3d::io::CreatePointCloudFromFile(src_corr_filname);
+                auto corr_ref_pcd = open3d::io::CreatePointCloudFromFile(ref_corr_filename);
                 corr_src_pcd->Transform(T_gt_ref_src);
                 auto src_corrs_points_ = corr_src_pcd->points_;
                 auto ref_corrs_points_ = corr_ref_pcd->points_;
                 std::vector<bool> corr_mask_;
                 std::cout<<"Load "<<src_corrs_points_.size()<<" dense correspondences"<<std::endl;
 
-                if(!fmfusion::IO::load_single_col_mask(scene_result_folder+"/corres_pos.txt",corr_mask_)){
+                if(!fmfusion::IO::load_single_col_mask(corr_mask_filename,corr_mask_)){
                     corr_mask_.resize(src_corrs_points_.size(), true);
                     std::cout<<"Set all point correspondences as correct"<<std::endl;
                 }
@@ -417,7 +474,7 @@ int main(int argc, char **argv)
 
     }
     else if (mode==1){ // Our aligned pose graph 
-        std::cout<<"Render predicted relative camera poses from " << pose_graph_folder<<std::endl;
+        ROS_WARN("[MODE%d] Render predicted relative camera poses from %s", mode, pose_graph_folder.c_str());
         std::vector<std::string> src_frames, ref_frames;
         std::vector<Eigen::Matrix4d> T_ref_srcs;
         std::unordered_map<std::string, Eigen::Matrix4d> ref_poses;
@@ -426,7 +483,7 @@ int main(int argc, char **argv)
 
         read_our_registration(pose_graph_folder, src_frames, ref_frames, T_ref_srcs);
         read_entire_camera_poses(ref_scene_dir, ref_poses);
-        ROS_WARN("Load %d ref camera poses", ref_poses.size());
+        std::cout<<"Load "<<ref_poses.size()<<" ref camera poses"<<std::endl;
 
         int frame_gap = 10;
         int idx = 0;
@@ -510,14 +567,12 @@ int main(int argc, char **argv)
     }
     else if (mode==2){ // Seperate pose graph
         std::cout<<"No loop pose graph. Render sequence full pose graph."<<std::endl;
-        // assert(select_frame_name.size()>0); // set the select frame name
 
         if(select_frame_name.size()>1){
-            global_src_pcd->Clear();
-            global_src_pcd = open3d::io::CreatePointCloudFromFile(pose_graph_folder+"/"+select_frame_name+"_src.ply");
-            ROS_WARN("Select frame map is loaded from %s", (pose_graph_folder+"/"+select_frame_name+"_src.ply").c_str());
-            // global_src_pcd->Transform(T_gt_ref_src);
-
+            // global_src_pcd->Clear();
+            // global_src_pcd = open3d::io::CreatePointCloudFromFile(pose_graph_folder+"/"+select_frame_name+"_src.ply");
+            // ROS_WARN("Override global map from %s", (pose_graph_folder+"/"+select_frame_name+"_src.ply").c_str());
+            ROS_WARN("Render select frame pose %s", select_frame_name.c_str());
             Eigen::Matrix4d viz_pose;
             if(render_loops){
                 std::vector<std::string> src_frames, ref_frames;
@@ -771,11 +826,38 @@ int main(int argc, char **argv)
             ROS_WARN("Render %d PGO optimized camera poses. %d tp, %d fp", pgo_count, count_tp, count_fp);
 
     }
+    else if (mode==15){
+        ROS_WARN("Render Hydra loop pose graph from: %s", pose_graph_folder.c_str());
+        std::vector<std::string> ref_frames;
+        std::unordered_map<std::string, Eigen::Matrix4d> ref_poses;
+        std::vector<fmfusion::LoopPair> loop_pairs;
+        
+        read_entire_camera_poses(ref_scene_dir, ref_poses);
+        fmfusion::IO::read_loop_pairs(pose_graph_folder+"/"+loop_filename, loop_pairs, loop_correct_masks);
+        std::cout<<"Load "<<loop_pairs.size()<<" loop pairs from "<<loop_filename<<std::endl;
+
+        for(const auto&loop_pair: loop_pairs){
+            std::string src_frame = loop_pair.first;
+            std::string ref_frame = loop_pair.second;
+            if(ref_poses.find(ref_frame)==ref_poses.end()){
+                ROS_WARN("Cannot find ref frame %s", ref_frame.c_str());
+                continue;
+            }
+            Eigen::Matrix4d src_pose = src_poses[src_frame];
+            Eigen::Vector3d aligned_src_position = (T_gt_ref_src * src_pose).block<3,1>(0,3);
+
+            loop_src_point.push_back(aligned_src_position);
+            loop_ref_point.push_back(ref_poses[ref_frame].block<3,1>(0,3) + viz.t_local_remote[ref_name]);
+        }
+        std::cout<<"Update "<<loop_src_point.size()<<" valid loop edges"<<std::endl;
+
+    }
     else{
-        ROS_ERROR("Just render global map");
+        ROS_ERROR("%s Just render global map", src_name.c_str());
     }
 
-    // Pub    
+    // Pub
+    ROS_INFO("---------- Visualization ----------");    
     for (int i=0;i<iter_num ;i++){
         camera_pose_viz_Src.publish_by(src_camera_pose_pub, header_msg);        
         camera_pose_pnp_true.publish_by(tp_camera_pose_pub, header_msg);
@@ -783,11 +865,19 @@ int main(int argc, char **argv)
         Visualization::render_point_cloud(global_src_pcd, 
                                             viz.src_global_map, 
                                             src_name);
+        std::cout<<src_name <<" publish "<< global_src_pcd->points_.size()
+                                <<" global points"<<std::endl;
+
+        if (loop_src_point.size()>0){
+            Visualization::correspondences(loop_src_point, loop_ref_point, 
+                                            loop_edge_pub, src_name, loop_correct_masks);
+        }
 
         if(render_trajectory){
             std::vector<Eigen::Matrix4d> src_poses_viz;
             read_entire_camera_poses(src_scene_dir, src_poses_viz);
-            std::cout<<"Generate path from "<<src_poses_viz.size()<<" poses"<<std::endl;
+            std::cout<<"Generate "<<src_poses_viz.size()<<" poses "
+                        <<"from "<<src_scene_dir<<std::endl;
         
             //
             nav_msgs::Path src_path_msg;
@@ -801,20 +891,26 @@ int main(int argc, char **argv)
         Visualization::correspondences(src_centroids_m, ref_centroids_m, 
                                         viz.instance_match, src_name, 
                                         node_tp_masks, T_src_ref_viz);
-        if(mode==0) Visualization::instance_centroids(src_centroids, viz.src_centroids, 
-                                                        src_name, 
-                                                        viz.param.centroid_size,
-                                                        viz.param.centroid_color);
+
+        if(src_centroids.size()>0) 
+            Visualization::instance_centroids(src_centroids, viz.src_centroids, 
+                                            src_name, 
+                                            viz.param.centroid_size,
+                                            viz.param.centroid_color);
+
+        if(src_instance_annotations.size()>0 && !render_superpoint) 
+            Visualization::node_annotation(src_centroids, 
+                                        src_instance_annotations, 
+                                        viz.node_annotation, 
+                                        src_name,
+                                        viz.param.annotation_size,
+                                        viz.param.annotation_voffset,
+                                        viz.param.annotation_color); 
+
         if(mode==0 && dense_corr) Visualization::correspondences(src_corrs_points, ref_corrs_points, 
                                         viz.point_match, src_name, 
                                         corr_mask, T_src_ref_viz);
-        if(mode==0 && !render_superpoint) Visualization::node_annotation(src_centroids, 
-                                                    src_instance_annotations, 
-                                                    viz.node_annotation, 
-                                                    src_name,
-                                                    viz.param.annotation_size,
-                                                    viz.param.annotation_voffset,
-                                                    viz.param.annotation_color);
+
 
         ros::Duration(0.5).sleep();
         ros::spinOnce();

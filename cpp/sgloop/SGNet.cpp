@@ -433,7 +433,6 @@ int SgNet::match_points(const torch::Tensor &src_guided_knn_feats,
                         const torch::Tensor &ref_guided_knn_feats,
                         const torch::Tensor &src_guided_knn_points,
                         const torch::Tensor &ref_guided_knn_points,
-                        // torch::Tensor &corr_points, 
                         std::vector<Eigen::Vector3d> &corr_src_points,
                         std::vector<Eigen::Vector3d> &corr_ref_points,
                         std::vector<int> &corr_match_indices,
@@ -516,6 +515,19 @@ int SgNet::match_points(const torch::Tensor &src_guided_knn_feats,
 
     return C;
 
+}
+
+bool SgNet::save_hidden_features(const std::string &dir)
+{
+    if(semantic_embeddings.size(0)==0){
+        open3d::utility::LogWarning("No hidden features to save");
+        return false;
+    }
+    else{
+        torch::save({semantic_embeddings, boxes, centroids, anchors, corners, corners_mask},
+                    dir);
+        return true;
+    }
 }
 
 } // namespace fmfusion

@@ -301,6 +301,16 @@ namespace fmfusion
         return data_dict;
     }
 
+    void Graph::paint_all_floor(const Eigen::Vector3d &color)
+    {
+        std::string floor_names = "floor. carpet.";
+        for (auto node:nodes){
+            if (floor_names.find(node->semantic)!=std::string::npos){
+                node->cloud->PaintUniformColor(color);
+            }
+        }
+    }
+
     const std::vector<Eigen::Vector3d> Graph::get_centroids()const
     {
         std::vector<Eigen::Vector3d> centroids;

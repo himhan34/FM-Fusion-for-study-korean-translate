@@ -330,10 +330,9 @@ int main(int argc, char **argv)
         std::cout<<"Estimate pose with "<<pruned_match_pairs.size()<<" nodes and"
                     <<corr_src_points.size()<<" points\n";
         timer.Start();
-        double inlier_ratio = 0.0;
-        g3reg.estimate_pose(src_centroids,ref_centroids,
-                            corr_src_points, corr_ref_points,
-                            inlier_ratio);
+        double inlier_ratio = g3reg.estimate_pose_gnc(src_centroids,ref_centroids,
+                                                corr_src_points, corr_ref_points,
+                                                corr_scores_vec);
         if(inlier_ratio<0.3){
             g3reg.estimate_pose(src_centroids, 
                             ref_centroids,

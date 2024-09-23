@@ -352,7 +352,8 @@ int main(int argc, char *argv[]) {
     int M; // number of matched nodes
     int C = 0; // number of matched points
     timer.Start();
-    M = loop_detector->match_nodes(ref_name, match_pairs, match_scores, fused);
+    M = loop_detector->match_nodes(ref_name, match_pairs, match_scores, fused, 
+                                output_folder+"/tmp");
     timer.Stop();
     std::cout << "Find " << M << " match. It takes " << std::fixed << std::setprecision(3)
               << timer.GetDurationInMillisecond() << " ms\n";
@@ -386,12 +387,23 @@ int main(int argc, char *argv[]) {
                                                  corr_src_points,
                                                  corr_ref_points,
                                                  corr_match_indices,
-                                                 corr_scores_vec);
+                                                 corr_scores_vec,
+                                                 output_folder+"/tmp");
+
         downsample_corr_nms(corr_src_points, corr_ref_points, corr_scores_vec, nms_thd);
         downsample_corr_topk(corr_src_points, corr_ref_points, corr_scores_vec, ds_voxel, max_corr_number);
         timer.Stop();
         std::cout << "Match points takes " << std::fixed << std::setprecision(3) << timer.GetDurationInMillisecond()
                   << " ms\n";
+    }
+
+    if(true){
+        timer.Start();
+        if(loop_detector->save_middle_features(output_folder+"/tmp_sgnet.pt")){
+            std::cout<<"Saved successfully. \n";
+        }
+        timer.Stop();
+        std::cout<<"Save middle features takes "<<timer.GetDurationInMillisecond()<<" ms\n";
     }
 
     // Estimate pose

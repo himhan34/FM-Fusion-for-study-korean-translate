@@ -81,7 +81,6 @@ fmfusion::Config *create_scene_graph_config(const std::string &config_file, bool
 
         config->mapping_cfg.merge_iou = mapping_fs["merge_iou"];
         config->mapping_cfg.merge_inflation = mapping_fs["merge_inflation"];
-        config->mapping_cfg.cleanup_period = mapping_fs["cleanup_period"];
         config->mapping_cfg.update_period = mapping_fs["update_period"];
         config->mapping_cfg.recent_window_size = mapping_fs["recent_window_size"];
 

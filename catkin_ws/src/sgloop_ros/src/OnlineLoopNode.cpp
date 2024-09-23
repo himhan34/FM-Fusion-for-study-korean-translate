@@ -273,6 +273,7 @@ int main(int argc, char **argv)
     bool enable_tf_br = nh_private.param("enable_tf_br", false);
     bool create_gt_iou = nh_private.param("create_gt_iou", false);
     std::string gt_ref_src_file = nh_private.param("gt_ref_src", std::string("")); // gt T_src_ref
+    std::string hidden_feat_dir = nh_private.param("hidden_feat_dir", std::string(""));
 
     // Initialization
     std::string init_src_scene = nh_private.param("init_src_scene", std::string(""));
@@ -285,11 +286,11 @@ int main(int argc, char **argv)
     double icp_voxel = nh_private.param("g3reg/icp_voxel", 0.2);
     double ds_voxel = nh_private.param("g3reg/ds_voxel", 0.5);
     int ds_num = nh_private.param("g3reg/ds_num", 9);
-    float inlier_ratio_threshold = nh_private.param("g3reg/ir_threshold", 0.4);
+    float inlier_ratio_threshold = nh_private.param("g3reg/ir_threshold", 0.3);
     int max_corr_number = nh_private.param("g3reg/max_corr_number", 1000);
     float inlier_radius = nh_private.param("g3reg/inlier_radius", 0.2);
-    std::string tf_solver_type = nh_private.param("g3reg/tf_solver", std::string("gnc"));
     bool enable_coarse_gnc = nh_private.param("g3reg/enable_coarse_gnc", false);
+    float nms_thd = nh_private.param("g3reg/nms_thd", 0.05);
 
     // Remote agents    
     assert(set_2nd_agent && set_2nd_agent_scene);
@@ -313,6 +314,9 @@ int main(int argc, char **argv)
     // outputs
     std::string sequence_name = *filesystem::GetPathComponents(root_dir).rbegin();
     if(!filesystem::DirectoryExists(output_folder)) filesystem::MakeDirectory(output_folder);
+    if(hidden_feat_dir.size()>0 && !filesystem::DirectoryExists(hidden_feat_dir)) 
+        filesystem::MakeDirectory(hidden_feat_dir);
+    
     for(auto scene_name:remote_agents_scenes){
         std::string loop_result_dir = output_folder+"/"+sequence_name+"/"+scene_name;
         if(!filesystem::DirectoryExists(loop_result_dir)) filesystem::MakeDirectoryHierarchy(loop_result_dir);
@@ -564,6 +568,10 @@ int main(int argc, char **argv)
 
                 if(cool_down_sleep>0.0 && secondAgentScene=="fakeScene") 
                     ros::Duration(cool_down_sleep).sleep();
+                
+                if(hidden_feat_dir!=""){
+                    loop_detector->save_middle_features(hidden_feat_dir+"/"+frame_name+"_sgnet.pt");
+                }
 
             }
         
@@ -621,11 +629,14 @@ int main(int argc, char **argv)
                     DataDict ref_data_dict = target_graph->extract_data_dict();
                     Nr = ref_data_dict.instances.size();
                     float shape_encoding_time;
+                    std::string shape_feats_dir="";
+                    if(hidden_feat_dir!="") shape_feats_dir = hidden_feat_dir+"/"+frame_name+"_shape.pt";
                     bool shape_ret = loop_detector->encode_concat_sgs(target_agent,
                                                     Nr, ref_data_dict, 
                                                     Ns, src_data_dict, 
                                                     shape_encoding_time,
-                                                    true);
+                                                    true,
+                                                    shape_feats_dir);
                     loop_timing.record(shape_encoding_time);// shape encode
                     
                     if(shape_ret) { // reset
@@ -641,7 +652,12 @@ int main(int argc, char **argv)
                 int M=0; // matches
                 int Mp=0; // pruned matches
                 if(Nr>global_config->loop_detector.lcd_nodes){ // coarse match
-                    M = loop_detector->match_nodes(target_agent,match_pairs, match_scores, true);
+                    std::string node_feat_dir = "";
+                    if(hidden_feat_dir!="") node_feat_dir = hidden_feat_dir+"/"+frame_name;
+                    M = loop_detector->match_nodes(target_agent,
+                                                    match_pairs, match_scores, 
+                                                    true,
+                                                    node_feat_dir);
                 }
                 std::cout<<"Find "<<M<<" instance matches\n";
                 loop_timing.record(tic_toc.toc());// match
@@ -670,12 +686,15 @@ int main(int argc, char **argv)
 
                     // Dense Match                    
                     if(loop_detector->IsSrcShapeEmbedded() && loop_detector->IsRefShapeEmbedded(target_agent)){
+                        std::string point_feat_dir = "";
+                        if(hidden_feat_dir!="") point_feat_dir = hidden_feat_dir+"/"+frame_name;
                         C = loop_detector->match_instance_points(target_agent,
                                                                 pruned_match_pairs, 
                                                                 corr_src_points, 
                                                                 corr_ref_points, 
                                                                 corr_match_indices,
-                                                                corr_scores_vec);
+                                                                corr_scores_vec,
+                                                                point_feat_dir);
                     }
                 }
                 else{
@@ -699,9 +718,12 @@ int main(int argc, char **argv)
                     double inlier_ratio = 0.0;
                     if(corr_src_points.size()>0){ // Dense registration
                         timer.Start();
-                        g3reg.estimate_pose(src_centroids,ref_centroids,
+                        downsample_corr_nms(corr_src_points, corr_ref_points, corr_scores_vec, nms_thd);
+                        downsample_corr_topk(corr_src_points, corr_ref_points, corr_scores_vec, ds_voxel, max_corr_number);
+
+                        inlier_ratio = g3reg.estimate_pose_gnc(src_centroids,ref_centroids,
                                             corr_src_points, corr_ref_points,
-                                            inlier_ratio);
+                                            corr_scores_vec);
                                             
                         if(inlier_ratio<inlier_ratio_threshold){
                             g3reg.estimate_pose(src_centroids, 
@@ -725,9 +747,10 @@ int main(int argc, char **argv)
                     }
                     else{ // Coarse registration
                         if(enable_coarse_gnc){
-                            g3reg.estimate_pose(src_centroids, ref_centroids,
-                                            latest_corr_src, latest_corr_ref,
-                                            inlier_ratio);
+                            inlier_ratio = g3reg.estimate_pose_gnc(src_centroids, ref_centroids,
+                                                                    latest_corr_src, 
+                                                                    latest_corr_ref,
+                                                                    latest_corr_scores);
                             if(inlier_ratio<inlier_ratio_threshold){
                                 g3reg.estimate_pose(src_centroids, ref_centroids,
                                                 latest_corr_src, latest_corr_ref,
@@ -982,8 +1005,9 @@ int main(int argc, char **argv)
 
     // Post-process
     semantic_mapping.extract_point_cloud();
+    semantic_mapping.merge_floor();
     semantic_mapping.merge_overlap_instances();
-    semantic_mapping.merge_overlap_structural_instances();
+    // semantic_mapping.merge_overlap_structural_instances();
     semantic_mapping.extract_bounding_boxes();
 
     // Save

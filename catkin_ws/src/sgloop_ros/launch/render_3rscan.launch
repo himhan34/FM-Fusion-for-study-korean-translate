@@ -1,14 +1,16 @@
 <launch>
 
   <arg name="dataroot" value="/data2/RioGraph"/>
-  <arg name="agentA_scene" value="scene0108_00c"/>
-  <arg name="agentB_scene" value="scene0108_00a"/>
-  <!-- <arg name="result_folder" value="sgpgm"/> -->
-  <arg name="result_folder" value="ours_geotransformer_filter0009"/>
+  <arg name="agentA_scene" value="scene0173_00e"/>
+  <arg name="agentB_scene" value="scene0173_00a"/>
+  <!-- <arg name="result_folder" value="ours_locked"/> -->
+  <!-- <arg name="result_folder" value="sgpgm_locked"/> -->
+  <arg name="result_folder" value="geotransformer_ft_fixed"/>
+  <arg name="result_folder_dir" value="$(arg dataroot)/output/$(arg result_folder)/$(arg agentA_scene)-$(arg agentB_scene)"/>
 
   <!-- x=11 , yaw=3.14 -->
-  <arg name="agentA_agnetB_x" value="-3"/>
-  <arg name="agentA_agentB_y" value="6"/>
+  <arg name="agentA_agnetB_x" value="0"/>
+  <arg name="agentA_agentB_y" value="0"/>
   <arg name="agentA_agentB_z" value="0"/>
   <arg name="agentA_agentB_yaw" value="0"/>
 
@@ -17,7 +19,8 @@
     <param name="edge_color/r" value="0.0"/>
     <param name="edge_color/g" value="0.0"/>
     <param name="edge_color/b" value="0.0"/>
-    <param name="centroid_size" value="0.3"/>
+    <param name="centroid_size" value="0.2"/>
+    <param name="annotation_size" value="0.3"/>
   </group>
 
   <!-- inital tf to enable visulization -->
@@ -33,9 +36,10 @@
   </group>
 
   <node pkg="sgloop_ros" name="agentA" type="PoseGraphNode" output="screen" clear_params="true">
-      <param name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/realsense.yaml"/>
+      <param name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/render_3rscan.yaml"/>
       <param name="src_name" value="agentA"/>
       <param name="ref_name" value="agentB"/>
+      <param name="scene_name" value="$(arg agentA_scene)"/>
       <param name="camera_marker/r" value="1.0"/>
       <param name="camera_marker/g" value="0.0"/>
       <param name="camera_marker/b" value="0.0"/>
@@ -43,23 +47,29 @@
       <param name="camera_marker/line_width" value="0.05"/>
       <param name="pose_graph_folder" value="/data2/sfm/$(arg agentA_scene)-$(arg agentB_scene)/pose_graph"/>
       <param name="src_scene_dir" value="$(arg dataroot)/val/$(arg agentA_scene)"/>
-      <param name="scene_result_folder" value="$(arg dataroot)/output/$(arg result_folder)/$(arg agentA_scene)-$(arg agentB_scene)"/>
+      <param name="scene_result_folder" value="$(arg result_folder_dir)"/>
       <param name="gt_file" value="$(arg dataroot)/gt/$(arg agentA_scene)-$(arg agentB_scene).txt"/>
+      <!-- <param name="gt_file" value="$(arg result_folder_dir)/pred_pose.txt"/> -->
       <param name="frame_file_name" value="src_poses.txt"/>
       <param name="ate_threshold" value="4.0"/>
       <param name="map_only" value="true"/>
-      <param name="map_name" value="instance_map.ply"/>
+      <!-- <param name="map_name" value="instance_map.ply"/> -->
+      <!-- <param name="map_name" value="tsne_points.ply"/> -->
       <param name="iter_num" value="5"/>
       <param name="dense_corr" value="true"/>
       <param name="mode" value="0"/>
-      <param name="corr_sampling_ratio" value="0.2"/>
+      <param name="corr_sampling_ratio" value="1.0"/>
       <param name="render_pose" value="false"/>
+      <!-- <param name="render_superpoint" value="true"/> -->
+      <!-- <param name="pseudo_corr" value="true"/> -->
+      <param name="paint_all_floor" value="true"/>
   </node>
 
   <node pkg="sgloop_ros" name="agentB" type="PoseGraphNode" output="screen" clear_params="true">
-      <param name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/realsense.yaml"/>
+      <param name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/render_3rscan.yaml"/>
       <param name="src_name" value="agentB"/>
       <param name="ref_name" value="agentA"/>
+      <param name="scene_name" value="$(arg agentB_scene)"/>
       <param name="camera_marker/r" value="1.0"/>
       <param name="camera_marker/g" value="0.0"/>
       <param name="camera_marker/b" value="0.0"/>
@@ -70,10 +80,13 @@
       <param name="frame_file_name" value="src_poses.txt"/>
       <param name="ate_threshold" value="4.0"/>
       <param name="map_only" value="true"/>
-      <param name="map_name" value="instance_map.ply"/>
+      <!-- <param name="map_name" value="instance_map.ply"/> -->
+      <!-- <param name="map_name" value="tsne_points.ply"/> -->
       <param name="iter_num" value="5"/>
       <param name="mode" value="0"/>
       <param name="render_pose" value="false"/>
+      <!-- <param name="render_superpoint" value="true"/> -->
+      <param name="paint_all_floor" value="true"/>
   </node>
 
   <node pkg="tf" type="static_transform_publisher" name="link_1st_agent" args="0 0 0 0 0 0 1 world agentA 100" />

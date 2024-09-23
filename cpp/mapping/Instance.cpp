@@ -6,9 +6,12 @@ namespace fmfusion {
 
     Instance::Instance(const InstanceId id, const unsigned int frame_id, const InstanceConfig &config) :
             id_(id), frame_id_(frame_id), update_frame_id(frame_id), config_(config) {
-        // open3d::utility::LogInfo("Initialize Instance");
-        volume_ = new open3d::pipelines::integration::InstanceTSDFVolume(
-                config_.voxel_length, config_.sdf_trunc, open3d::pipelines::integration::TSDFVolumeColorType::RGB8);
+        // volume_ = new open3d::pipelines::integration::InstanceTSDFVolume(
+        //             config_.voxel_length, config_.sdf_trunc, 
+        //             open3d::pipelines::integration::TSDFVolumeColorType::RGB8);
+        volume_ = new SubVolume(config_.voxel_length, config_.sdf_trunc,
+                                open3d::pipelines::integration::TSDFVolumeColorType::RGB8);
+
         point_cloud = std::make_shared<open3d::geometry::PointCloud>();
         merged_cloud = std::make_shared<open3d::geometry::PointCloud>();
         min_box = std::make_shared<open3d::geometry::OrientedBoundingBox>();
@@ -17,6 +20,7 @@ namespace fmfusion {
         std::srand(std::time(nullptr));
         color_ = Eigen::Vector3d((double) rand() / RAND_MAX, (double) rand() / RAND_MAX, (double) rand() / RAND_MAX);
         centroid = Eigen::Vector3d(0.0, 0.0, 0.0);
+        normal = Eigen::Vector3d(0.0, 0.0, 0.0);
         observation_count = 1;
 
     }
@@ -129,18 +133,10 @@ namespace fmfusion {
     void Instance::merge_with(const O3d_Cloud_Ptr &other_cloud,
                               const std::unordered_map<std::string, float> &label_measurements,
                               const int &observations_) {
-        //
+        // merge point cloud
         *merged_cloud += *other_cloud;
         merged_cloud->VoxelDownSample(config_.voxel_length);
         merged_cloud->PaintUniformColor(color_);
-
-        // integrate point cloud
-        //todo: remove this
-        // *point_cloud += *other_cloud;
-        // auto ds_cloud = point_cloud->VoxelDownSample(config_.voxel_length);
-        // point_cloud->Clear();
-        // *point_cloud = *ds_cloud;
-        // point_cloud->PaintUniformColor(color_);
 
         // update labels
         for (const auto label_score: label_measurements) {
@@ -180,20 +176,20 @@ namespace fmfusion {
         observation_count++;
     }
 
-    std::shared_ptr<open3d::geometry::PointCloud> Instance::extract_point_cloud() const {
-        return volume_->ExtractWeightedPointCloud(config_.min_voxel_weight);
+    O3d_Cloud_Ptr Instance::get_point_cloud() const {
+        return point_cloud;
     }
 
-    std::shared_ptr<open3d::geometry::PointCloud> Instance::extract_write_point_cloud() {
+    void Instance::extract_write_point_cloud() {
         double voxel_weight_threshold = config_.min_voxel_weight * observation_count;
         point_cloud->Clear();
-        point_cloud = volume_->ExtractWeightedPointCloud(std::min(std::max(voxel_weight_threshold, 0.001), 4.0));
+        point_cloud = volume_->ExtractPointCloud();
+        // ExtractWeightedPointCloud(std::min(std::max(voxel_weight_threshold, 0.001), 4.0));
 
         point_cloud->VoxelDownSample(config_.voxel_length);
         point_cloud->PaintUniformColor(color_);
         centroid = point_cloud->GetCenter();
 
-        return point_cloud;
     }
 
     bool Instance::update_point_cloud(int cur_frame_id, int min_frame_gap) {
@@ -237,9 +233,9 @@ namespace fmfusion {
             return 0;
     }
 
-    std::shared_ptr<open3d::geometry::PointCloud> Instance::get_complete_cloud() const {
+    O3d_Cloud_Ptr Instance::get_complete_cloud() const {
         if (merged_cloud->HasPoints()) {
-            auto complete_cloud = std::make_shared<open3d::geometry::PointCloud>();
+            auto complete_cloud = std::make_shared<O3d_Cloud>();
             *complete_cloud += *point_cloud;
             *complete_cloud += *merged_cloud;
             complete_cloud->VoxelDownSample(config_.voxel_length);

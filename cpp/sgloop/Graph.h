@@ -110,6 +110,8 @@ class Graph
 
         const std::vector<Eigen::Vector3d> get_centroids()const;
 
+        void paint_all_floor(const Eigen::Vector3d &color);
+
         /// \brief  Extract global point cloud from the graph.
         /// @param xyz Global point cloud.
         /// @param labels Node ids.

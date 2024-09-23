@@ -113,7 +113,8 @@ namespace fmfusion
                                         const int& Nr, const DataDict& ref_data_dict,
                                         const int& Ns, const DataDict& src_data_dict,
                                         float &encoding_time,
-                                        bool fused)
+                                        bool fused,
+                                        std::string hidden_feat_dir)
     {
         encoding_time = 0.0;
         if(ref_graphs.find(ref_name)==ref_graphs.end()){
@@ -164,7 +165,7 @@ namespace fmfusion
                             stack_shape_features, 
                             stack_node_knn_points, stack_node_knn_features, 
                             encoding_time,
-                            true);
+                            hidden_feat_dir);
         
         assert(stack_shape_features.size(0)==Nr+Ns);
         assert(stack_node_knn_points.size(0)==Nr+Ns);
@@ -184,7 +185,8 @@ namespace fmfusion
 
     int LoopDetector::match_nodes(const std::string &ref_name,
                                 std::vector<std::pair<uint32_t,uint32_t>> &match_pairs,
-                                std::vector<float> &match_scores,bool fused)
+                                std::vector<float> &match_scores,
+                                bool fused, std::string dir)
     {   
         if(ref_graphs.find(ref_name)==ref_graphs.end()){
             open3d::utility::LogWarning("Reference graph name not found. Skip matching");
@@ -210,6 +212,14 @@ namespace fmfusion
         }
         
         sgnet->match_nodes(src_node_features, ref_node_features, match_pairs, match_scores,check_fused);
+        
+        if(dir!=""){
+            std::string output_file_dir;
+            if(check_fused) output_file_dir = dir+"_nodes_fused.pt";
+            else output_file_dir = dir+"_nodes.pt";
+            torch::save({src_node_features, ref_node_features}, output_file_dir);
+        }
+        
         return match_pairs.size();
     }
 
@@ -218,7 +228,8 @@ namespace fmfusion
                                             std::vector<Eigen::Vector3d> &corr_src_points,
                                             std::vector<Eigen::Vector3d> &corr_ref_points,
                                             std::vector<int> &corr_match_indices,
-                                            std::vector<float> &corr_scores_vec)
+                                            std::vector<float> &corr_scores_vec,
+                                            std::string dir)
     {
 
         if(ref_graphs.find(ref_name)==ref_graphs.end()){
@@ -269,6 +280,12 @@ namespace fmfusion
 
         TORCH_CHECK(src_guided_knn_feats.device().is_cuda(), "src guided knn feats must be a CUDA tensor");
 
+        if(dir!=""){
+            std::string output_file_dir = dir+"_knn_points.pt";
+            torch::save({src_guided_knn_feats, ref_guided_knn_feats},
+                            output_file_dir);
+        }
+
         // if(C>0){
         //     extract_corr_points(src_guided_knn_points, ref_guided_knn_points, 
         //                     corr_points, corr_src_points, corr_ref_points);
@@ -296,6 +313,15 @@ namespace fmfusion
             std::vector<float> feat_vec(t.data_ptr<float>(), t.data_ptr<float>() + t.numel());
             node_feats_vector.emplace_back(feat_vec);
         }
+        return true;
+    }
+
+    bool LoopDetector::save_middle_features(const std::string &dir)
+    {
+        std::cout<<"Saving middle features to "<<dir<<"\n";
+
+        sgnet->save_hidden_features(dir);
+
         return true;
     }
 

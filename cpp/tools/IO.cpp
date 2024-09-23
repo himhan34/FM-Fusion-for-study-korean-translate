@@ -522,7 +522,7 @@ namespace IO
         return true;
     }
 
-    bool load_pose_file(const std::string &pose_file_dir, Eigen::Matrix4d &pose)
+    bool load_pose_file(const std::string &pose_file_dir, Eigen::Matrix4d &pose, bool verbose)
     {
         std::ifstream file(pose_file_dir);
         if (!file.is_open()){
@@ -538,8 +538,8 @@ namespace IO
                 ss>>pose(i,j);
             }
         }
-
-        std::cout<<"Load pose: \n"<<pose<<"\n";
+        if(verbose)
+            std::cout<<"Load pose: \n"<<pose<<"\n";
 
         return true;
     }
@@ -581,6 +581,42 @@ namespace IO
         std::cout<<"Load "<<loop_transformations.size()<<" loop transformations"<<std::endl;
 
         return true;
+    }
+
+    bool read_loop_pairs(const std::string &loop_file_dir,
+                        std::vector<LoopPair> &loop_pairs,
+                        std::vector<bool> &loop_tp_masks)
+    {
+        std::ifstream loop_file(loop_file_dir);
+        if (!loop_file.is_open()){
+            std::cerr<<"Cannot open loop file: "<<loop_file_dir<<std::endl;
+            return false;
+        }
+
+        int count_true = 0;
+        std::string line;
+        while (std::getline(loop_file, line)){
+            if(line.find("#")!=std::string::npos){
+                continue;
+            }
+            std::istringstream iss(line);
+            std::string src_frame, ref_frame;
+            int tp_mask;
+
+            iss>>src_frame>>ref_frame>>tp_mask;
+
+            loop_pairs.push_back(std::make_pair(src_frame, ref_frame));
+            if (tp_mask==1) {
+                loop_tp_masks.push_back(true);
+                count_true++;
+            }
+            else loop_tp_masks.push_back(false);
+        }
+
+        std::cout<<"Load "<< count_true<<"/"
+                    <<loop_pairs.size()<<" true loop pairs"<<std::endl;
+        return true;
+
     }
 
     bool read_frames_poses(const std::string &frame_pose_file,
@@ -659,6 +695,78 @@ namespace IO
         for (int i = 0; i < ref_centroids.size(); i++) {
             file << ref_centroids[i][0] << " " << ref_centroids[i][1] << " " << ref_centroids[i][2] << std::endl;
         }
+
+        file.close();
+        return true;
+    }
+
+    bool save_instance_info(const std::vector<Eigen::Vector3d> &centroids,
+                        const std::vector<std::string> &labels,
+                        const std::string &output_dir)
+    {
+        std::ofstream file(output_dir);
+        if (!file.is_open()){
+            std::cerr<<"Failed to open file: "<<output_dir<<std::endl;
+            return false;
+        }
+
+        file<<"# x, y, z, semantic\n";
+        file<<std::fixed<<std::setprecision(3);
+        for(int i=0; i<centroids.size(); i++){
+            file<<centroids[i][0]<<", "<<centroids[i][1]<<", "<<centroids[i][2]<<", "
+                <<labels[i]<<std::endl;
+        }
+
+        file.close();
+        return true;
+    }
+
+    bool load_instance_info(const std::string &instance_info_file,
+                        std::vector<Eigen::Vector3d> &centroids,
+                        std::vector<std::string> &labels)
+    {
+        std::ifstream file(instance_info_file);
+        if (!file.is_open()){
+            return false;
+        }
+
+        std::string line;
+        while(std::getline(file,line)){
+            if(line.find("#")!=std::string::npos) continue;
+            Eigen::Vector3d centroid;
+            std::string label;
+            auto parts = utility::split_str(line,",");
+            centroid[0] = std::stod(parts[0]);
+            centroid[1] = std::stod(parts[1]);
+            centroid[2] = std::stod(parts[2]);
+            label = parts[3];
+            centroids.push_back(centroid);
+            labels.push_back(label.substr(1));
+            // std::cout<<centroid.transpose()<<" "<<label<<std::endl;
+        }
+
+        // std::cout<<"Load "<<centroids.size()<<" instance info.\n";
+
+        return true;
+    }
+
+    bool write_time(const std::vector<std::string> & header,
+                const std::vector<double> & time,
+                const std::string & file_name)
+    {
+        std::ofstream file(file_name);
+        if (!file.is_open()) {
+            return false;
+        }
+        // header
+        for (int i = 0; i < header.size(); i++) 
+            file << "# " << header[i] << " ";
+        file << std::endl;
+
+        // data
+        for (int i = 0; i < time.size(); i++) 
+            file << time[i] << " ";
+        file << std::endl;
 
         file.close();
         return true;

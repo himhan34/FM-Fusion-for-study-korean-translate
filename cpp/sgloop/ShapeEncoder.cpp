@@ -32,14 +32,16 @@ namespace fmfusion
 
     };
 
-    void ShapeEncoder::encode(const std::vector<Eigen::Vector3d> &xyz,  const std::vector<int> &length_vec, 
+    void ShapeEncoder::encode(const std::vector<Eigen::Vector3d> &xyz,  
+                              const std::vector<int> &length_vec, 
                               const std::vector<uint32_t> &labels,
-                              const std::vector<Eigen::Vector3d> &centroids_, const std::vector<uint32_t> &nodes,
+                              const std::vector<Eigen::Vector3d> &centroids_, 
+                              const std::vector<uint32_t> &nodes,
                               torch::Tensor &node_shape_feats, 
                               torch::Tensor &node_knn_points, 
                               torch::Tensor &node_knn_feats,
                               float &encoding_time,
-                              bool use_v2)
+                              std::string hidden_feat_dir)
     {
         long X = xyz.size();        // point cloud number
         long N = centroids_.size(); // node number
@@ -52,7 +54,7 @@ namespace fmfusion
         std::vector<at::Tensor> neighbors_list;
         std::vector<at::Tensor> subsampling_list;
         std::vector<at::Tensor> upsampling_list;
-        at::Tensor points_feats = torch::ones({X, 1}, torch::kFloat32).to(cuda_device_string);
+        at::Tensor points_feats = torch::ones({X, 1}, torch::kFloat32);//.to(cuda_device_string);
 
         //
         float xyz_arr[X][3];
@@ -101,7 +103,7 @@ namespace fmfusion
 
         
         torch::Tensor nodes_feats = torch::ones({N}, torch::kFloat32).to(cuda_device_string);
-        node_point_indices = node_point_indices.to(cuda_device_string);
+        // node_point_indices = node_point_indices.to(cuda_device_string);
         node_knn_indices = node_knn_indices.to(cuda_device_string);
         timer.Stop();
         msg<<"sampling: "<<timer.GetDurationInMillisecond()<<" ms, ";
@@ -109,7 +111,7 @@ namespace fmfusion
         //
         timer.Start();
         torch::Tensor f_points_feats;
-        auto output = encoder_v2({points_feats,
+        auto output = encoder_v2({points_feats.to(cuda_device_string),
                                 points_list[0].to(torch::kFloat32).to(cuda_device_string),
                                 points_list[1].to(torch::kFloat32).to(cuda_device_string),
                                 points_list[2].to(torch::kFloat32).to(cuda_device_string),
@@ -124,7 +126,7 @@ namespace fmfusion
                                 upsampling_list[0].to(torch::kInt64).to(cuda_device_string),
                                 upsampling_list[1].to(torch::kInt64).to(cuda_device_string),
                                 upsampling_list[2].to(torch::kInt64).to(cuda_device_string),
-                                node_point_indices}).toTuple();
+                                node_point_indices.to(cuda_device_string)}).toTuple();
         node_shape_feats = output->elements()[0].toTensor();
         f_points_feats = output->elements()[1].toTensor();
         
@@ -149,6 +151,17 @@ namespace fmfusion
         // std::cout<<"node knn shape: "<<node_knn_feats.sizes()<<std::endl;
 
         std::cout<<msg.str()<<std::endl;
+
+        if (hidden_feat_dir!="")
+        {
+            torch::save({points_feats, 
+                        points_list[0], points_list[1], points_list[2], points_list[3],
+                        neighbors_list[0], neighbors_list[1], neighbors_list[2], neighbors_list[3],
+                        subsampling_list[0], subsampling_list[1], subsampling_list[2],
+                        upsampling_list[0], upsampling_list[1], upsampling_list[2],
+                        node_point_indices}, 
+                        hidden_feat_dir);
+        }
 
     };
 

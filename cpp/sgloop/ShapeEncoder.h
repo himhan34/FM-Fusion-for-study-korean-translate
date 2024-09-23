@@ -38,7 +38,7 @@ namespace fmfusion
                     torch::Tensor &node_knn_points,
                     torch::Tensor &node_knn_feats,
                     float &encoding_time,
-                    bool use_v2=true);
+                    std::string hidden_feat_dir="");
 
     private:
         void precompute_data_stack_mode(at::Tensor points, at::Tensor lengths,

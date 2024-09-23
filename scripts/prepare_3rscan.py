@@ -14,6 +14,12 @@ def read_scan_pairs(dir):
         f.close()
         return scan_pairs
 
+def write_scan_pairs(scan_pairs,dir):
+    with open(dir,'w') as f:
+        for pair in scan_pairs:
+            f.write('{} {}\n'.format(pair[0],pair[1]))
+        f.close()
+
 def read_scan_names_dict(dir):
     with open(dir) as f:
         scan_names = {}
@@ -544,10 +550,20 @@ if __name__=='__main__':
     # scans = ['4acaebcc-6c10-2a2a-858b-29c7e4fb410d']
     # move_rendered_depth(sync_folder,dataroot,scans)
     # clear_render_color(dataroot)
-    val_scan_pairs = read_scan_pairs(os.path.join(graphroot,'splits','val.txt'))
+    val_full_pairs = read_scan_pairs(os.path.join(graphroot,'splits','val_full.txt'))
+    val_scan_pairs = []
+    for pair in val_full_pairs:
+        print('{}:{}'.format(pair[0],pair[1]))
+        if pair not in val_scan_pairs:
+            val_scan_pairs.append(pair)
+            print('valid')
+    print('Find {} valid pairs'.format(len(val_scan_pairs)))
+    write_scan_pairs(val_scan_pairs,os.path.join(graphroot,'splits','val.txt'))
+    exit(0)
+    
     scene_name_dict = read_scan_names_dict(os.path.join(graphroot,'splits','scans.txt'))
     # write_scan_serials(val_scan_pairs,scene_name_dict,os.path.join(dataroot,'splits','serials80.txt'))
-    move_dense_map(val_scan_pairs,scene_name_dict, dataroot, graphroot)
+    # move_dense_map(val_scan_pairs,scene_name_dict, dataroot, graphroot)
     
     # exit(0)
     # 1

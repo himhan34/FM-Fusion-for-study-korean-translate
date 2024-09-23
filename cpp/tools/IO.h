@@ -82,11 +82,15 @@ namespace IO
 
     bool load_single_col_mask(const std::string &mask_file_dir, std::vector<bool> &mask);
 
-    bool load_pose_file(const std::string &pose_file_dir, Eigen::Matrix4d &pose);
+    bool load_pose_file(const std::string &pose_file_dir, Eigen::Matrix4d &pose, bool verbose=false);
 
     bool read_loop_transformations(const std::string &loop_file_dir,
                         std::vector<LoopPair> &loop_pairs,
                         std::vector<Eigen::Matrix4d> &loop_transformations);
+
+    bool read_loop_pairs(const std::string &loop_file_dir,
+                        std::vector<LoopPair> &loop_pairs,
+                        std::vector<bool> &loop_tp_masks);
 
     bool read_frames_poses(const std::string &frame_pose_file,
                     std::unordered_map<std::string, Eigen::Matrix4d> &frame_poses);
@@ -100,6 +104,19 @@ namespace IO
     bool save_graph_centroids(const std::vector<Eigen::Vector3d> &src_centroids, 
                             const std::vector<Eigen::Vector3d> &ref_centroids,
                             const std::string &output_dir);
+
+    bool save_instance_info(const std::vector<Eigen::Vector3d> &centroids,
+                        const std::vector<std::string> &labels,
+                        const std::string &output_dir);
+    
+    bool load_instance_info(const std::string &instance_info_file,
+                        std::vector<Eigen::Vector3d> &centroids,
+                        std::vector<std::string> &labels);
+
+    bool write_time(const std::vector<std::string> & header,
+                const std::vector<double> & time,
+                const std::string & file_name);
+
 }
 
 }

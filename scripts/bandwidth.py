@@ -12,6 +12,7 @@ class BandwidthEvaluator():
         self.dim_nodes_int16 = 2 # (dim,), [node_id, instance_id] in int16
         self.dim_points_float = 3 # (dim,), [x,y,z,] in float
         self.dim_points_int16 = 1 # (dim,), [node_id] in int16
+        self.dim_points_light = 256 + 3 # (dim,), [feature, centroids] in float
 
     def update(self, dir):
         ''' read from a scene bandwidth log file'''
@@ -46,16 +47,20 @@ class BandwidthEvaluator():
             return
         nodes = np.array(self.nodes)
         points = np.array(self.points)
+        lt_points = 128 * nodes # Each node has 128 points
         
         print('---------- Summary Bandwidth {} frames -----------'.format(nodes.shape[0]))
 
         # bandwidth in KBytes
         sum_bw_nodes, sum_bw_points = self.calculate(np.sum(nodes), np.sum(points))
+        sum_bw_ltpoints = np.sum(lt_points) * self.dim_points_light * 4 / 1024
+        
         total_bw = sum_bw_points + sum_bw_nodes
         
         print('{} nodes, {} points'.format(np.sum(nodes), np.sum(points)))
         print('Our Node Bandwidth: {:.1f} KB, Points Bandwidth: {:.1f} KB, Total: {:.1f} KB, Ave: {:.1f}'.format(
             sum_bw_nodes, sum_bw_points,total_bw,total_bw/nodes.shape[0]))
+        print('Light Points Bandwidth: {:.1f} KB'.format(sum_bw_ltpoints))
 
         dense_frames_maks = points>0
         nodes = nodes[~dense_frames_maks]
