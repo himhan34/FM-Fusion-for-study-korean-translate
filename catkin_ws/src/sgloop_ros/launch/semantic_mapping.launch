@@ -1,71 +1,44 @@
 <launch>
   <!-- agent A,B -->
-  <arg name="dataroot" value="/data2/ScanNet"/>
-  <arg name="agentA_scene" default="scene0064_01"/>
-  <!-- <arg name="dataroot" value="/data2/sgslam"/>
-  <arg name="agentA_scene" default="ab0302_00a"/> -->
-  <arg name="agentB_scene" default="ab0201_03c"/>
+  <arg name="dataroot" value="/data2/sample_data/ScanNet"/>
+  <arg name="agentA_scene" default="scene0064_00"/>
+  <!-- <arg name="dataroot" value="/data2/sgslam"/> -->
+  <arg name="dataroot" value="/home/lch/Downloads/sample_data/sgslam"/>
+  <arg name="agentA_scene" default="ab0201_03a"/>
 
   <!-- global settings  -->
-  <arg name="cfg_file" value="scannet.yaml"/>
-  <arg name="weights_folder" value="/home/cliuci/code_ws/OpensetFusion/torchscript"/>
+  <arg name="cfg_file" value="$(find sgloop_ros)/../../../config/realsense.yaml"/>
   <arg name="loop_duration" value="10"/>
   <arg name="sliding_widow_translation" value="30.0"/>
   <arg name="icp_refine" value="true"/>
   <arg name="verbose_level" value="0"/>
   <arg name="output_folder" value="$(arg dataroot)/output/online_mapping"/>
 
-  <!-- <arg name="agentA_agnetB_x" value="0.0"/>
-  <arg name="agentA_agentB_y" value="0.0"/>
-  <arg name="agentA_agentB_z" value="0.0"/> -->
-
   <group ns="viz"> 
       <param name="edge_width" value="0.03"/>
       <param name="edge_color/r" value="0.0"/>
       <param name="edge_color/g" value="1.0"/>
       <param name="edge_color/b" value="1.0"/>
-      <param name="centroid_size" value="0.3"/>
+      <param name="centroid_size" value="0.2"/>
       <param name="centroid_color/r" value="0.0"/>
       <param name="centroid_color/g" value="0.0"/>
       <param name="centroid_color/b" value="0.0"/>
-      <param name="annotation_size" value="0.4"/>
+      <param name="annotation_size" value="0.3"/>
   </group>
 
-  <!-- inital tf to enable visulization -->
-  <!-- <group ns="br">
-    <param name="agentA/x" value="0.0"/>
-    <param name="agentA/y" value="0.0"/>
-    <param name="agentA/z" value="0.0"/>
-
-    <param name="agentB/x" value="$(arg agentA_agnetB_x)"/>
-    <param name="agentB/y" value="$(arg agentA_agentB_y)"/>
-    <param name="agentB/z" value="$(arg agentA_agentB_z)"/>
-
-    <param name="agentC/x" value="0.0"/>
-    <param name="agentC/y" value="0.0"/>
-    <param name="agentC/z" value="0.0"/>
-    <param name="pub_alignment" value="true"/>
-  </group> -->
-
   <node pkg="sgloop_ros" name="agentA" type="MappingNode" output="screen" clear_params="true">
-    <param name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/$(arg cfg_file)"/>
-    <!-- <param name="weights_folder" value="$(arg weights_folder)"/> -->
+    <param name="cfg_file" value="$(arg cfg_file)"/>
     <param name="output_folder" value="$(arg output_folder)"/>
-    <param name="active_sequence_dir" value="$(arg dataroot)/val/$(arg agentA_scene)"/>
+    <param name="active_sequence_dir" value="$(arg dataroot)/scans/$(arg agentA_scene)"/>
     <param name="local_agent" value="agentA"/>
+<!-- <param name="association_name" value="data_association.txt"/> -->
     <param name="association_name" value=""/>
-    <!-- <param name="second_agent" value="agentB"/>     -->
-    <!-- <param name="second_agent_scene" value="fakeScene"/> -->
-    <param name="frame_gap" value="5"/>
+    <param name="frame_gap" value="2"/>
     <param name="pose_average_size" value="-1"/>
-    <param name="loop_duration" value="$(arg loop_duration)"/>
     <param name="visualization" value="1"/>
     <param name="o3d_verbose_level" value="$(arg verbose_level)"/>
     <param name="debug_mode" value="false"/>
-    <param name="icp_refine" value="$(arg icp_refine)"/>
     <param name="sliding_widow_translation" value="$(arg sliding_widow_translation)"/>
-    <param name="dense_m_loops" value="1"/>
-    <!-- <param name="dense_m_frame_gap" value="200"/> -->
   </node>
 
   <node pkg="tf" type="static_transform_publisher" name="link_1st_agent" args="0 0 0 0 0 0 1 world agentA 100" />

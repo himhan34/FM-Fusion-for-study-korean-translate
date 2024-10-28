@@ -13,6 +13,8 @@
 #include "cv_bridge/cv_bridge.h"
 #include "open3d_conversions/open3d_conversions.h"
 
+#include "mapping/Detection.h"
+
 namespace Visualization
 {
     struct VizParam{
@@ -99,5 +101,10 @@ namespace Visualization
                     const std::string &agnetB_frame_id,
                     nav_msgs::Path &path_msg,
                     ros::Publisher pub);
+
+    bool render_rgb_detections(const open3d::geometry::Image &color,
+                            const std::vector<fmfusion::DetectionPtr> &detections,
+                            ros::Publisher pub,
+                            std::string frame_id="world");
 
 }

@@ -291,7 +291,7 @@ int main(int argc, char **argv)
 
     pruned_match_pairs = fmfusion::utility::update_masked_vec(match_pairs, pruned_true_masks);
     pruned_match_scores = fmfusion::utility::update_masked_vec(match_scores, pruned_true_masks);
-    ROS_WARN("Keep %d matched nodes after prune", pruned_match_pairs.size());
+    ROS_WARN("Keep %ld matched nodes after prune", pruned_match_pairs.size());
 
     if(pruned_match_pairs.size()>0 && shape_encode_ret){ // dense match  
         C = loop_detector->match_instance_points(ref_agent_name,
@@ -300,7 +300,7 @@ int main(int argc, char **argv)
                                                 corr_ref_points, 
                                                 corr_match_indices,
                                                 corr_scores_vec);
-        ROS_WARN("Matched points: %d", C);
+        ROS_WARN("Matched points: %ld", C);
     }
 
     // Registration

@@ -26,15 +26,18 @@ Mapping:
   max_box_area_ratio: 0.9 # box_area/image_area
   query_depth_vx_size: -1.0
   dilate_kernal: 3 
-  min_iou: 0.5
+  min_iou: 0.3
   search_radius: 4.0
 
   # merge over-segmentation
   merge_inflation: 4.0
   merge_iou: 0.3
-  cleanup_period: 6600
+  realtime_merge_floor: 1
   recent_window_size: 240
   update_period: 20
+
+  # Bayesian fusion
+  bayesian_semantic_likelihood: "/home/cliuci/code_ws/OpensetFusion/measurement_model/bayesian_model.txt"
 
   # export
   shape_min_points: 500 # export and bbox extract

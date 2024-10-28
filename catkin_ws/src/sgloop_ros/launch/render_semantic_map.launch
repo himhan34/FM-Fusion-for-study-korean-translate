@@ -1,9 +1,9 @@
 <launch>
-  <arg name="dataroot" value="/data2/ScanNet"/>
-  <arg name="agentA_scene" default="scene0064_01"/>
-  <!-- <arg name="dataroot" value="/data2/sgslam"/>
-  <arg name="agentA_scene" value="ab0302_00b"/> -->
-  <arg name="cfg_file" value="scannet.yaml"/>
+  <!-- <arg name="dataroot" value="/data2/ScanNet"/> -->
+  <!-- <arg name="agentA_scene" default="scene0064_01"/> -->
+  <arg name="dataroot" value="/data2/sgslam"/>
+  <arg name="agentA_scene" value="ab0302_00a"/>
+  <arg name="cfg_file" value="realsense.yaml"/>
 
   <arg name="agentA_agnetB_x" value="0"/>
   <arg name="agentA_agentB_y" value="0"/>

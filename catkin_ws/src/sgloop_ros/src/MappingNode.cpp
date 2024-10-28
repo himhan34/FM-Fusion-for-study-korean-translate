@@ -75,6 +75,9 @@ int main(int argc, char **argv)
         if(rgbd_table.size()>4000) return 0;
     }
     else{
+        ROS_WARN("--- Read RGB-D frames from %s/%s ---",
+                root_dir.c_str(),
+                association_name.c_str());
         bool read_ret = IO::construct_preset_frame_table(root_dir,
                                                         association_name,
                                                         trajectory_name,
@@ -82,7 +85,6 @@ int main(int argc, char **argv)
                                                         pose_table);
         if(!read_ret) return 0;
     }
-
 
     open3d::geometry::Image depth, color;
     int prev_frame_id = -100;
@@ -97,6 +99,7 @@ int main(int argc, char **argv)
         if((seq_id-prev_frame_id)<frame_gap) continue;
         // map_timing.create_frame(seq_id);
         std::cout<<"Processing frame "<<frame_name<<" ..."<<std::endl;
+        tic_toc_seq.tic();
 
         //
         bool loaded;
@@ -111,10 +114,12 @@ int main(int argc, char **argv)
             loaded = fmfusion::utility::LoadPredictions(root_dir+'/'+prediction_folder, frame_name, 
                                                             global_config->mapping_cfg, global_config->instance_cfg.intrinsic.width_, global_config->instance_cfg.intrinsic.height_,
                                                             detections);
+            tic_toc_seq.toc();
         }
         if(!loaded) continue;
 
         semantic_mapping->integrate(seq_id,rgbd, pose_table[k], detections);
+        tic_toc_seq.toc();
         prev_frame_id = seq_id;
 
         { // Viz poses
@@ -122,11 +127,10 @@ int main(int argc, char **argv)
             Visualization::render_path(pose_table[k], viz.path_msg, viz.path, LOCAL_AGENT, seq_id);
         }
 
-        if(viz.pred_image.getNumSubscribers()>0){ // Viz images
-            std::string pred_img_dir = root_dir+"/pred_viz/"+frame_name+".jpg";
-            cv::Mat pred_img = cv::imread(pred_img_dir);
-            Visualization::render_image(pred_img, viz.pred_image, LOCAL_AGENT);
-        }
+        if(viz.pred_image.getNumSubscribers()>0) Visualization::render_rgb_detections(color, 
+                                                                                    detections, 
+                                                                                    viz.pred_image,
+                                                                                    LOCAL_AGENT);
 
         {// Viz 3D
             std::vector<InstanceId> valid_names;
@@ -159,7 +163,7 @@ int main(int argc, char **argv)
                                                         global_instance_pcd->points_.size());
 
         }
-    
+        tic_toc_seq.toc();
     }
 
     ROS_WARN("Finished sequence with %d frames",rgbd_table.size());
@@ -168,9 +172,9 @@ int main(int argc, char **argv)
     semantic_mapping->extract_point_cloud();
     semantic_mapping->merge_floor();
     semantic_mapping->merge_overlap_instances();
-    semantic_mapping->merge_overlap_structural_instances();
 
     // Save
+    ROS_WARN("Save results to %s",output_folder.c_str());
     semantic_mapping->Save(output_folder+"/"+sequence_name);
     tic_toc_seq.export_data(output_folder+"/"+sequence_name+"/time_records.txt");
     fmfusion::utility::write_config(output_folder+"/"+sequence_name+"/config.txt",*global_config);

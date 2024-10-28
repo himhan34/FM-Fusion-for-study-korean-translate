@@ -2,8 +2,8 @@
   <!-- agent A,B -->
   <arg name="agentA_scene" default="ab0302_00a"/>
   <arg name="agentB_scene" default="ab0302_00b"/>
-  <!-- <arg name="agentA_scene" default="uc0111_00a"/> -->
-  <!-- <arg name="agentB_scene" default="uc0111_00b"/> -->
+  <!-- <arg name="agentA_scene" default="uc0204_00a"/> -->
+  <!-- <arg name="agentB_scene" default="uc0204_00b"/> -->
   <arg name="agentC_scene" default="uc0115_00c"/>
 
   <!-- global settings  -->

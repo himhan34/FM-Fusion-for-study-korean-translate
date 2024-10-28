@@ -250,6 +250,30 @@ namespace Visualization
         }
     }
 
+    bool render_rgb_detections(const open3d::geometry::Image &color,
+                                const std::vector<fmfusion::DetectionPtr> &detections, 
+                                ros::Publisher pub, 
+                                std::string frame_id)
+    {
+        std::shared_ptr<cv::Mat> rgb_cv = std::make_shared<cv::Mat>(color.height_,color.width_,CV_8UC3);
+        std::memcpy(rgb_cv->data,color.data_.data(),color.data_.size()*sizeof(uint8_t));
+
+        for(auto det:detections){
+            auto bbox = det->bbox_;
+            cv::rectangle(*rgb_cv, 
+                        cv::Point(bbox.u0,bbox.v0),
+                        cv::Point(bbox.u1,bbox.v1), 
+                        cv::Scalar(0,255,0), 2);
+            cv::putText(*rgb_cv, 
+                        det->extract_label_string(),
+                        cv::Point(bbox.u0+5,bbox.v0+16), 
+                        cv::FONT_HERSHEY_SIMPLEX, 0.5, 
+                        cv::Scalar(0,255,0), 2);
+        }
+
+        render_image(*rgb_cv, pub, frame_id);
+    }
+
     bool render_camera_pose(const Eigen::Matrix4d &pose, ros::Publisher pub, std::string frame_id, int sequence_id)
     {
         nav_msgs::Odometry msg;
