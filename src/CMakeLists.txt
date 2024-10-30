@@ -93,7 +93,9 @@ target_link_libraries(IntegrateInstanceMap PRIVATE ${ALL_TARGET_LIBRARIES} fmfus
 # Install loop closure detection(LCD) module
 # The LCD is in developing. More complete instruction will be released soon.
 if (LOOP_DETECTION)
-    add_executable(TestLoop PRIVATE ${ALL_TARGET_LIBRARIES} fmfusion)
+    add_executable(TestLoop)
+    target_sources(TestLoop PRIVATE TestLoop.cpp)
+    target_link_libraries(TestLoop PRIVATE ${ALL_TARGET_LIBRARIES} fmfusion)
 
     add_executable(TestRegister)
     target_sources(TestRegister PRIVATE TestRegister.cpp)
