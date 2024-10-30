@@ -1,193 +1,110 @@
-# FM-Fusion
+<div align="center">
+    <!-- <h1>⚽ FM-Fusion</h1> -->
+    <h2>FM-Fusion: Instance-aware Semantic Mapping Boosted by Vision-Language Foundation Models</h2>
+    <strong>IEEE RA-L 2024</strong>
+    <br>
+        <a href="https://uav.hkust.edu.hk/current-members/" target="_blank">Chuhao Liu</a><sup>1</sup>,
+        <a href="https://uav.hkust.edu.hk/current-members/" target="_blank">Ke Wang</a><sup>2,†</sup>,
+        <a href="https://jayceeshi.github.io/" target="_blank">Jieqi Shi</a><sup>1</sup>,
+        <a href="https://qiaozhijian.github.io/" target="_blank">Zhijian Qiao</a><sup>1</sup>, and
+        <a href="https://uav.hkust.edu.hk/group/" target="_blank">Shaojie Shen</a><sup>2</sup>
+    <p>
+        <h45>
+            <sup>1</sup>HKUST Aerial Robotics Group &nbsp;&nbsp;
+            <sup>2</sup>Chang'an University, China &nbsp;&nbsp;
+            <br>
+        </h5>
+        <sup>†</sup>Corresponding Author
+    </p>
+    <a href="https://ieeexplore.ieee.org/abstract/document/10403989"> <img src="https://img.shields.io/badge/IEEE-RA--L-004c99"> </a>
+    <a href='https://arxiv.org/abs/2402.04555'><img src='https://img.shields.io/badge/arXiv-2402.04555-990000' alt='arxiv'></a>
+    <a href="https://www.youtube.com/watch?v=zrzcjj9-ydk&t=9s"><img alt="YouTube" src="https://img.shields.io/badge/YouTube-Video-red"/></a>
+</div>
+
+
+<!-- ## Introduction -->
 
 Bayesian fuse the object detectin from RAM-Grounded-SAM into consistent scene graph
 
-## Install
+## Tabel of Contents
+1. Install
+2. Download Data
+3. Run Instance-aware Semantic Mapping
+4. Use it in Your Application
+5. Acknowledge
 
-### Dependencies
-Install packages
+## 1. Install
+Install dependency packages from Ubuntu Source
 ```bash
-sudo apt-get install libgoogle-glog-dev
+sudo apt-get install libboost-dev libomp-dev libeigen3-dev
 ```
-
-Install our adopted Open3D from source
-
+Install Open3D from its source code.([Install Tutorial](https://www.open3d.org/docs/release/compilation.html#compilation))
 ```bash
-git clone git@github.com:glennliu/Open3d_CPU.git
+git clone https://github.com/isl-org/Open3D
+cd Open3D
+make build & cd build
+cmake -DBUILD_SHARED_LIBS=ON ..
+make -j12
+sudo make install
+```
+Follow the official tutorials to install [OpenCV](https://docs.opencv.org/4.x/d7/d9f/tutorial_linux_install.html), [GLOG](https://github.com/google/glog), [jsoncpp](https://github.com/open-source-parsers/jsoncpp/blob/master/README.md).
+
+Compile FM-Fusion,
+```bash
 mkdir build & cd build
-cmake -DBUILD_SHARED_LIBS=ON -DGLIBCXX_USE_CXX11_ABI=ON -DCMAKE_BUILD_TYPE=Release -DUSE_SYSTEM_FMT=ON ..
+cmake ..
 make -j12
 make install
 ```
 
-Install GTSAM,
-
+Install the ROS node program, which renders the semantic instance map in Rviz. Firstly, install ROS follow the [official guidance](http://wiki.ros.org/noetic/Installation/Ubuntu). Then, 
 ```bash
-git clone https://github.com/borglab/gtsam.git
-cd gtsam
-mkdir build
-cd build
-cmake .. -DGTSAM_POSE3_EXPMAP=ON -DGTSAM_ROT3_EXPMAP=ON
-sudo make install
+git submodule update --init --recursive
+cd catkin_ws & catkin_make
+source devel/setup.bash
 ```
 
-If loop closured module is not needed, the following the dependencies can be skipped.
-Install glog,
+## 2. Download Data
+We provide two datasets to evaluate: SgSlam and ScanNet. Their sequences can be downloaded:
+* [SgSlam_OneDrive](https://hkustconnect-my.sharepoint.com/:f:/g/personal/cliuci_connect_ust_hk/EnIjnIl7a2NBtioZFfireM4B_PnZcIpwcB-P2-Fnh3FEPg?e=BKsgLQ).
+* [ScanNet_OneDrive](https://hkustconnect-my.sharepoint.com/:f:/g/personal/cliuci_connect_ust_hk/EhUu2zzwUGNKq8h2yUGHIawBpC8EI73YB_GTG9BUXXBoVA?e=o4TfsA).
 
+The instruction of the data format can be found [here](DATA.md).
+After download the ```scans``` folder in each dataset, go to [uncompress_data.py](scripts/uncompress_data.py) and set the data directories. Then, uncompress the sequence data.
+```
+python scripts/uncompress_data.py
+```
+
+## 3. Run Instance-aware Semantic Mapping
+#### a. Run with Rviz.
+
+Check the parameter settting. Then, launch the ROS  program,
+```
+roslaunch sgloop_ros visualize.launch % rviz
+roslaunch sgloop_ros semantic_mapping.launch
+```
+It should incremental reconstruct the semantic map and render the results on Rviz. The output results are illustrated in the [data format](DATA.md).
+
+#### b. Run without visualization.
+
+If you do not need the ROS node to visualize, you can skip its install in the above instruction. Then, simply run the C++ executable program and the results will be saved at ```${SGSLAM_DATAROOT}/output```. The output directory can be set in running the program.
 ```bash
-git clone https://github.com/google/glog.git
-cd glog && cmake -S . -B build -G "Unix Makefiles"
-cmake --build build
-sudo cmake --build build --target install
+./build/cpp/IntegrateInstanceMap --config config/realsense.yaml --root ${SGSLAM_DATAROOT}/scans/ab0201_03a --prediction prediction_no_augment --frame_gap 2 --output ${SGSLAM_DATAROOT}/output
 ```
 
-Install spdlog,
+## 4. Use it in Your Application
+In ```SgSlam``` dataset, we use Intel Realsense-D515 camera and DJI A3 flight controller to collect data sequence Details of the hardware suite can be found in this [paper](https://arxiv.org/abs/2201.03312). You can also collect your own dataset using a similar hardware suite. 
+#### a. Prepare RGB-D and Camera poses.
+We use [VINS-Mono](https://github.com/HKUST-Aerial-Robotics/VINS-Mono) to compute visual-inertial odometry (VIO). We save the camera poses of its keyframes in a ```pose``` folder.
 
-```bash
-git clone https://github.com/gabime/spdlog.git
-cd spdlog && mkdir build && cd build
-cmake -DBUILD_SHARED_LIBS=True .. && make -j
-sudo make install
-```
+#### b. Run [RAM](https://github.com/xinyu1205/recognize-anything), [GroundingDINO](https://github.com/IDEA-Research/GroundingDINO) and [SAM](https://github.com/facebookresearch/segment-anything).
 
-Install [utf8proc](github.com:JuliaStrings/utf8proc.git) follow its official repository.
+The three models are combined to run in [Grounded-SAM](https://github.com/IDEA-Research/Grounded-Segment-Anything). Please find our adopted Grounded-SAM [here](https://github.com/glennliu/Grounded-Segment-Anything). It should generate a ```prediction``` folder as explained in [data format](DATA.md). Then, you can run the semantic mapping on your dataset.
 
-```angular2html
-git clone https://github.com/JuliaStrings/utf8proc.git
-cd utf8proc && mkdir build && cd build
-cmake -DBUILD_SHARED_LIBS=True .. && make -j
-sudo make install
-```
+## 5. Acknowledge
+The hardware is supported by [Luqi Wang](https://lwangax.wordpress.com).
+We use [Open3D](https://www.open3d.org) to reconstruct instance sub-volume. The vision foundation models RAM, GroundingDINO, and SAM provide instance segmentation on images.
 
-Install libtorch C++ from
-Pytorch [download center](https://pytorch.org/get-started/locally/#supported-linux-distributions),
-
-```bash
-wget https://download.pytorch.org/libtorch/cu118/libtorch-shared-with-deps-2.3.0%2Bcu118.zip
-or choose the abi version and add_definitions(-D _GLIBCXX_USE_CXX11_ABI=1) in CMakeLists.txt
-wget https://download.pytorch.org/libtorch/cu118/libtorch-cxx11-abi-shared-with-deps-2.3.0%2Bcu118.zip
-```
-
-Uncompresss the downloaded compress file. Our computer settings that related to the Libtorch are,
-
-```
-CUDA=11.8
-LibTorch=2.3.0
-GCC=9.4.0
-```
-
-It should also be compatible with other ```Pytorch>=2.0.0```. Depending on the cmake local environment, you may need to
-install the ```CXX11 ABI``` version of LibTorch.
-
-### Compilation
-
-```bash
-mkdir build
-cd build
-cmake -DCMAKE_INSTALL_PREFIX=${LIBTORCH_DIR} -DENABLE_TORCH=ON -DLOOP_DETECTION=ON ..
-make
-```
-Set the ```${LIBTORCH_DIR}``` to the unzipped libtorch directory. If the ```Open3D``` and ```spdlog``` are installed in customized directories, they should also be appended in ```-DCMAKE_INSTALL_PREFIX```. 
-Depends on your computer environment, you may comment or adjust ```set(CMAKE_CXX_STANDARD 17)``` in ```CMakeLists.txt```.
-
-### Compile ROS Node (Optional)
-
-refer to [MultiAgentExperiment](MultiAgent.md).
-
-## Run Loop Detection Node
-
-The trained torchscript model can be downloaded from
-the [OneDrive Link](https://hkustconnect-my.sharepoint.com/:f:/g/personal/cliuci_connect_ust_hk/Encm_4ETKV9EiZ2PRlCLVdEBTCiuBYQ4yckF7SzFTDHg6g?e=oDsTHu).
-Download and unzip the torchscript folder and
-set the ```--weights_folder``` accordingly.
-
-```bash
-./build/cpp/TestLoop --config config/realsense.yaml --weights_folder ${TORCHSCRIPT_FOLDER} --ref_scene /data2/sgslam/val/uc0107_00a --src_scene /data2/sgslam/val/uc0107_00b --output_folder ${OUTPUT_FOLDER}
-```
-
-It has optional running options ```--prune_instance```, which prune instance match results by maximum clique. And
-option ```--dense_match``` enable searching point cloud correspondences.
-In [realsense.yaml](config/realsense.yaml), a few parameters can directly affect the final performance,
-
-- ```LoopDetector.fuse_shape```: decide fuse shape features or not.
-- ```Graph.ignore_labels```: incorporate "floor" to ignore them.
-
-The ```ref_scene``` and ```src_scene``` options can be changed to any scene folder directories. The node read scene
-graphs from the two scene, and generate instance-wise association results. Match and registration result will be saved
-at ```OUTPUT_FOLDER```.
-
-## Run all the scan pairs and evaluate
-
-To run all the 14 scene pairs,
-
-```bash
-python scripts/run_test_loop.py
-```
-
-Notice to set ```OUTPUT_FOLDER``` before running.
-
-Then, evaluate the match and registration results,
-
-```bash
-python scripts/eval_loop.py --dataroot ${DATAROOT} --output_folder ${OUTPUT_FOLDER} --match_folder ${MATCH_FOLDER}
-```
-
-The ```OUTPUT_FOLDER``` is the same as the option in running ```TestLoop```.
-
-The latest evaluation result is saved [here](eval/v2_dense.txt).
-
-## Run Loop Detection Node on ROS
-
-```
-source catkin_ws/devel/setup.bash
-roslaunch sgloop_ros testloop.launch
-roslaunch sgloop_ros visualize.launch
-```
-
-Currently, it is similar to the ```TestLoop``` program in the last step.
-It read a pair of scene graph and register them. The result is visualized on Rviz.
-
-## Run instance mapping node
-
-The mapping node is used to reconstructe 3D semantic instances. It does not considered any loop closures.
-Run the executable program as follow,
-
-```bash
-./cpp/IntegrateInstanceMap --config ../config/realsense.yaml --root ${SGSLAM_DATAROOT}/scans/ab0201_03a --prediction prediction_no_augment --frame_gap 2 --output ${SGSLAM_DATAROOT}/output
-```
-
-The reconstructed instances should be saved int the output folder.
-
-```bash
-|---output
-    |---bday_01
-        |---instance_map.ply (aggregated instances point cloud)
-        |---instance_info.txt
-        |---instance_box.txt
-        |---${idx}.ply (intanace-wise point cloud)
-        |--- ...
-```
-
-## Visualize reconstructed instances
-
-```
-python dataset/scannetv2/generate_gt_association.py --dataroot /data2/ScanNet --graphroot /data2/ScanNetGraph --split val --split_file val_clean --min_matches 4
-```
-
-<!-- 
-## Run Python version of instance mapping node 
-The python verision is based on existed interface of Open3D. It is slower. 
-The ```${SCANNET_ROOT}``` folder should be organized like FusionPortable data structure. Target scans should be put in ```split/${SPLIT_FILE_NAME}.txt``` file.
-Run the mapping node,
-```bash
-python scripts/semantic_mapping.py --data_root ${SCANNET_ROOT} --prior_model measurement_model/bayesian --output_folder demo --prediction_folder prediction_no_augment --split val --split_file ${SPLIT_FILE_NAME}
-```
-The output files should be at ```${SCANNET_ROOT}/output/demo```.
-
-To refine the instances volume,
-```bash
-python scripts/postfuse.py --dataroot ${SCANNET_ROOT} --split_file ${SPLIT_FILE_NAME} --debug_folder demo --prior_model bayesian --measurement_dir measurement model
-```
-The output files should be at ```${SCANNET_ROOT}/output/demo_refined```.
-
- -->
+## 6. License
+The source code is released under [GPLv3](https://www.gnu.org/licenses/) license.
+For technical issues, please contact Chuhao LIU (cliuci@connect.ust.hk). 

@@ -4,7 +4,7 @@ project(FmFusion LANGUAGES C CXX)
 
 #### Options ####
 option(LOOP_DETECTION OFF)
-option(INSTALL_FMFUSION OFF)
+option(INSTALL_FMFUSION ON)
 option(RUN_HYDRA OFF)
 #################
 
@@ -14,7 +14,6 @@ include(cmake/glog.cmake)
 include(cmake/opencv.cmake)
 include(cmake/open3d.cmake)
 include(cmake/jsoncpp.cmake)
-# include(cmake/gtsam.cmake)
 
 set(PROJECT_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(CMAKE_INSTALL_PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/install)
