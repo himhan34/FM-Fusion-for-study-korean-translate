@@ -159,13 +159,13 @@ if (INSTALL_FMFUSION)
             DESTINATION include/fmfusion/mapping
     )
     install(FILES
-            sgloop/Graph.h
-            sgloop/SGNet.h
-            sgloop/ShapeEncoder.h
-            sgloop/LoopDetector.h
-            sgloop/BertBow.h
-            sgloop/Initialization.h
-            DESTINATION include/fmfusion/sgloop
+           sgloop/Graph.h
+           sgloop/SGNet.h
+           sgloop/ShapeEncoder.h
+           sgloop/LoopDetector.h
+           sgloop/BertBow.h
+           sgloop/Initialization.h
+           DESTINATION include/fmfusion/sgloop
     )
     install(FILES
             tools/Tools.h
@@ -173,22 +173,29 @@ if (INSTALL_FMFUSION)
             tools/Utility.h
             tools/Color.h
             tools/IO.h
-            tools/g3reg_api.h
             tools/TicToc.h
             DESTINATION include/fmfusion/tools
     )
-    install(FILES
-            tokenizer/logging.h
-            tokenizer/basic_string_util.h
-            tokenizer/text_tokenizer.h
-            tokenizer/bert_tokenizer.h
-            DESTINATION include/fmfusion/tokenizer
-    )
 
-    install(FILES
-            thirdparty/extensions/cpu/torch_helper.h
-            thirdparty/extensions/cpu/grid_subsampling.h
-            thirdparty/extensions/cpu/radius_neighbors.h
-            DESTINATION include/fmfusion/thirdparty/extensions/cpu
-    )
+    if(LOOP_DETECTION)
+        install(FILES
+                tools/g3reg_api.h
+                DESTINATION include/fmfusion/tools
+        )       
+
+        install(FILES
+                tokenizer/logging.h
+                tokenizer/basic_string_util.h
+                tokenizer/text_tokenizer.h
+                tokenizer/bert_tokenizer.h
+                DESTINATION include/fmfusion/tokenizer
+        )
+
+        install(FILES
+                thirdparty/extensions/cpu/torch_helper.h
+                thirdparty/extensions/cpu/grid_subsampling.h
+                thirdparty/extensions/cpu/radius_neighbors.h
+                DESTINATION include/fmfusion/thirdparty/extensions/cpu
+        )
+     endif()
 endif ()

@@ -8,6 +8,7 @@ torchscript
 catkin_ws/devel
 catkin_ws/build
 catkin_ws/src/sgloop_ros/thirdparty
+catkin_ws/.catkin_workspace
 install
 eval/fmfusion
 tmp

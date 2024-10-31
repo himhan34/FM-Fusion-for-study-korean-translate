@@ -4,7 +4,7 @@ project(FmFusion LANGUAGES C CXX)
 
 #### Options ####
 option(LOOP_DETECTION OFF)
-option(INSTALL_FMFUSION ON)
+option(INSTALL_FMFUSION ON) # Install as static library
 option(RUN_HYDRA OFF)
 #################
 

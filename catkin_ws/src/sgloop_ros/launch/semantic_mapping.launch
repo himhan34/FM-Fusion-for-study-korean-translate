@@ -1,5 +1,5 @@
 <launch>
-  <!-- agent A,B -->
+  <!-- SET CONFIGURATION HERE -->
   <arg name="dataroot" value="/data2/sample_data/sgslam"/>
   <!-- <arg name="agentA_scene" default="scene0064_00"/> -->
   <arg name="agentA_scene" default="ab0201_03a"/>
