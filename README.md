@@ -4,7 +4,7 @@
     <strong>IEEE RA-L 2024</strong>
     <br>
         <a href="https://uav.hkust.edu.hk/current-members/" target="_blank">Chuhao Liu</a><sup>1</sup>,
-        <a href="https://uav.hkust.edu.hk/current-members/" target="_blank">Ke Wang</a><sup>2,†</sup>,
+        <a href="https://uav.hkust.edu.hk/current-members/" target="_blank">Ke Wang</a><sup>2,*</sup>,
         <a href="https://jayceeshi.github.io/" target="_blank">Jieqi Shi</a><sup>1</sup>,
         <a href="https://qiaozhijian.github.io/" target="_blank">Zhijian Qiao</a><sup>1</sup>, and
         <a href="https://uav.hkust.edu.hk/group/" target="_blank">Shaojie Shen</a><sup>2</sup>
@@ -14,24 +14,42 @@
             <sup>2</sup>Chang'an University, China &nbsp;&nbsp;
             <br>
         </h5>
-        <sup>†</sup>Corresponding Author
+        <sup>*</sup>Corresponding Author
     </p>
     <a href="https://ieeexplore.ieee.org/abstract/document/10403989"> <img src="https://img.shields.io/badge/IEEE-RA--L-004c99"> </a>
     <a href='https://arxiv.org/abs/2402.04555'><img src='https://img.shields.io/badge/arXiv-2402.04555-990000' alt='arxiv'></a>
     <a href="https://www.youtube.com/watch?v=zrzcjj9-ydk&t=9s"><img alt="YouTube" src="https://img.shields.io/badge/YouTube-Video-red"/></a>
 </div>
 
+<p align="center">
+    <img src="doc/system.png" width="800"/>
+</p>
 
-<!-- ## Introduction -->
+**FM-Fusion** utilizes [RAM](https://github.com/xinyu1205/recognize-anything), [GroundingDINO](https://github.com/IDEA-Research/GroundingDINO) and [SAM](https://github.com/facebookresearch/segment-anything) to reconstruct an instance-aware semantic map. Boosted by the vision foundational models, FM-Fusion can reconstruct semantic instances in real-world cluttered indoor environments. 
+<p align="center">
+    <img src="doc/seng_map_720p.gif" width = "800"/>
+</p>
+The following instruction explains how to run FM-Fusion on our RGB-D sequences or ScanNet sequences. If you find its useful, please cite our paper.
 
-Bayesian fuse the object detectin from RAM-Grounded-SAM into consistent scene graph
+```
+@article{10403989,
+  title={FM-Fusion: Instance-Aware Semantic Mapping Boosted by Vision-Language Foundation Models}, 
+  author={Liu, Chuhao and Wang, Ke and Shi, Jieqi and Qiao, Zhijian and Shen, Shaojie},
+  journal={IEEE Robotics and Automation Letters(RA-L)}, 
+  year={2024}, 
+  volume={9}, 
+  number={3},
+  pages={2232-2239}
+}
+```
 
 ## Tabel of Contents
 1. Install
 2. Download Data
 3. Run Instance-aware Semantic Mapping
-4. Use it in Your Application
+4. Use it in Your RGB-D Camera
 5. Acknowledge
+6. License
 
 ## 1. Install
 Install dependency packages from Ubuntu Source
@@ -65,12 +83,12 @@ source devel/setup.bash
 ```
 
 ## 2. Download Data
-We provide two datasets to evaluate: SgSlam and ScanNet. Their sequences can be downloaded:
+We provide two datasets to evaluate: SgSlam (captured using Intel [Realsense L-515](https://www.intelrealsense.com/lidar-camera-l515/)) and ScanNet. Their sequences can be downloaded:
 * [SgSlam_OneDrive](https://hkustconnect-my.sharepoint.com/:f:/g/personal/cliuci_connect_ust_hk/EnIjnIl7a2NBtioZFfireM4B_PnZcIpwcB-P2-Fnh3FEPg?e=BKsgLQ).
 * [ScanNet_OneDrive](https://hkustconnect-my.sharepoint.com/:f:/g/personal/cliuci_connect_ust_hk/EhUu2zzwUGNKq8h2yUGHIawBpC8EI73YB_GTG9BUXXBoVA?e=o4TfsA).
 
-The instruction of the data format can be found [here](DATA.md).
-After download the ```scans``` folder in each dataset, go to [uncompress_data.py](scripts/uncompress_data.py) and set the data directories. Then, uncompress the sequence data.
+Please check [data format](doc/DATA.md) for the illustration about data in each sequence.
+After download the ```scans``` folder in each dataset, go to [uncompress_data.py](scripts/uncompress_data.py) and set the data directories to your local directories. Then, un-compress the sequence data.
 ```
 python scripts/uncompress_data.py
 ```
@@ -83,7 +101,7 @@ Check the parameter settting. Then, launch the ROS  program,
 roslaunch sgloop_ros visualize.launch % rviz
 roslaunch sgloop_ros semantic_mapping.launch
 ```
-It should incremental reconstruct the semantic map and render the results on Rviz. The output results are illustrated in the [data format](DATA.md).
+It should incremental reconstruct the semantic map and render the results on Rviz. The output results are illustrated in the [data format](doc/DATA.md).
 
 #### b. Run without visualization.
 
@@ -92,7 +110,7 @@ If you do not need the ROS node to visualize, you can skip its install in the ab
 ./build/cpp/IntegrateInstanceMap --config config/realsense.yaml --root ${SGSLAM_DATAROOT}/scans/ab0201_03a --prediction prediction_no_augment --frame_gap 2 --output ${SGSLAM_DATAROOT}/output
 ```
 
-## 4. Use it in Your Application
+## 4. Use it in Your RGB-D Camera
 In ```SgSlam``` dataset, we use Intel Realsense-D515 camera and DJI A3 flight controller to collect data sequence Details of the hardware suite can be found in this [paper](https://arxiv.org/abs/2201.03312). You can also collect your own dataset using a similar hardware suite. 
 #### a. Prepare RGB-D and Camera poses.
 We use [VINS-Mono](https://github.com/HKUST-Aerial-Robotics/VINS-Mono) to compute visual-inertial odometry (VIO). We save the camera poses of its keyframes in a ```pose``` folder.
