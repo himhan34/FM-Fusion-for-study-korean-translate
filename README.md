@@ -69,7 +69,7 @@ Follow the official tutorials to install [OpenCV](https://docs.opencv.org/4.x/d7
 Compile FM-Fusion,
 ```bash
 mkdir build & cd build
-cmake ..
+cmake .. -DINSTALL_FMFUSION=ON
 make -j12
 make install
 ```

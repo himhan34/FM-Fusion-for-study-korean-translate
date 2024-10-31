@@ -589,15 +589,12 @@ int SemanticMapping::merge_ambiguous_instances(const std::vector<std::pair<Insta
             double iou = Compute3DIoU(instance_i->point_cloud,instance_j->point_cloud);
         }
         else{
-            open3d::pipelines::integration::InstanceTSDFVolume *vol_ptr;
             O3d_Cloud_Ptr cloud_ptr;
 
             if(instance_i->point_cloud){
-                // vol_ptr = instance_j->get_volume();
                 cloud_ptr = instance_i->point_cloud;
             }
             else if(instance_j->point_cloud){
-                // vol_ptr = instance_i->get_volume();
                 cloud_ptr = instance_j->point_cloud;
             }
             else continue;

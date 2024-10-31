@@ -109,7 +109,7 @@ int main(int argc, char *argv[])
 
     fmfusion::SemanticMapping semantic_mapping(global_config->mapping_cfg, global_config->instance_cfg);
 
-    pipelines::integration::InstanceTSDFVolume global_volume(global_config->instance_cfg.voxel_length,
+    pipelines::integration::ScalableTSDFVolume global_volume(global_config->instance_cfg.voxel_length,
                                                             global_config->instance_cfg.sdf_trunc, 
                                                             open3d::pipelines::integration::TSDFVolumeColorType::RGB8);
     

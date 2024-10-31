@@ -8,9 +8,6 @@ namespace fmfusion {
             id_(id), frame_id_(frame_id), update_frame_id(frame_id), 
             config_(config), bayesian_label(false) 
     {
-        // volume_ = new open3d::pipelines::integration::InstanceTSDFVolume(
-        //             config_.voxel_length, config_.sdf_trunc, 
-        //             open3d::pipelines::integration::TSDFVolumeColorType::RGB8);
         volume_ = new SubVolume(config_.voxel_length, config_.sdf_trunc,
                                 open3d::pipelines::integration::TSDFVolumeColorType::RGB8);
 

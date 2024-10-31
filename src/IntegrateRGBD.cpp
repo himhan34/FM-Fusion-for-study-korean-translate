@@ -246,7 +246,7 @@ int main(int argc, char *argv[]) {
     char buffer[DEFAULT_IO_BUFFER_SIZE];
     int index = 0;
     int save_index = 0;
-    pipelines::integration::InstanceTSDFVolume volume(
+    pipelines::integration::ScalableTSDFVolume volume(
             length / (double)resolution, length * sdf_trunc_percentage,
             pipelines::integration::TSDFVolumeColorType::RGB8);
 
