@@ -3,10 +3,10 @@
     <strong>IEEE RA-L 2024</strong>
     <br>
         <a href="https://uav.hkust.edu.hk/current-members/" target="_blank">Chuhao Liu</a><sup>1</sup>,
-        <a href="https://uav.hkust.edu.hk/current-members/" target="_blank">Ke Wang</a><sup>2,*</sup>,
+        <a href="https://uav.hkust.edu.hk/group/alumni/" target="_blank">Ke Wang</a><sup>2,*</sup>,
         <a href="https://jayceeshi.github.io/" target="_blank">Jieqi Shi</a><sup>1</sup>,
         <a href="https://qiaozhijian.github.io/" target="_blank">Zhijian Qiao</a><sup>1</sup>, and
-        <a href="https://uav.hkust.edu.hk/group/" target="_blank">Shaojie Shen</a><sup>2</sup>
+        <a href="https://uav.hkust.edu.hk/group/" target="_blank">Shaojie Shen</a><sup>1</sup>
     <p>
         <h45>
             <sup>1</sup>HKUST Aerial Robotics Group &nbsp;&nbsp;
@@ -95,7 +95,7 @@ python scripts/uncompress_data.py
 ## 3. Run Instance-aware Semantic Mapping
 #### a. Run with Rviz.
 
-Check the parameter settting. Then, launch Rviz and the ROS node,
+In ```launch/semantic_mapping.launch```, set the directories to your local dataset directories. Then, launch Rviz and the ROS node,
 ```
 roslaunch sgloop_ros visualize.launch
 roslaunch sgloop_ros semantic_mapping.launch
