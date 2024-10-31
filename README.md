@@ -1,6 +1,5 @@
 <div align="center">
-    <!-- <h1>⚽ FM-Fusion</h1> -->
-    <h2>FM-Fusion: Instance-aware Semantic Mapping Boosted by Vision-Language Foundation Models</h2>
+    <h1>FM-Fusion: Instance-aware Semantic Mapping <br> Boosted by Vision-Language Foundation Models</h2>
     <strong>IEEE RA-L 2024</strong>
     <br>
         <a href="https://uav.hkust.edu.hk/current-members/" target="_blank">Chuhao Liu</a><sup>1</sup>,
@@ -75,7 +74,7 @@ make -j12
 make install
 ```
 
-Install the ROS node program, which renders the semantic instance map in Rviz. Firstly, install ROS follow the [official guidance](http://wiki.ros.org/noetic/Installation/Ubuntu). Then, 
+Install the ROS node program, which renders the semantic instance map in Rviz. Install ROS platform following its [official guidance](http://wiki.ros.org/noetic/Installation/Ubuntu). Then, build the ros node we provide,
 ```bash
 git submodule update --init --recursive
 cd catkin_ws & catkin_make
@@ -96,16 +95,16 @@ python scripts/uncompress_data.py
 ## 3. Run Instance-aware Semantic Mapping
 #### a. Run with Rviz.
 
-Check the parameter settting. Then, launch the ROS  program,
+Check the parameter settting. Then, launch Rviz and the ROS node,
 ```
-roslaunch sgloop_ros visualize.launch % rviz
+roslaunch sgloop_ros visualize.launch
 roslaunch sgloop_ros semantic_mapping.launch
 ```
-It should incremental reconstruct the semantic map and render the results on Rviz. The output results are illustrated in the [data format](doc/DATA.md).
+It should incremental reconstruct the semantic map and render the results on Rviz. At the end of the sequence, the program save the output results, where the output format is illustrated in the [data format](doc/DATA.md).
 
 #### b. Run without visualization.
 
-If you do not need the ROS node to visualize, you can skip its install in the above instruction. Then, simply run the C++ executable program and the results will be saved at ```${SGSLAM_DATAROOT}/output```. The output directory can be set in running the program.
+If you do not need the ROS node to visualize, you can skip its install in the above instruction. Then, simply run the C++ executable program and the results will be saved at ```${SGSLAM_DATAROOT}/output```. The output directory can be set before run the program.
 ```bash
 ./build/cpp/IntegrateInstanceMap --config config/realsense.yaml --root ${SGSLAM_DATAROOT}/scans/ab0201_03a --prediction prediction_no_augment --frame_gap 2 --output ${SGSLAM_DATAROOT}/output
 ```

@@ -1,8 +1,8 @@
 <launch>
   <!-- SET CONFIGURATION HERE -->
   <arg name="dataroot" value="/data2/sample_data/sgslam"/>
-  <!-- <arg name="agentA_scene" default="scene0064_00"/> -->
-  <arg name="agentA_scene" default="ab0201_03a"/>
+  <!-- <arg name="sequence_name" default="scene0064_00"/> -->
+  <arg name="sequence_name" default="ab0201_03a"/>
 
   <!-- global settings  -->
   <arg name="cfg_file" value="$(find sgloop_ros)/../../../config/realsense.yaml"/>
@@ -27,7 +27,7 @@
   <node pkg="sgloop_ros" name="agentA" type="MappingNode" output="screen" clear_params="true">
     <param name="cfg_file" value="$(arg cfg_file)"/>
     <param name="output_folder" value="$(arg output_folder)"/>
-    <param name="active_sequence_dir" value="$(arg dataroot)/scans/$(arg agentA_scene)"/>
+    <param name="active_sequence_dir" value="$(arg dataroot)/scans/$(arg sequence_name)"/>
     <param name="local_agent" value="agentA"/>
 <!-- <param name="association_name" value="data_association.txt"/> -->
     <param name="association_name" value=""/>
