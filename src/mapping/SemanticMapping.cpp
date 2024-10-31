@@ -449,11 +449,20 @@ int SemanticMapping::merge_floor()
     std::vector<InstanceId> carpet_instances = semantic_dict_server.query_instances("carpet");
     for(auto &carpet_id:carpet_instances) target_instances.emplace_back(carpet_id);
     if(target_instances.size()<2) return 0;
+    if(instance_map.find(target_instances[0])==instance_map.end()){
+        //todo: this should not happpen.
+        std::cerr<<"[WARNNING] Init instance "<<target_instances[0]<<" not found\n";
+        return 0;
+    }
+    std::cout<<"Merging "<< target_instances.size()<<" floor instances\n";
 
     InstancePtr root_floor = instance_map[target_instances[0]];
     Eigen::Vector3d root_center;
     for(int i=1;i<target_instances.size();i++){ // Find the largest floor instance
         auto instance = instance_map[target_instances[i]];
+         //todo: for debug. remove it later
+        if(instance_map.find(target_instances[i])==instance_map.end())
+            std::cerr<<"[WARNNING] Instance "<<target_instances[i]<<" not found\n";       
         if(instance->point_cloud->points_.size()>root_floor->point_cloud->points_.size()){
             root_floor = instance;
             root_center = instance->centroid;
