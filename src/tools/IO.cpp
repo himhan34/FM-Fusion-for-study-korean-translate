@@ -184,29 +184,27 @@ namespace IO
                                     std::vector<RGBDFrameDirs> &rgbd_table,
                                     std::vector<Eigen::Matrix4d> &pose_table)
     {
-        using namespace std;
-        using namespace open3d::utility;
+        using namespace open3d::utility::filesystem;
         int max_frames = 6000;
 
         int index =0;
         char buffer[DEFAULT_IO_BUFFER_SIZE];
-        std::string da_dir = filesystem::JoinPath({root_dir,association_name});
-        std::string trajectory_dir = filesystem::JoinPath({root_dir,trajectory_name});
+        std::string da_dir = JoinPath({root_dir,association_name});
+        std::string trajectory_dir = JoinPath({root_dir,trajectory_name});
 
         auto camera_trajectory = open3d::io::CreatePinholeCameraTrajectoryFromFile(trajectory_dir);
-        FILE *file = filesystem::FOpen(da_dir, "r");
+        FILE *file = FOpen(da_dir, "r");
         if (file == NULL) {
-            LogWarning("Unable to open file {}", da_dir);
+            open3d::utility::LogWarning("Unable to open file {}", da_dir);
             fclose(file);
             return false;
         }
         while (fgets(buffer, DEFAULT_IO_BUFFER_SIZE, file) && index<max_frames) {
-            std::vector<std::string> st = SplitString(buffer, "\t\r\n ");
+            std::vector<std::string> st = open3d::utility::SplitString(buffer, "\t\r\n ");
             if (st.size() >= 2) {
-                std::string depth_file = filesystem::JoinPath({root_dir, st[0]});
-                std::string color_file = filesystem::JoinPath({root_dir, st[1]});
-                if (filesystem::FileExists(depth_file) &&
-                    filesystem::FileExists(color_file)) {
+                std::string depth_file = JoinPath({root_dir, st[0]});
+                std::string color_file = JoinPath({root_dir, st[1]});
+                if (FileExists(depth_file) && FileExists(color_file)) {
                     RGBDFrameDirs frame_dirs = std::make_pair(color_file,depth_file);
                     pose_table.emplace_back(camera_trajectory->parameters_[index].extrinsic_.inverse().cast<double>());
                     rgbd_table.emplace_back(frame_dirs);
@@ -215,7 +213,7 @@ namespace IO
             }
         }
         fclose(file);
-        LogWarning("Read {:d} RGB-D frames with poses",rgbd_table.size());
+        open3d::utility::LogWarning("Read {:d} RGB-D frames with poses",rgbd_table.size());
         return true;
     }
 

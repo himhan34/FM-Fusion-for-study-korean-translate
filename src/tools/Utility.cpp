@@ -328,9 +328,10 @@ O3d_Image_Ptr extract_masked_o3d_image(const O3d_Image &depth, const O3d_Image &
 {
     auto masked_depth = std::make_shared<open3d::geometry::Image>();
     masked_depth->Prepare(depth.width_, depth.height_, 1, 4);
+    const unsigned char ZERO_MASK = 0;
     for(int v=0; v<depth.height_;v++){
         for(int u=0; u<depth.width_;u++){
-            if(mask.PointerAt<unsigned char>(u,v)>0){
+            if(mask.PointerAt<unsigned char>(u,v)> &ZERO_MASK){
                 *masked_depth->PointerAt<float>(u,v) = *depth.PointerAt<float>(u,v);
             }
         }
