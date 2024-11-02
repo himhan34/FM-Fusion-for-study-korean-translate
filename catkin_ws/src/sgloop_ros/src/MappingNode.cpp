@@ -22,7 +22,7 @@
 int main(int argc, char **argv)
 {
     using namespace fmfusion;
-    using namespace open3d::utility;
+    using namespace open3d::utility::filesystem;
     using namespace open3d::io;
 
     ros::init(argc, argv, "MappingNode");
@@ -49,13 +49,13 @@ int main(int argc, char **argv)
     // Inits
     Config *global_config;
     SemanticMapping *semantic_mapping;
-    std::string sequence_name = *filesystem::GetPathComponents(root_dir).rbegin();
+    std::string sequence_name = *GetPathComponents(root_dir).rbegin();
     Visualization::Visualizer viz(n,nh_private);
     {
         global_config = utility::create_scene_graph_config(config_file, true);
-        SetVerbosityLevel((VerbosityLevel)o3d_verbose_level);
-        if(output_folder.size()>0 && !filesystem::DirectoryExists(output_folder)) 
-            filesystem::MakeDirectory(output_folder);
+        open3d::utility::SetVerbosityLevel((open3d::utility::VerbosityLevel)o3d_verbose_level);
+        if(output_folder.size()>0 && !DirectoryExists(output_folder)) 
+            MakeDirectory(output_folder);
 
         std::ofstream out_file(output_folder+"/config.txt");
         out_file<<utility::config_to_message(*global_config);
@@ -159,14 +159,13 @@ int main(int argc, char **argv)
 
             Visualization::render_point_cloud(global_instance_pcd, viz.src_graph, LOCAL_AGENT); 
 
-            ROS_INFO("Render %d instances and %d points",valid_names.size(),
-                                                        global_instance_pcd->points_.size());
-
+            ROS_INFO("Render %ld instances and %ld points",
+                    valid_names.size(), global_instance_pcd->points_.size());
         }
         tic_toc_seq.toc();
     }
 
-    ROS_WARN("Finished sequence with %d frames",rgbd_table.size());
+    ROS_WARN("Finished sequence with %ld frames",rgbd_table.size());
 
     // Pose-process
     semantic_mapping->extract_point_cloud();

@@ -22,11 +22,11 @@ int main(int argc, char *argv[])
     std::string root_dir =
             utility::GetProgramOptionAsString(argc, argv, "--root");
     std::string association_name = 
-            utility::GetProgramOptionAsString(argc, argv, "--association","data_association.txt");
+            utility::GetProgramOptionAsString(argc, argv, "--association",""); //data_association.txt
     std::string trajectory_name = 
             utility::GetProgramOptionAsString(argc, argv, "--trajectory","trajectory.log");
     std::string prediction_folder = 
-            utility::GetProgramOptionAsString(argc, argv, "--prediction");
+            utility::GetProgramOptionAsString(argc, argv, "--prediction","prediction_no_augment");
     std::string output_folder = 
             utility::GetProgramOptionAsString(argc, argv, "--output","./");
     std::string output_subseq = 
@@ -40,7 +40,7 @@ int main(int argc, char *argv[])
     bool global_tsdf = 
             utility::ProgramOptionExists(argc,argv,"--global_tsdf");
     int frame_gap = 
-            utility::GetProgramOptionAsInt(argc, argv, "--frame_gap", 1);
+            utility::GetProgramOptionAsInt(argc, argv, "--frame_gap", 2); // semantic mapping in every frame_gap frames
     int save_instances_gap = 
             utility::GetProgramOptionAsInt(argc, argv, "--save_instance_gap", 50000);
     int save_global_map_gap = 

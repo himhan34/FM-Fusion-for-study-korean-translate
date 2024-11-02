@@ -100,13 +100,17 @@ In ```launch/semantic_mapping.launch```, set the directories to your local datas
 roslaunch sgloop_ros visualize.launch
 roslaunch sgloop_ros semantic_mapping.launch
 ```
+<p align="center">
+    <img src="doc/rviz_gui.png" width="600"/>
+</p>
+
 It should incremental reconstruct the semantic map and render the results on Rviz. At the end of the sequence, the program save the output results, where the output format is illustrated in the [data format](doc/DATA.md).
 
 #### b. Run without visualization.
 
 If you do not need the ROS node to visualize, you can skip its install in the above instruction. Then, simply run the C++ executable program and the results will be saved at ```${SGSLAM_DATAROOT}/output```. The output directory can be set before run the program.
 ```bash
-./build/cpp/IntegrateInstanceMap --config config/realsense.yaml --root ${SGSLAM_DATAROOT}/scans/ab0201_03a --prediction prediction_no_augment --frame_gap 2 --output ${SGSLAM_DATAROOT}/output
+./build/src/IntegrateInstanceMap --config config/realsense.yaml --root ${SGSLAM_DATAROOT}/scans/ab0201_03a --output ${SGSLAM_DATAROOT}/output
 ```
 
 ## 4. Use it in Your RGB-D Camera

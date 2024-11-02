@@ -32,12 +32,12 @@ Mapping:
   # merge over-segmentation
   merge_inflation: 3.5
   merge_iou: 0.4
-  realtime_merge_floor: 1
+  realtime_merge_floor: 0
   recent_window_size: 240
   update_period: 20
 
   # Bayesian fusion
-  bayesian_semantic_likelihood: "" # "/home/cliuci/code_ws/OpensetFusion/measurement_model/bayesian_model.txt"
+  bayesian_semantic_likelihood: "" # To enable it, set it to the likelihood matrix path
 
   # export
   shape_min_points: 500 # export and bbox extract

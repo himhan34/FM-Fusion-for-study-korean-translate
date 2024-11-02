@@ -1,14 +1,10 @@
 <launch>
   <!-- SET CONFIGURATION HERE -->
   <arg name="dataroot" value="/data2/sample_data/sgslam"/>
-  <!-- <arg name="sequence_name" default="scene0064_00"/> -->
   <arg name="sequence_name" default="ab0201_03a"/>
 
   <!-- global settings  -->
   <arg name="cfg_file" value="$(find sgloop_ros)/../../../config/realsense.yaml"/>
-  <arg name="loop_duration" value="10"/>
-  <arg name="sliding_widow_translation" value="30.0"/>
-  <arg name="icp_refine" value="true"/>
   <arg name="verbose_level" value="0"/>
   <arg name="output_folder" value="$(arg dataroot)/output/online_mapping"/>
 
@@ -32,11 +28,8 @@
 <!-- <param name="association_name" value="data_association.txt"/> -->
     <param name="association_name" value=""/>
     <param name="frame_gap" value="2"/>
-    <param name="pose_average_size" value="-1"/>
     <param name="visualization" value="1"/>
     <param name="o3d_verbose_level" value="$(arg verbose_level)"/>
-    <param name="debug_mode" value="false"/>
-    <param name="sliding_widow_translation" value="$(arg sliding_widow_translation)"/>
   </node>
 
   <node pkg="tf" type="static_transform_publisher" name="link_1st_agent" args="0 0 0 0 0 0 1 world agentA 100" />
