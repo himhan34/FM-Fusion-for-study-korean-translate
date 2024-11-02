@@ -32,7 +32,7 @@ Mapping:
   # merge over-segmentation
   merge_inflation: 3.5
   merge_iou: 0.4
-  realtime_merge_floor: 0
+  realtime_merge_floor: 1
   recent_window_size: 240
   update_period: 20
 
