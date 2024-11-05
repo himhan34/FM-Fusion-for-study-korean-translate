@@ -24,15 +24,19 @@
     <img src="doc/system.png" width="800"/>
 </p>
 
+### News 
+* [25th Oct 2024] Publish code and RGB-D sequences from ScanNet and SgSlam. 
+* [5th Jan 2024] Paper accepted by RA-L.
+
 **FM-Fusion** utilizes [RAM](https://github.com/xinyu1205/recognize-anything), [GroundingDINO](https://github.com/IDEA-Research/GroundingDINO) and [SAM](https://github.com/facebookresearch/segment-anything) to reconstruct an instance-aware semantic map. Boosted by the vision foundational models, FM-Fusion can reconstruct semantic instances in real-world cluttered indoor environments. 
 <p align="center">
     <img src="doc/seng_map_720p.gif" width = "800"/>
 </p>
 The following instruction explains how to run FM-Fusion on our RGB-D sequences or ScanNet sequences. If you find its useful, please cite our paper.
 
-```
-@article{10403989,
-  title={FM-Fusion: Instance-Aware Semantic Mapping Boosted by Vision-Language Foundation Models}, 
+```latex
+@article{
+  title={{FM-Fusion}: Instance-aware Semantic Mapping Boosted by Vision-Language Foundation Models}, 
   author={Liu, Chuhao and Wang, Ke and Shi, Jieqi and Qiao, Zhijian and Shen, Shaojie},
   journal={IEEE Robotics and Automation Letters(RA-L)}, 
   year={2024}, 
@@ -52,39 +56,41 @@ The following instruction explains how to run FM-Fusion on our RGB-D sequences o
 
 ## 1. Install
 Install dependency packages from Ubuntu Source
-```bash
+```
 sudo apt-get install libboost-dev libomp-dev libeigen3-dev
 ```
 Install Open3D from its source code.([Install Tutorial](https://www.open3d.org/docs/release/compilation.html#compilation))
-```bash
+```
 git clone https://github.com/isl-org/Open3D
 cd Open3D
-make build & cd build
+mkdir build && cd build
 cmake -DBUILD_SHARED_LIBS=ON ..
 make -j12
 sudo make install
 ```
 Follow the official tutorials to install [OpenCV](https://docs.opencv.org/4.x/d7/d9f/tutorial_linux_install.html), [GLOG](https://github.com/google/glog), [jsoncpp](https://github.com/open-source-parsers/jsoncpp/blob/master/README.md).
+To make it compatible with ROS, please install ```OpenCV 3.4.xx```.
 
-Compile FM-Fusion,
-```bash
-mkdir build & cd build
+Clone and compile FM-Fusion,
+```
+git clone git@github.com:HKUST-Aerial-Robotics/FM-Fusion.git
+mkdir build && cd build
 cmake .. -DINSTALL_FMFUSION=ON
 make -j12
 make install
 ```
 
 Install the ROS node program, which renders the semantic instance map in Rviz. Install ROS platform following its [official guidance](http://wiki.ros.org/noetic/Installation/Ubuntu). Then, build the ros node we provide,
-```bash
+```
 git submodule update --init --recursive
-cd catkin_ws & catkin_make
+cd catkin_ws && catkin_make
 source devel/setup.bash
 ```
 
 ## 2. Download Data
 We provide two datasets to evaluate: SgSlam (captured using Intel [Realsense L-515](https://www.intelrealsense.com/lidar-camera-l515/)) and ScanNet. Their sequences can be downloaded:
-* [SgSlam_OneDrive](https://hkustconnect-my.sharepoint.com/:f:/g/personal/cliuci_connect_ust_hk/EnIjnIl7a2NBtioZFfireM4B_PnZcIpwcB-P2-Fnh3FEPg?e=BKsgLQ).
-* [ScanNet_OneDrive](https://hkustconnect-my.sharepoint.com/:f:/g/personal/cliuci_connect_ust_hk/EhUu2zzwUGNKq8h2yUGHIawBpC8EI73YB_GTG9BUXXBoVA?e=o4TfsA).
+* [SgSlam_OneDrive](https://hkustconnect-my.sharepoint.com/:f:/g/personal/cliuci_connect_ust_hk/EnIjnIl7a2NBtioZFfireM4B_PnZcIpwcB-P2-Fnh3FEPg?e=BKsgLQ) or [SgSlam_Nutstore(坚果云)](https://www.jianguoyun.com/p/DSM4iw0Q4cyEDRjUvekFIAA).
+* [ScanNet_OneDrive](https://hkustconnect-my.sharepoint.com/:f:/g/personal/cliuci_connect_ust_hk/EhUu2zzwUGNKq8h2yUGHIawBpC8EI73YB_GTG9BUXXBoVA?e=o4TfsA) or [ScanNet_NutStore(坚果云)](https://www.jianguoyun.com/p/DVuHdogQ4cyEDRjQvekFIAA).
 
 Please check [data format](doc/DATA.md) for the illustration about data in each sequence.
 After download the ```scans``` folder in each dataset, go to [uncompress_data.py](scripts/uncompress_data.py) and set the data directories to your local directories. Then, un-compress the sequence data.
@@ -106,10 +112,12 @@ roslaunch sgloop_ros semantic_mapping.launch
 
 It should incremental reconstruct the semantic map and render the results on Rviz. At the end of the sequence, the program save the output results, where the output format is illustrated in the [data format](doc/DATA.md).
 
+***Tips***: If you are running the program on a remote server, you can utilize the [ROS across machine](http://wiki.ros.org/ROS/Tutorials/MultipleMachines) function. After set the ```rosmaster``` following the ROS tutorial, you can launch ```visualize.launch``` at your local machine and ```semantic_mapping.launch``` at the server. So, you can still visualize the result on your local machine.
+
 #### b. Run without visualization.
 
 If you do not need the ROS node to visualize, you can skip its install in the above instruction. Then, simply run the C++ executable program and the results will be saved at ```${SGSLAM_DATAROOT}/output```. The output directory can be set before run the program.
-```bash
+```
 ./build/src/IntegrateInstanceMap --config config/realsense.yaml --root ${SGSLAM_DATAROOT}/scans/ab0201_03a --output ${SGSLAM_DATAROOT}/output
 ```
 
