@@ -107,4 +107,9 @@ namespace Visualization
                             ros::Publisher pub,
                             std::string frame_id="world");
 
+    int render_semantic_map(const std::shared_ptr<open3d::geometry::PointCloud> &cloud, 
+                        const std::vector<Eigen::Vector3d> &instance_centroids, 
+                        const std::vector<std::string> &instance_annotations,
+                        const Visualization::Visualizer &viz,
+                        const std::string &agent_name);                            
 }

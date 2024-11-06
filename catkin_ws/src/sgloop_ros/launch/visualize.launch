@@ -1,5 +1,5 @@
 <launch>
-    <node name="rviz" pkg="rviz" type="rviz" args="-d /home/lch/Code_ws/OpensetFusion/catkin_ws/src/sgloop_ros/launch/looper.rviz" />
+    <node name="rviz" pkg="rviz" type="rviz" args="-d /home/lch/Code_ws/OpensetFusion/catkin_ws/src/sgloop_ros/launch/mapping.rviz" />
 
   <node pkg="tf" type="static_transform_publisher" name="link_1st_agent" args="0 0 0 0 0 0 1 world base_link 100" />
 

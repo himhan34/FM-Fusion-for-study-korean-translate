@@ -99,6 +99,9 @@ target_link_libraries(sgloop_ros ${ALL_TARGET_LINK_LIBARIES})
 add_executable(MappingNode src/MappingNode.cpp)
 target_link_libraries(MappingNode ${ALL_TARGET_LINK_LIBARIES} sgloop_ros)
 
+add_executable(RenderNode src/RenderNode.cpp)
+target_link_libraries(RenderNode ${ALL_TARGET_LINK_LIBARIES} sgloop_ros)
+
 if(LOOP_DETECTION)
   add_executable(PoseGraphNode src/PoseGraphNode.cpp)
   target_link_libraries(PoseGraphNode PUBLIC ${ALL_TARGET_LINK_LIBARIES} sgloop_ros)

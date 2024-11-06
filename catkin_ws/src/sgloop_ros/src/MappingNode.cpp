@@ -18,7 +18,6 @@
 
 #include "Visualization.h"
 
-
 int main(int argc, char **argv)
 {
     using namespace fmfusion;
@@ -44,6 +43,7 @@ int main(int argc, char **argv)
     std::string trajectory_name = nh_private.param("trajectory_name", std::string("trajectory.log"));
     int o3d_verbose_level = nh_private.param("o3d_verbose_level", 2);
     int visualization = nh_private.param("visualization", 0);
+    int max_frames = nh_private.param("max_frames", 5000);
     ROS_WARN("MappingNode started");
 
     // Inits
@@ -86,6 +86,12 @@ int main(int argc, char **argv)
         if(!read_ret) return 0;
     }
 
+    if(rgbd_table.empty()){
+        ROS_ERROR("No RGB-D frames found in %s",root_dir.c_str());
+        return 0;
+    }    
+
+    // Integration
     open3d::geometry::Image depth, color;
     int prev_frame_id = -100;
     int prev_save_frame = -100;
@@ -97,6 +103,7 @@ int main(int argc, char **argv)
         frame_name = frame_name.substr(0,frame_name.find_last_of("."));
         int seq_id = stoi(frame_name.substr(frame_name.find_last_of("-")+1));
         if((seq_id-prev_frame_id)<frame_gap) continue;
+        if(seq_id>max_frames) break;
         // map_timing.create_frame(seq_id);
         std::cout<<"Processing frame "<<frame_name<<" ..."<<std::endl;
         tic_toc_seq.tic();
@@ -133,44 +140,27 @@ int main(int argc, char **argv)
                                                                                     LOCAL_AGENT);
 
         {// Viz 3D
-            std::vector<InstanceId> valid_names;
-            std::vector<InstancePtr> valid_instances;
-            O3d_Cloud_Ptr global_instance_pcd;
-            std::vector<Eigen::Vector3d> src_instance_centroids;
-            std::vector<std::string> src_instance_annotations;
-
-            src_instance_centroids = semantic_mapping->export_instance_centroids(0);
-            src_instance_annotations = semantic_mapping->export_instance_annotations(0);
-            semantic_mapping->export_instances(valid_names, valid_instances, 0);
-            global_instance_pcd = semantic_mapping->export_global_pcd(true,0.05);
-
-            Visualization::instance_centroids(src_instance_centroids,
-                                            viz.src_centroids,
-                                            LOCAL_AGENT,
-                                            viz.param.centroid_size,
-                                            viz.param.centroid_color);
-            Visualization::node_annotation(src_instance_centroids,
-                                            src_instance_annotations,
-                                            viz.node_annotation,
-                                            LOCAL_AGENT,
-                                            viz.param.annotation_size,
-                                            viz.param.annotation_voffset,
-                                            viz.param.annotation_color);
-
-            Visualization::render_point_cloud(global_instance_pcd, viz.src_graph, LOCAL_AGENT); 
-
-            ROS_INFO("Render %ld instances and %ld points",
-                    valid_names.size(), global_instance_pcd->points_.size());
+            Visualization::render_semantic_map(semantic_mapping->export_global_pcd(true,0.05),
+                                                    semantic_mapping->export_instance_centroids(0),
+                                                    semantic_mapping->export_instance_annotations(0),
+                                                    viz,
+                                                    LOCAL_AGENT);
         }
         tic_toc_seq.toc();
     }
 
     ROS_WARN("Finished sequence with %ld frames",rgbd_table.size());
+    { // Process at the end of the sequence
+        semantic_mapping->extract_point_cloud();
+        semantic_mapping->merge_floor(true);
+        // semantic_mapping->merge_overlap_instances();
 
-    // Pose-process
-    semantic_mapping->extract_point_cloud();
-    semantic_mapping->merge_floor();
-    semantic_mapping->merge_overlap_instances();
+        Visualization::render_semantic_map(semantic_mapping->export_global_pcd(true,0.05),
+                            semantic_mapping->export_instance_centroids(0),
+                            semantic_mapping->export_instance_annotations(0),
+                            viz,
+                            LOCAL_AGENT);
+    }
 
     // Save
     ROS_WARN("Save results to %s",output_folder.c_str());

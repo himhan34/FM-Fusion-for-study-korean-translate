@@ -57,6 +57,7 @@ struct MappingConfig{
     double merge_inflation;
     int recent_window_size = 200; // in frames
     bool realtime_merge_floor = false;
+    int min_observation=2;
 
     //
     int update_period=20; // in frames
@@ -82,6 +83,7 @@ struct MappingConfig{
         msg<<" - merge_iou: "<<merge_iou<<std::endl;
         msg<<" - merge_inflation: "<<merge_inflation<<std::endl;
         msg<<" - realtime_merge_floor: "<<realtime_merge_floor<<std::endl;
+        msg<<" - min_observation: "<<min_observation<<std::endl;
         msg<<" - update_period: "<<update_period<<std::endl;
         msg<<" - recent_window_size: "<<recent_window_size<<std::endl;
         msg<<" - bayesian_semantic_likelihood: "<<bayesian_semantic_likelihood<<std::endl;

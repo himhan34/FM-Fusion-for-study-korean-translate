@@ -75,6 +75,11 @@ int main(int argc, char *argv[])
         if(!read_ret) return 0;
     }
 
+    if(rgbd_table.empty()) {
+        utility::LogWarning("No RGB-D frames found in {:s}",root_dir);
+        return 0;
+    }
+
     visualization::Visualizer vis;
 
     // if (visualize_flag) vis.CreateVisualizerWindow("Open3D", 1600, 900);

@@ -1,14 +1,7 @@
 <launch>
-  <!-- <arg name="dataroot" value="/data2/ScanNet"/> -->
-  <!-- <arg name="agentA_scene" default="scene0064_01"/> -->
-  <arg name="dataroot" value="/data2/sgslam"/>
-  <arg name="agentA_scene" value="ab0302_00a"/>
-  <arg name="cfg_file" value="realsense.yaml"/>
-
-  <arg name="agentA_agnetB_x" value="0"/>
-  <arg name="agentA_agentB_y" value="0"/>
-  <arg name="agentA_agentB_z" value="-4.0"/>
-  <arg name="agentA_agentB_yaw" value="0"/>
+  <arg name="result_folder" value="/home/lch/Downloads/sample_data/sgslam/output/online_mapping"/>
+  <arg name="agentA_scene" value="ab0201_03a"/>
+  <arg name="cfg_file" value="$(find sgloop_ros)/../../../config/realsense.yaml"/>
 
   <group ns="viz">
     <param name="edge_width" value="0.03"/>
@@ -18,35 +11,11 @@
     <param name="centroid_size" value="0.3"/>
   </group>
 
-  <!-- inital tf to enable visulization -->
-  <group ns="br">
-    <param name="agentA/x" value="0.0"/>
-    <param name="agentA/y" value="0.0"/>
-    <param name="agentA/z" value="0.0"/>
+  <node pkg="sgloop_ros" name="agentA" type="RenderNode" output="screen" clear_params="true">
+      <param name="agent_name" value="agentA"/>
+      <param name="cfg_file" value="$(arg cfg_file)"/>
+      <param name="sequence_result_folder" value="$(arg result_folder)/$(arg agentA_scene)"/>
 
-    <param name="agentB/x" value="$(arg agentA_agnetB_x)"/>
-    <param name="agentB/y" value="$(arg agentA_agentB_y)"/>
-    <param name="agentB/z" value="$(arg agentA_agentB_z)"/>
-    <param name="agentB/yaw" value="$(arg agentA_agentB_yaw)"/>
-  </group>
-
-  <node pkg="sgloop_ros" name="agentA" type="PoseGraphNode" output="screen" clear_params="true">
-      <param name="cfg_file" value="/home/cliuci/code_ws/OpensetFusion/config/$(arg cfg_file)"/>
-      <param name="src_name" value="agentA"/>
-      <param name="ref_name" value="agentB"/>
-      <param name="camera_marker/r" value="0.8"/>
-      <param name="camera_marker/g" value="0.0"/>
-      <param name="camera_marker/b" value="0.8"/>
-      <param name="camera_marker/scale" value="0.3"/>
-      <param name="camera_marker/line_width" value="0.05"/>
-      <!-- <param name="map_name" value="mesh_o3d.ply"/> -->
-      <!-- <param name="map_name" value="frame-000671_src.ply"/> -->
-      <!-- <param name="select_frame" value="frame-000671"/> -->
-      <param name="mode" value="100"/>
-      <!-- <param name="loop_filename" value="loops_tp_raw.txt"/> -->
-      <param name="src_scene_dir" value="$(arg dataroot)/output/online_mapping/$(arg agentA_scene)"/>
-      <!-- <param name="ate_threshold" value="0.2"/> -->
-      <param name="render_pose" value="false"/>
   </node>
 
   <node pkg="tf" type="static_transform_publisher" name="link_1st_agent" args="0 0 0 0 0 0 1 world agentA 100" />

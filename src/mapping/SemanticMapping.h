@@ -24,9 +24,9 @@ namespace fmfusion {
                        const std::shared_ptr<open3d::geometry::RGBDImage> &rgbd_image, const Eigen::Matrix4d &pose,
                        std::vector<DetectionPtr> &detections);
 
-        void merge_overlap_instances(std::vector<InstanceId> instance_list = std::vector<InstanceId>());
+        int merge_overlap_instances(std::vector<InstanceId> instance_list = std::vector<InstanceId>());
 
-        int merge_floor();
+        int merge_floor(bool verbose=false);
 
         int merge_overlap_structural_instances(bool merge_all = true);
 
@@ -38,6 +38,9 @@ namespace fmfusion {
         void extract_bounding_boxes();
 
         int update_instances(const int &cur_frame_id, const std::vector<InstanceId> &instance_list);
+
+        /// @brief  clean all and update all.
+        void refresh_all_semantic_dict();
 
         std::shared_ptr<open3d::geometry::PointCloud> export_global_pcd(bool filter = false, float vx_size = -1.0);
 
@@ -89,9 +92,6 @@ namespace fmfusion {
                                                         const double search_radius = 5.0);
 
         void update_active_instances(const std::vector<InstanceId> &active_instances);
-
-        /// @brief  clean all and update all.
-        void refresh_all_semantic_dict();
 
         void update_recent_instances(const int &frame_id,
                                      const std::vector<InstanceId> &active_instances,

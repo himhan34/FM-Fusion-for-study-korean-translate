@@ -55,6 +55,10 @@ namespace fmfusion {
         ///         record previouse measured labels
         void load_previous_labels(const std::string &labels_str);
 
+        void load_obser_count(const int &obs_count){
+            observation_count = obs_count;
+        }
+
         void save(const std::string &path);
 
         void load(const std::string &path);

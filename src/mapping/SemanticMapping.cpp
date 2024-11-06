@@ -361,7 +361,7 @@ double SemanticMapping::Compute3DIoU (const O3d_Cloud_Ptr &cloud_a, const O3d_Cl
     return iou;
 }
 
-void SemanticMapping::merge_overlap_instances(std::vector<InstanceId> instance_list)
+int SemanticMapping::merge_overlap_instances(std::vector<InstanceId> instance_list)
 {
     double SEARCH_DISTANCE = 3.0; // in meters
     std::vector<InstanceId> target_instances;
@@ -371,8 +371,9 @@ void SemanticMapping::merge_overlap_instances(std::vector<InstanceId> instance_l
     else{
         target_instances = instance_list;
     }
-    if(target_instances.size()<3) return;
+    if(target_instances.size()<3) return 0;
     int old_instance_number = target_instances.size();
+    // std::cout<<"Trying to merge "<< target_instances.size()<<" instances\n";
 
     // Find overlap instances
     open3d::utility::Timer timer;
@@ -431,53 +432,52 @@ void SemanticMapping::merge_overlap_instances(std::vector<InstanceId> instance_l
             }   
         }
     }
-    
+
     // Remove merged instances
     for(auto &instance_id:remove_instances){
         instance_map.erase(instance_id);
     }
     timer.Stop();
 
-    o3d_utility::LogInfo("Merged {:d}/{:d} instances by 3D IoU. It takes {:f} ms.",
-        remove_instances.size(),old_instance_number, timer.GetDurationInMillisecond());
+    std::cout<<"Merged "<<remove_instances.size()<<"/"<<old_instance_number<<" instances by 3D IoU."
+                <<"It takes "<< std::fixed<<std::setprecision(1)<<timer.GetDurationInMillisecond()<<" ms.\n";
 
+    return remove_instances.size();
 }
 
-int SemanticMapping::merge_floor()
+int SemanticMapping::merge_floor(bool verbose)
 {
     std::vector<InstanceId> target_instances = semantic_dict_server.query_instances("floor");
     std::vector<InstanceId> carpet_instances = semantic_dict_server.query_instances("carpet");
     for(auto &carpet_id:carpet_instances) target_instances.emplace_back(carpet_id);
     if(target_instances.size()<2) return 0;
-    if(instance_map.find(target_instances[0])==instance_map.end()){
-        //todo: this should not happpen.
-        std::cerr<<"[WARNNING] Init instance "<<target_instances[0]<<" not found\n";
-        return 0;
-    }
-    std::cout<<"Merging "<< target_instances.size()<<" floor instances\n";
+    if (verbose) std::cout<<"Merging "<< target_instances.size()<<" floor instances\n";
 
-    InstancePtr root_floor = instance_map[target_instances[0]];
+    InstancePtr root_floor; //instance_map[target_instances[0]];
     Eigen::Vector3d root_center;
-    for(int i=1;i<target_instances.size();i++){ // Find the largest floor instance
+    int root_points = 0;
+    for(int i=0;i<target_instances.size();i++){ // Find the largest floor instance
+        if(instance_map.find(target_instances[i])==instance_map.end()) continue;
         auto instance = instance_map[target_instances[i]];
-         //todo: for debug. remove it later
-        if(instance_map.find(target_instances[i])==instance_map.end())
-            std::cerr<<"[WARNNING] Instance "<<target_instances[i]<<" not found\n";       
-        if(instance->point_cloud->points_.size()>root_floor->point_cloud->points_.size()){
+
+        if(instance->point_cloud->points_.size()>root_points){
             root_floor = instance;
             root_center = instance->centroid;
+            root_points = instance->point_cloud->points_.size();
         }
     }
-    if(root_floor->point_cloud->points_.size()<1000) return 0;
+    if(root_points<1000) return 0;
+    if(verbose) std::cout<<"Root floor has "<<root_points<<" points\n";
 
     // Iterate and merge
     int count = 0;
+    int debug = 0;
     for(int i=0;i<target_instances.size();i++){
         if(target_instances[i]==root_floor->get_id()) continue;
+        if(instance_map.find(target_instances[i])==instance_map.end()) continue;
         auto instance = instance_map[target_instances[i]];
-        if(instance->point_cloud->points_.size()<500 ||
-            instance->get_observation_count()<3) 
-            continue;
+        if(instance->get_complete_cloud()->points_.size()<500 ||
+            instance->get_observation_count()<mapping_config.min_observation)  continue;
         double dist_z = (root_center-instance->centroid)[2];
         if(dist_z<1.0){ //merge
             root_floor->merge_with(
@@ -495,9 +495,11 @@ int SemanticMapping::merge_floor()
             count++;
         }
 
+        debug++;
     }
-    
-    std::cout<<"Merged" <<count<<" floor instances\n";
+    if(verbose) std::cout<<debug<<" floor instances are checked\n";
+
+    std::cout<<"Merged " <<count<<" floor instances\n";
     return count;
 }
 
@@ -632,7 +634,6 @@ std::shared_ptr<open3d::geometry::PointCloud> SemanticMapping::export_global_pcd
     for(const auto &inst:instance_map){
         if(filter && inst.second->get_cloud_size()<mapping_config.shape_min_points) continue;
         *global_pcd += *inst.second->get_complete_cloud();
-        // *inst.second->point_cloud;
 
     }
     if(vx_size>0.0) global_pcd = global_pcd->VoxelDownSample(vx_size);
@@ -797,10 +798,10 @@ bool SemanticMapping::load(const std::string &path)
         std::getline(ss,label_score_str,';');
         std::getline(ss,observ_str,';');
         std::getline(ss,label_measurments_str,';');
-        // std::getline(ss,observation_count_str,')');
         
         InstancePtr instance_toadd = std::make_shared<Instance>(instance_id,10,instance_config);
         instance_toadd->load_previous_labels(label_measurments_str);
+        instance_toadd->load_obser_count(std::stoi(observ_str));
         instance_toadd->point_cloud = open3d::io::CreatePointCloudFromFile(path+"/"+instance_id_str+".ply");
         instance_toadd->centroid = instance_toadd->point_cloud->GetCenter();
         instance_toadd->color_ = InstanceColorBar20[instance_id%InstanceColorBar20.size()];

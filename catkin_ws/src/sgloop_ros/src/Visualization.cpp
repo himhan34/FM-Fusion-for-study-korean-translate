@@ -63,7 +63,7 @@ namespace Visualization
 
     bool render_point_cloud(const std::shared_ptr<open3d::geometry::PointCloud> &pcd, ros::Publisher pub, std::string frame_id)
     {
-        if(pub.getNumSubscribers()==0) return false;
+        if(pub.getNumSubscribers()==0 || pcd->points_.size()<10) return false;
         // Publish point cloud
         sensor_msgs::PointCloud2 msg;
         open3d_conversions::open3dToRos(*pcd, msg, frame_id);
@@ -354,6 +354,33 @@ namespace Visualization
 
     }
 
-                
+    int render_semantic_map(const std::shared_ptr<open3d::geometry::PointCloud> &cloud, 
+                            const std::vector<Eigen::Vector3d> &instance_centroids, 
+                            const std::vector<std::string> &instance_annotations,
+                            const Visualization::Visualizer &viz,
+                            const std::string &agent_name)
+    {
+        // Render centroids
+        Visualization::instance_centroids(instance_centroids, 
+                                        viz.src_centroids, 
+                                        agent_name,
+                                        viz.param.centroid_size,
+                                        viz.param.centroid_color);
+        Visualization::node_annotation(instance_centroids, 
+                                        instance_annotations, 
+                                        viz.node_annotation, 
+                                        agent_name,
+                                        viz.param.annotation_size,
+                                        viz.param.annotation_voffset,
+                                        viz.param.annotation_color);
+        // Render point cloud
+        Visualization::render_point_cloud(cloud, viz.src_graph, agent_name);
+
+        ROS_INFO("Rendered %ld instances and %ld points", instance_centroids.size(),
+                                                        cloud->points_.size());
+
+        return instance_centroids.size();
+    }
+              
 
 }

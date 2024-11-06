@@ -110,7 +110,10 @@ roslaunch sgloop_ros semantic_mapping.launch
     <img src="doc/rviz_gui.png" width="600"/>
 </p>
 
-It should incremental reconstruct the semantic map and render the results on Rviz. At the end of the sequence, the program save the output results, where the output format is illustrated in the [data format](doc/DATA.md).
+It should incremental reconstruct the semantic map and render the results on Rviz. At the end of the sequence, the program save the output results, where the output format is illustrated in the [data format](doc/DATA.md). To visualize the results that are previously reconstructed, open ```launch/render_semantic_map.launch``` and set the ```result_folder``` directory accordingly. Then,
+```
+roslaunch sgloop_ros render_semantic_map.launch
+```
 
 ***Tips***: If you are running the program on a remote server, you can utilize the [ROS across machine](http://wiki.ros.org/ROS/Tutorials/MultipleMachines) function. After set the ```rosmaster``` following the ROS tutorial, you can launch ```visualize.launch``` at your local machine and ```semantic_mapping.launch``` at the server. So, you can still visualize the result on your local machine.
 
