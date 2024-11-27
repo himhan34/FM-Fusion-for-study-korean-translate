@@ -26,6 +26,7 @@ int main(int argc, char **argv)
     assert(nh_private.getParam("cfg_file", config_file));
     assert(nh_private.getParam("sequence_result_folder", scene_result_folder));
     std::string agent_name = nh_private.param("agent_name", std::string("agentA"));
+    std::string map_name = nh_private.param("map_name", std::string(""));
     int iter_num = nh_private.param("iter_num", 3);
     std::string sequence_name = *GetPathComponents(scene_result_folder).rbegin();
     ROS_WARN("Render %s semantic mapping results from %s", agent_name.c_str(),
@@ -48,11 +49,19 @@ int main(int argc, char **argv)
 
     // Viz
     for(int i=0;i<iter_num;i++){
-        Visualization::render_semantic_map(semantic_mapping->export_global_pcd(true,0.05),
-                                            semantic_mapping->export_instance_centroids(0),
-                                            semantic_mapping->export_instance_annotations(0),
-                                            viz,
-                                            agent_name);
+        O3d_Cloud_Ptr render_map_pcd;
+        if(map_name.size()>0){
+            render_map_pcd = open3d::io::CreatePointCloudFromFile(scene_result_folder+"/"+map_name);
+            ROS_WARN("Load and render map from %s", map_name.c_str());
+        }
+        else
+            render_map_pcd = semantic_mapping->export_global_pcd(true,0.05);
+
+        Visualization::render_semantic_map(render_map_pcd,
+                                        semantic_mapping->export_instance_centroids(0),
+                                        semantic_mapping->export_instance_annotations(0),
+                                        viz,
+                                        agent_name);
         ros::Duration(0.5).sleep();
         ros::spinOnce();
     }

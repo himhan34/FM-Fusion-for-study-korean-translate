@@ -25,13 +25,18 @@
 </p>
 
 ### News 
+* [27th Nov 2024] Support semantic reconstruction using [SLABIM](https://github.com/HKUST-Aerial-Robotics/SLABIM) dataset.
 * [25th Oct 2024] Publish code and RGB-D sequences from ScanNet and SgSlam. 
-* [5th Jan 2024] Paper accepted by RA-L.
+* [5th Jan 2024] Paper accepted by IEEE RA-L.
 
 **FM-Fusion** utilizes [RAM](https://github.com/xinyu1205/recognize-anything), [GroundingDINO](https://github.com/IDEA-Research/GroundingDINO) and [SAM](https://github.com/facebookresearch/segment-anything) to reconstruct an instance-aware semantic map. Boosted by the vision foundational models, FM-Fusion can reconstruct semantic instances in real-world cluttered indoor environments. 
 <p align="center">
     <img src="doc/seng_map_720p.gif" width = "800"/>
 </p>
+<p align="center">
+    <img src="doc/ust_atrium_light.gif" width = "800"/>
+</p>
+
 The following instruction explains how to run FM-Fusion on our RGB-D sequences or ScanNet sequences. If you find its useful, please cite our paper.
 
 ```latex
@@ -134,8 +139,8 @@ We use [VINS-Mono](https://github.com/HKUST-Aerial-Robotics/VINS-Mono) to comput
 The three models are combined to run in [Grounded-SAM](https://github.com/IDEA-Research/Grounded-Segment-Anything). Please find our adopted Grounded-SAM [here](https://github.com/glennliu/Grounded-Segment-Anything). It should generate a ```prediction``` folder as explained in [data format](DATA.md). Then, you can run the semantic mapping on your dataset.
 
 ## 5. Acknowledge
-The hardware is supported by [Luqi Wang](https://lwangax.wordpress.com).
-We use [Open3D](https://www.open3d.org) to reconstruct instance sub-volume. The vision foundation models RAM, GroundingDINO, and SAM provide instance segmentation on images.
+The hardware used in SgSlam is supported by [Luqi Wang](https://lwangax.wordpress.com). The lidar-camera hardware used in [SLABIM](https://github.com/HKUST-Aerial-Robotics/SLABIM) is supported by [Skyland Innovation](https://www.skylandx.com).
+In our program, we use and adopt [Open3D](https://www.open3d.org) to reconstruct instance sub-volume. The vision foundation models RAM, GroundingDINO, and SAM provide instance segmentation on images.
 
 ## 6. License
 The source code is released under [GPLv3](https://www.gnu.org/licenses/) license.

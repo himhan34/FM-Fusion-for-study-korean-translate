@@ -150,7 +150,9 @@ int main(int argc, char *argv[])
         
         std::vector<fmfusion::DetectionPtr> detections;
         bool loaded = fmfusion::utility::LoadPredictions(root_dir+'/'+prediction_folder, frame_name, 
-                                                        global_config->mapping_cfg, global_config->instance_cfg.intrinsic.width_, global_config->instance_cfg.intrinsic.height_,
+                                                        global_config->mapping_cfg, 
+                                                        global_config->instance_cfg.intrinsic.width_, 
+                                                        global_config->instance_cfg.intrinsic.height_,
                                                         detections);
         tic_toc_seq.toc();
         if(!loaded) continue; 

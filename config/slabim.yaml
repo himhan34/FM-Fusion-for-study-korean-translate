@@ -1,0 +1,75 @@
+%YAML:1.0
+
+dataset: "realsense"  # scannet, fusion_portable, realsense
+
+# camera parameters 
+image_width: 1600
+image_height: 1600
+camera_fx: 800.0
+camera_fy: 800.0
+camera_cx: 800.0
+camera_cy: 800.0
+
+Mapping:
+  # Instance 
+  voxel_length: 0.05
+  sdf_trunc: 0.04
+  min_voxel_weight: 0.1 # weight/observation_count
+
+  #
+  depth_scale: 1000.0
+  depth_max: 10.0
+
+  # associations
+  min_det_masks: 50 # pixel-wise
+  min_active_points: 80 # active instances
+  max_box_area_ratio: 0.9 # box_area/image_area
+  query_depth_vx_size: -1.0
+  dilate_kernal: 3 
+  min_iou: 0.2
+  search_radius: 4.0
+
+  # merge over-segmentation
+  merge_inflation: 3.5
+  merge_iou: 0.4
+  realtime_merge_floor: 1
+  recent_window_size: 240
+  update_period: 20
+
+  # Bayesian fusion
+  bayesian_semantic_likelihood: "" # To enable it, set it to the likelihood matrix path
+
+  # export
+  shape_min_points: 50 # export and bbox extract
+
+  save_da_dir: "" #"/data2/sgslam/output/da"
+# 
+Graph:
+  edge_radius_ratio: 2.0
+  voxel_size: 0.02
+  involve_floor_edge: 1
+  ignore_labels: "ceiling." # Append " floor. carpet." if ignore floors
+
+SGNet:
+  triplet_number: 20
+  instance_match_threshold: 0.05
+  warm_up: 10
+
+ShapeEncoder:
+  init_voxel_size: 0.05
+  init_radius: 0.0625
+  padding: "random"
+  K_shape_samples: 1024
+  K_match_samples: 128
+
+LoopDetector:
+  fuse_shape: 1 # set to 1 if fuse node feature with shape feature
+  lcd_nodes: 3
+  recall_nodes: 2
+
+Registration:
+  noise_bound: 1.0
+
+# output
+save_da_images: 0
+tmp_dir: "/media/lch/SeagateExp/bag/sgslam/output"

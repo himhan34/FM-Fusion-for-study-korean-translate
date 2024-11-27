@@ -283,12 +283,12 @@ std::shared_ptr<cv::Mat> PrjectionCloudToDepth(const open3d::geometry::PointClou
     return depth_out;
 }
 
-bool create_masked_rgbd(
-    const open3d::geometry::Image &rgb, const open3d::geometry::Image &float_depth, const cv::Mat &mask,
-    const int &min_points,
-    std::shared_ptr<open3d::geometry::RGBDImage> &masked_rgbd)
+bool create_masked_rgbd(const open3d::geometry::Image &rgb, 
+                        const open3d::geometry::Image &float_depth, 
+                        const cv::Mat &mask,
+                        const int &min_points,
+                        std::shared_ptr<open3d::geometry::RGBDImage> &masked_rgbd)
 {
-    // auto masked_rgbd = std::make_shared<open3d::geometry::RGBDImage>();
     open3d::geometry::Image masked_depth;
     assert (float_depth.width_ == mask.cols && float_depth.height_ == mask.rows), "depth and mask have different size";
     assert (float_depth.num_of_channels_==1), "depth has more than one channel";

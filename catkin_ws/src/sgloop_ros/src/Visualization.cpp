@@ -16,6 +16,7 @@ namespace Visualization
         src_edges = nh_private.advertise<visualization_msgs::Marker>("edges", 1000);
         src_global_map = nh_private.advertise<sensor_msgs::PointCloud2>("global_map", 1000);
         node_annotation = nh_private.advertise<visualization_msgs::MarkerArray>("node_annotation", 1000);
+        node_dir_lines = nh_private.advertise<visualization_msgs::Marker>("node_dir_lines", 1000);
 
         // Loop
         instance_match = nh_private.advertise<visualization_msgs::Marker>("instance_match", 1000);
@@ -40,7 +41,9 @@ namespace Visualization
         param.centroid_color[0] = nh.param("viz/centroid_color/r", 0.0);
         param.centroid_color[1] = nh.param("viz/centroid_color/g", 0.0);
         param.centroid_color[2] = nh.param("viz/centroid_color/b", 0.0);
+        param.centroid_voffset = nh.param("viz/centroid_v_offset", 0.0);
         param.annotation_size = nh.param("viz/annotation_size", 0.2);
+        param.annotation_voffset = nh.param("viz/annotation_v_offset", 0.3);
 
         // Agents relative transform
         for(auto agent: remote_agents){
@@ -116,7 +119,9 @@ namespace Visualization
                         ros::Publisher pub, 
                         std::string src_frame_id, 
                         std::vector<bool> pred_masks,
-                        Eigen::Matrix4d T_local_remote)
+                        Eigen::Matrix4d T_local_remote,
+                        float line_width,
+                        float alpha)
     {
         if(pub.getNumSubscribers()==0) return false;
         visualization_msgs::Marker marker;
@@ -127,8 +132,8 @@ namespace Visualization
         marker.type = visualization_msgs::Marker::LINE_LIST;
         marker.action = visualization_msgs::Marker::ADD;
         marker.pose.orientation.w = 1.0;
-        marker.scale.x = 0.02; // line width
-        marker.color.a = 1.0;
+        marker.scale.x = line_width; // line width
+        marker.color.a = alpha;
 
         int n = src_centroids.size();
         assert(n==ref_centroids.size());
@@ -167,7 +172,8 @@ namespace Visualization
                             ros::Publisher pub, 
                             std::string frame_id, 
                             float scale,
-                            std::array<float,3> color)
+                            std::array<float,3> color,
+                            float offset_z)
     {
         if(pub.getNumSubscribers()==0) return false;
 
@@ -191,7 +197,7 @@ namespace Visualization
             geometry_msgs::Point p;
             p.x = centroids[i].x();
             p.y = centroids[i].y();
-            p.z = centroids[i].z();
+            p.z = centroids[i].z() + offset_z;
             marker.points.push_back(p);
         }
 
@@ -205,8 +211,8 @@ namespace Visualization
                         std::string frame_id, 
                         float scale,
                         float z_offset,
-                        std::array<float,3> color)
-    {
+                        std::array<float,3> color)    
+{
         if(pub.getNumSubscribers()==0) return false;
         assert(centroids.size()==annotations.size());
         visualization_msgs::MarkerArray marker_array;
@@ -360,19 +366,40 @@ namespace Visualization
                             const Visualization::Visualizer &viz,
                             const std::string &agent_name)
     {
+        std::vector<Eigen::Vector3d> viz_centroids;
+        viz_centroids.reserve(instance_centroids.size());
+        if(viz.param.centroid_voffset>0.1){
+            ROS_WARN("Visualize semantic nodes with a verticle offset %.1fm", viz.param.centroid_voffset);
+            for(const auto&center:instance_centroids){
+                viz_centroids.push_back(Eigen::Vector3d(center.x(),
+                                                        center.y(),
+                                                        viz.param.centroid_voffset));
+            }
+            correspondences(instance_centroids, viz_centroids, 
+                            viz.node_dir_lines, agent_name,
+                            {}, Eigen::Matrix4d::Identity(), 
+                            0.05, 0.5);
+
+        }
+        else{
+            viz_centroids = instance_centroids;
+        }
+
         // Render centroids
-        Visualization::instance_centroids(instance_centroids, 
+        Visualization::instance_centroids(viz_centroids, 
                                         viz.src_centroids, 
                                         agent_name,
                                         viz.param.centroid_size,
                                         viz.param.centroid_color);
-        Visualization::node_annotation(instance_centroids, 
+        Visualization::node_annotation(viz_centroids, //instance_centroids, 
                                         instance_annotations, 
                                         viz.node_annotation, 
                                         agent_name,
                                         viz.param.annotation_size,
                                         viz.param.annotation_voffset,
                                         viz.param.annotation_color);
+
+        
         // Render point cloud
         Visualization::render_point_cloud(cloud, viz.src_graph, agent_name);
 

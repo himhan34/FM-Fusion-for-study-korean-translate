@@ -123,8 +123,10 @@ int main(int argc, char **argv)
                                                             detections);
             tic_toc_seq.toc();
         }
-        if(!loaded) continue;
-
+        if(!loaded) {
+            ROS_WARN("Cannot find detection file at %s",root_dir+'/'+prediction_folder+"/"+frame_name);
+            continue;
+        }
         semantic_mapping->integrate(seq_id,rgbd, pose_table[k], detections);
         tic_toc_seq.toc();
         prev_frame_id = seq_id;

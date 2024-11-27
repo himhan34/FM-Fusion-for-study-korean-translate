@@ -22,6 +22,7 @@ namespace Visualization
         std::array<float,3> edge_color;
         float centroid_size = 0.1;
         std::array<float,3> centroid_color = {0.0,0.0,0.0};
+        float centroid_voffset = 0.0;
         float annotation_size = 0.2;
         float annotation_voffset = 0.3;
         std::array<float,3> annotation_color = {0.0,0.0,0.0};
@@ -43,7 +44,7 @@ namespace Visualization
 
             ros::Publisher rgb_image, pred_image;
             ros::Publisher camera_pose, path;
-            ros::Publisher node_annotation;
+            ros::Publisher node_annotation, node_dir_lines;
 
             ros::Publisher src_map_aligned, path_aligned;
 
@@ -70,14 +71,16 @@ namespace Visualization
                         ros::Publisher pub, 
                         std::string frame_id="world",
                         std::vector<bool> pred_masks={},
-                        Eigen::Matrix4d T_local_remote = Eigen::Matrix4d::Identity());
-                        // Eigen::Vector3d t_local_remote = Eigen::Vector3d(0,0,0));
+                        Eigen::Matrix4d T_local_remote = Eigen::Matrix4d::Identity(),
+                        float line_width=0.02,
+                        float alpha=1.0);
 
     bool instance_centroids(const std::vector<Eigen::Vector3d> &centroids,
                             ros::Publisher pub, 
                             std::string frame_id="world", 
                             float scale=0.1,
-                            std::array<float,3> color={0.0,0.0,1.0});
+                            std::array<float,3> color={0.0,0.0,1.0},
+                            float offset_z=0.0);
     
     bool node_annotation(const std::vector<Eigen::Vector3d> &centroids,
                         const std::vector<std::string> &annotations,

@@ -1,0 +1,39 @@
+<launch>
+  <!-- SET CONFIGURATION HERE -->
+  <!-- <arg name="dataroot" value="/data2/sample_data/sgslam"/> -->
+  <arg name="dataroot" value="/data2/slabim"/>
+  <arg name="sequence_name" default="ab0205_00a"/>
+
+  <!-- global settings  -->
+  <arg name="cfg_file" value="$(find sgloop_ros)/../../../config/slabim.yaml"/>
+  <arg name="verbose_level" value="2"/>
+  <arg name="output_folder" value="$(arg dataroot)/output/online_mapping"/>
+
+  <group ns="viz"> 
+      <param name="edge_width" value="0.03"/>
+      <param name="edge_color/r" value="0.0"/>
+      <param name="edge_color/g" value="1.0"/>
+      <param name="edge_color/b" value="1.0"/>
+      <param name="centroid_size" value="0.38"/>
+      <param name="centroid_color/r" value="0.0"/>
+      <param name="centroid_color/g" value="0.0"/>
+      <param name="centroid_color/b" value="0.0"/>
+      <param name="annotation_size" value="0.5"/>
+  </group>
+
+  <node pkg="sgloop_ros" name="agentA" type="MappingNode" output="screen" clear_params="true">
+    <param name="cfg_file" value="$(arg cfg_file)"/>
+    <param name="output_folder" value="$(arg output_folder)"/>
+    <param name="active_sequence_dir" value="$(arg dataroot)/scans/$(arg sequence_name)"/>
+    <param name="local_agent" value="agentA"/>
+<!-- <param name="association_name" value="data_association.txt"/> -->
+    <param name="association_name" value=""/>
+    <param name="max_frames" value="100"/>
+    <param name="frame_gap" value="1"/>
+    <param name="visualization" value="1"/>
+    <param name="o3d_verbose_level" value="$(arg verbose_level)"/>
+  </node>
+
+  <node pkg="tf" type="static_transform_publisher" name="link_1st_agent" args="0 0 0 0 0 0 1 world agentA 100" />
+
+</launch>

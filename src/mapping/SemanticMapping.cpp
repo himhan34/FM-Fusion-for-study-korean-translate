@@ -47,10 +47,14 @@ void SemanticMapping::integrate(const int &frame_id,
         for (int k_=0;k_<n_det;k_++){
             auto masked_rgbd = std::make_shared<open3d::geometry::RGBDImage>();
             bool valid_detection_depth = utility::create_masked_rgbd(
-                rgbd_image->color_,rgbd_image->depth_,detections[k_]->instances_idxs_,mapping_config.min_det_masks,masked_rgbd);
+                                        rgbd_image->color_,rgbd_image->depth_,
+                                        detections[k_]->instances_idxs_,
+                                        mapping_config.min_det_masks,
+                                        masked_rgbd);
 
             if(!valid_detection_depth){
                 matches(k_) = -1;
+                o3d_utility::LogWarning("Invalid masked detection");
                 continue;
             }
 
@@ -644,11 +648,16 @@ std::shared_ptr<open3d::geometry::PointCloud> SemanticMapping::export_global_pcd
 std::vector<Eigen::Vector3d> SemanticMapping::export_instance_centroids(int earliest_frame_id)const
 {
     std::vector<Eigen::Vector3d> centroids;
+    std::stringstream msg;
     for(const auto &inst:instance_map){
+        int tmp_idx = inst.second->frame_id_;
         if(inst.second->get_cloud_size()>mapping_config.shape_min_points &&
-            inst.second->frame_id_>=earliest_frame_id)
+            tmp_idx>=earliest_frame_id){
             centroids.emplace_back(inst.second->centroid);
+            msg<<inst.second->frame_id_<<",";
+        }
     }
+    o3d_utility::LogInfo("{:d} instance centroids are exported.",centroids.size());
     return centroids;
 }
 
@@ -656,8 +665,9 @@ std::vector<std::string> SemanticMapping::export_instance_annotations(int earlie
 {
     std::vector<std::string> annotations;
     for(const auto &inst:instance_map){
+        int tmp_idx = inst.second->frame_id_;
         if(inst.second->get_cloud_size()>mapping_config.shape_min_points &&
-            inst.second->frame_id_>=earliest_frame_id)
+            tmp_idx>=earliest_frame_id)
             annotations.emplace_back(inst.second->get_predicted_class().first);
     }
     return annotations;
@@ -829,14 +839,15 @@ void SemanticMapping::export_instances(
     msg<<"latest frames: ";
     for(auto &instance:instance_map){
         if(!instance.second->point_cloud) continue;
+        msg<<instance.second->frame_id_<<",";
         if (instance.second->get_cloud_size() >mapping_config.shape_min_points&&
             instance.second->frame_id_>earliest_frame_id){
             names.emplace_back(instance.first);
             instances.emplace_back(instance.second);
-            msg<<instance.second->frame_id_<<",";
         }
     }
-    // std::cout<<msg.str()<<"\n";
+    msg<<"\n";
+    o3d_utility::LogInfo("{:s}",msg.str());
 }
 
 bool SemanticMapping::query_instance_info(const std::vector<InstanceId> &names,
