@@ -334,4 +334,6 @@ UString BertTokenizer::_clean(UString text) {
 }
 
 }  // namespace radish
- 
+
+
+// 이 코드에서 고치고 싶은 거는, 지금은 중국어 토크나이져도 있는데, 중국어 토크나이져 말고, 한국어나 영어로 토크나이져를 하고 싶다. 
